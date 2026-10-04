@@ -89,6 +89,49 @@ test('Host and Origin guards block DNS rebinding and cross-site posts', async ()
   assert.equal(malformed.status, 400);
 });
 
+test('loopback names are accepted on any port; other hosts and origins are not', async () => {
+  const other = s.port === 31999 ? 31998 : s.port + 1;
+  for (const host of [`127.0.0.1:${other}`, `localhost:${other}`, `[::1]:${other}`]) {
+    const r = await api(s.port, 'GET', `/api/s/${s.id}`, { token: s.token, host });
+    assert.equal(r.status, 200, host);
+    assert.equal((await api(s.port, 'GET', `/api/s/${s.id}`, { host })).status, 401, `${host} without a token`);
+  }
+  for (const host of [`evil.example:${s.port}`, `127.0.0.1.evil.example:${s.port}`, `localhost.evil.example:${s.port}`, '127.0.0.1.evil.example', `192.168.1.5:${s.port}`]) {
+    const r = await api(s.port, 'GET', `/api/s/${s.id}`, { token: s.token, host });
+    assert.equal(r.status, 403, host);
+    assert.equal((await api(s.port, 'GET', '/health', { host })).status, 403, `${host} /health`);
+  }
+
+  const send = (origin) => api(s.port, 'POST', `/api/s/${s.id}/send`, { token: s.token, headers: { Origin: origin }, body: { notes: [] } });
+  for (const origin of [`http://127.0.0.1:${other}`, `http://localhost:${other}`, `http://[::1]:${other}`]) {
+    // An empty batch passes the guards and is refused only as a bad request.
+    assert.equal((await send(origin)).status, 400, origin);
+    const noToken = await api(s.port, 'POST', `/api/s/${s.id}/send`, { headers: { Origin: origin }, body: { notes: [ELEMENT_NOTE] } });
+    assert.equal(noToken.status, 401, `${origin} without a token`);
+  }
+  for (const origin of [`http://evil.example:${s.port}`, `http://127.0.0.1.evil.example:${s.port}`, `http://192.168.1.5:${s.port}`]) {
+    assert.equal((await send(origin)).status, 403, origin);
+  }
+
+  const tryWs = (protocols, origin) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${s.port}/api/s/${s.id}/events`, protocols, { headers: { Origin: origin } });
+      ws.on('open', () => {
+        ws.close();
+        resolve('open');
+      });
+      ws.on('unexpected-response', (_req, res) => resolve(res.statusCode));
+      ws.on('error', () => resolve('error'));
+    });
+  const withToken = ['vivamark.v1', `vivamark.token.${s.token}`];
+  assert.equal(await tryWs(withToken, `http://localhost:${other}`), 'open', 'the WebSocket follows the same Origin rule');
+  assert.equal(await tryWs(['vivamark.v1'], `http://localhost:${other}`), 401);
+  assert.equal(await tryWs(withToken, `http://localhost.evil.example:${s.port}`), 403);
+
+  const view = await api(s.port, 'GET', `/api/s/${s.id}`, { token: s.token });
+  assert.equal(view.json.notes.length, 0, 'none of these requests stored a note');
+});
+
 test('the review page and the reviewed page carry their isolation headers', async () => {
   const chrome = await api(s.port, 'GET', `/s/${s.id}`);
   assert.equal(chrome.status, 200);

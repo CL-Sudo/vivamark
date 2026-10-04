@@ -22,7 +22,10 @@ node dist/cli.js open examples/plan.html
 ```
 
 Your browser opens the review page. If it does not, open the URL that the
-command printed. In a second terminal, play the agent:
+command printed. If your browser reaches this machine through a port forwarder
+(VS Code's WSL forwarding, `ssh -L`), keep the path and the `#t=` part of the
+URL and change only the port to the forwarded one. In a second terminal, play
+the agent:
 
 ```sh
 node dist/cli.js wait examples/plan.html

@@ -277,9 +277,9 @@ export class Daemon {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!hostAllowed(req, this.port)) throw new HttpError(403, 'host not allowed');
+    if (!hostAllowed(req)) throw new HttpError(403, 'host not allowed');
     const method = req.method ?? 'GET';
-    if (method !== 'GET' && method !== 'HEAD' && !originAllowed(req, this.port, false)) {
+    if (method !== 'GET' && method !== 'HEAD' && !originAllowed(req, false)) {
       throw new HttpError(403, 'origin not allowed');
     }
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${this.port}`);
@@ -325,7 +325,7 @@ export class Daemon {
       if (sub === '' && method === 'GET') return sendJson(res, 200, this.sessionView(s));
       if (sub === '/feedback' && method === 'GET') return this.feedback(req, res, s, url);
       if (sub === '/send' && method === 'POST') {
-        if (!originAllowed(req, this.port, true)) throw new HttpError(403, 'notes are sent from the review page only');
+        if (!originAllowed(req, true)) throw new HttpError(403, 'notes are sent from the review page only');
         return this.receiveNotes(req, res, s);
       }
       if (sub === '/replies' && method === 'POST') return this.receiveReply(req, res, s);
@@ -565,8 +565,8 @@ export class Daemon {
     };
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${this.port}`);
     const m = /^\/api\/s\/(s_[a-z0-9]+)\/events$/.exec(url.pathname);
-    if (!hostAllowed(req, this.port)) return refuse(403, 'Forbidden');
-    if (!originAllowed(req, this.port, true)) return refuse(403, 'Forbidden');
+    if (!hostAllowed(req)) return refuse(403, 'Forbidden');
+    if (!originAllowed(req, true)) return refuse(403, 'Forbidden');
     const s = m ? this.store.sessions.get(m[1]) : undefined;
     if (!s) return refuse(404, 'Not Found');
     if (!tokensEqual(wsToken(req), s.token)) return refuse(401, 'Unauthorized');

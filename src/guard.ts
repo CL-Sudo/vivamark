@@ -8,26 +8,40 @@ import type { IncomingMessage } from 'node:http';
 /** The only addresses the server ever binds. There is deliberately no way to add to this list. */
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1'] as const;
 
-export function allowedHosts(port: number): Set<string> {
-  return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+/** Hostnames a browser uses for this machine's loopback, as they appear in Host and Origin. */
+const LOOPBACK_NAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * True when `authority` (a Host header, or an Origin without its scheme) names
+ * loopback with an explicit port. Any port is accepted: a port forwarder (VS
+ * Code's WSL forwarding, `ssh -L`) may reach us on a different one, and the
+ * DNS-rebinding defence turns on the hostname alone.
+ */
+export function loopbackAuthority(authority: string): boolean {
+  const m = /^(.+):([0-9]{1,5})$/.exec(authority.toLowerCase());
+  if (!m) return false;
+  const port = Number(m[2]);
+  return port >= 1 && port <= 65535 && LOOPBACK_NAMES.has(m[1]);
 }
 
-/** DNS-rebinding defence: the Host header must name loopback and our port. */
-export function hostAllowed(req: IncomingMessage, port: number): boolean {
+/** DNS-rebinding defence: the Host header must name loopback. */
+export function hostAllowed(req: IncomingMessage): boolean {
   const host = req.headers.host;
-  return typeof host === 'string' && allowedHosts(port).has(host.toLowerCase());
+  return typeof host === 'string' && loopbackAuthority(host);
 }
 
 /**
- * Cross-site defence. A request that carries an Origin must come from our
- * own loopback origin. When `required`, a missing Origin is refused too, which
- * limits the route to the review UI in a browser.
+ * Cross-site defence. A request that carries an Origin must come from a
+ * loopback origin. When `required`, a missing Origin is refused too, which
+ * limits the route to the review UI in a browser. Every API route also needs
+ * the session's token, which only the review page holds (in its URL fragment
+ * and its own origin's sessionStorage), so a page on another loopback port
+ * passes this check but still cannot act.
  */
-export function originAllowed(req: IncomingMessage, port: number, required: boolean): boolean {
+export function originAllowed(req: IncomingMessage, required: boolean): boolean {
   const origin = req.headers.origin;
   if (origin === undefined) return !required;
-  for (const host of allowedHosts(port)) if (origin === `http://${host}`) return true;
-  return false;
+  return origin.startsWith('http://') && loopbackAuthority(origin.slice('http://'.length));
 }
 
 export function tokensEqual(given: string | undefined, expected: string): boolean {

@@ -86,17 +86,48 @@ test('parseDraft accepts the three note kinds and refuses malformed notes', () =
 
 test('request guards: Host allowlist, Origin, tokens, proof', () => {
   const req = (headers) => ({ headers });
-  assert.ok(hostAllowed(req({ host: '127.0.0.1:4000' }), 4000));
-  assert.ok(hostAllowed(req({ host: 'localhost:4000' }), 4000));
-  assert.ok(hostAllowed(req({ host: '[::1]:4000' }), 4000));
-  for (const host of ['evil.example:4000', '127.0.0.1:4001', '127.0.0.1', '192.168.1.5:4000', undefined]) {
-    assert.equal(hostAllowed(req({ host }), 4000), false, String(host));
+  // Loopback names on any port: a port forwarder may reach us on a different one.
+  for (const host of ['127.0.0.1:4000', 'localhost:4000', '[::1]:4000', '127.0.0.1:47471', 'LOCALHOST:1', '[::1]:65535']) {
+    assert.ok(hostAllowed(req({ host })), host);
   }
-  assert.ok(originAllowed(req({}), 4000, false), 'the CLI sends no Origin');
-  assert.equal(originAllowed(req({}), 4000, true), false, 'a browser-only route needs one');
-  assert.ok(originAllowed(req({ origin: 'http://127.0.0.1:4000' }), 4000, true));
-  assert.equal(originAllowed(req({ origin: 'null' }), 4000, false), false, 'the sandboxed page');
-  assert.equal(originAllowed(req({ origin: 'http://evil.example' }), 4000, false), false);
+  for (const host of [
+    'evil.example:4000',
+    '127.0.0.1.evil.example:4000',
+    'localhost.evil.example:4000',
+    '127.0.0.1.evil.example',
+    'evil@127.0.0.1:4000',
+    '192.168.1.5:4000',
+    '10.0.0.2:4000',
+    '[fe80::1]:4000',
+    '0.0.0.0:4000',
+    '127.0.0.1',
+    '127.0.0.1:0',
+    '127.0.0.1:65536',
+    '127.0.0.1:',
+    '::1:4000',
+    '',
+    undefined,
+  ]) {
+    assert.equal(hostAllowed(req({ host })), false, String(host));
+  }
+  assert.ok(originAllowed(req({}), false), 'the CLI sends no Origin');
+  assert.equal(originAllowed(req({}), true), false, 'a browser-only route needs one');
+  for (const origin of ['http://127.0.0.1:4000', 'http://localhost:47471', 'http://[::1]:23456']) {
+    assert.ok(originAllowed(req({ origin }), true), origin);
+  }
+  for (const origin of [
+    'null',
+    'http://evil.example',
+    'http://evil.example:4000',
+    'http://127.0.0.1.evil.example:4000',
+    'http://localhost.evil.example:4000',
+    'http://192.168.1.5:4000',
+    'https://127.0.0.1:4000',
+    'http://127.0.0.1',
+    '127.0.0.1:4000',
+  ]) {
+    assert.equal(originAllowed(req({ origin }), false), false, origin);
+  }
 
   assert.ok(tokensEqual('abc', 'abc'));
   assert.equal(tokensEqual('abd', 'abc'), false);
