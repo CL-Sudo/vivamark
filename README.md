@@ -12,7 +12,8 @@ page updates in place, and the conversation carries on until you approve.
 > Markdown with line ranges, per-note replies with whose turn it is, notes
 > from the agent, and named table cells, controls and chart points. A
 > supervisor can follow reviews with `status`, the event log and a notify
-> hook, and either side can `end` a review. See
+> hook, and either side can `end` a review. `vivamark guide` teaches any
+> agent to write pages worth reviewing. See
 > [`docs/DECISIONS.md`](docs/DECISIONS.md) for what has been decided and
 > [`docs/research/`](docs/research/) for how we got there.
 
@@ -37,8 +38,9 @@ node dist/cli.js wait examples/plan.html
 ```
 
 On the page, select some text, or press **Point** and click an element: a
-paragraph, a table cell (named by its row and column), a button (named by its
-label) or a spot on a chart. Type a note, pick an intent (Change, Question,
+paragraph, a table cell (named by its row and column), one of the options in
+**Decisions for you**, a spot on the chart, or on other pages a button (named
+by its label). Type a note, pick an intent (Change, Question,
 Delete, Looks good) and a severity if you like, and press **Add note**. On a
 queued note, one key does the same: C Q D G for the intent, B I N for the
 severity. Then decide:
@@ -86,6 +88,31 @@ node dist/cli.js open examples/plan.md
 `node dist/cli.js stop` stops the background server.
 
 ![The review page: notes with intents and severities, an approval, and Show changes](docs/screenshots/review-ui.png)
+
+## Writing a page worth reviewing
+
+`vivamark guide` tells an agent how to run a review and how to write the page:
+the loop and how to wait from an agent harness, the Smooth glass look as a
+ready CSS block that fetches nothing, stable ids on everything worth a note
+(so notes survive edits), decisions laid out as options to point at, and a
+playbook each for a plan, a report, a comparison, an explainer and a diff.
+
+```sh
+node dist/cli.js guide            # the topics
+node dist/cli.js guide plan       # one topic
+node dist/cli.js guide ids --json # the same, as data
+```
+
+[`examples/plan.html`](examples/plan.html) follows the `plan` playbook and the
+`design` CSS. A reviewer answers a decision by pointing at an option and
+choosing **Looks good**; clicking a control on the page sends nothing.
+
+For agents that load Agent Skills,
+[`skills/vivamark/SKILL.md`](skills/vivamark/SKILL.md) says what vivamark is
+for and sends the agent to `vivamark guide`. It holds no rules of its own, so
+it cannot drift from the installed CLI. It is generated from the guide's text:
+after changing `src/guide.ts`, run `npm run skill`; a test fails when the
+committed stub is out of date.
 
 ## Ending a review
 
@@ -180,7 +207,8 @@ command that started it), so run `vivamark stop` after changing it.
 
 ## What it will be
 
-- **A CLI any agent can drive**: `vivamark open`, `wait`, `reply`, `status`.
+- **A CLI any agent can drive**: `vivamark open`, `wait`, `reply`, `status`,
+  and `guide` to learn the rest.
   Works with Claude Code, Codex, Copilot CLI, Cursor, or a plain shell; no
   orchestrator required.
 - **Local only.** The review server listens on this machine and nowhere else.
