@@ -32,6 +32,8 @@ function randomPort(): number {
 }
 const MAX_HOLD_MS = 25_000;
 const PRESENCE_GRACE_MS = 4_000;
+/** How long a wait goes on with no review page connected before it returns `disconnected`. */
+export const DISCONNECT_GRACE_MS = 10_000;
 const RELOAD_DEBOUNCE_MS = 150;
 
 const UI_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ui');
@@ -83,15 +85,23 @@ const OWNER = /^[A-Za-z0-9._:-]{1,64}$/;
 
 const SANDBOX = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
 
+/** How a long poll ends: new log entries, the session ended, the review page gone, or nothing (re-poll). */
+type WaitResult = LogEntry[] | 'ended' | 'disconnected' | null;
+
 interface Waiter {
   after: number;
-  done: (entries: LogEntry[] | null) => void;
+  done: (result: WaitResult) => void;
+  disconnectTimer?: NodeJS.Timeout;
 }
 
 interface Live {
   sockets: Set<WebSocket>;
   waiters: Set<Waiter>;
   lastWaiterGone: number;
+  /** Since when no review page has been connected (or since this session was first seen). */
+  noBrowserSince: number;
+  /** Since when the agent has been waiting without a break longer than the presence grace. */
+  listeningSince: number;
   watcher?: fs.FSWatcher;
   reloadTimer?: NodeJS.Timeout;
   presenceTimer?: NodeJS.Timeout;
@@ -177,16 +187,19 @@ export class Daemon {
   private idleMs: number;
   private idleSince = Date.now();
   private timers: NodeJS.Timeout[] = [];
+  private disconnectGraceMs: number;
 
-  constructor(store: Store, idleMs: number) {
+  constructor(store: Store, idleMs: number, opts: { disconnectGraceMs?: number } = {}) {
     this.store = store;
     this.idleMs = idleMs;
+    this.disconnectGraceMs = opts.disconnectGraceMs ?? DISCONNECT_GRACE_MS;
   }
 
   private liveFor(s: Session): Live {
     let l = this.live.get(s.id);
     if (!l) {
-      l = { sockets: new Set(), waiters: new Set(), lastWaiterGone: 0 };
+      const now = Date.now();
+      l = { sockets: new Set(), waiters: new Set(), lastWaiterGone: 0, noBrowserSince: now, listeningSince: now };
       this.live.set(s.id, l);
     }
     return l;
@@ -370,6 +383,9 @@ export class Daemon {
       const sub = m[2] ?? '';
       if (sub === '' && method === 'GET') return sendJson(res, 200, this.sessionView(s));
       if (sub === '/feedback' && method === 'GET') return this.feedback(req, res, s, url);
+      if (sub === '/end' && method === 'POST') return this.receiveEnd(req, res, s);
+      // An ended review takes nothing more from either side.
+      if (method === 'POST' && s.status === 'ended') throw new HttpError(409, 'this review has ended; open the file again to start a new one');
       if (sub === '/send' && method === 'POST') {
         if (!originAllowed(req, true)) throw new HttpError(403, 'notes are sent from the review page only');
         return this.receiveNotes(req, res, s);
@@ -414,6 +430,7 @@ export class Daemon {
       file: s.file,
       name: path.basename(s.file),
       status: s.status,
+      ...(s.ended ? { ended: s.ended } : {}),
       labels: s.labels,
       artifact_url: `/a/${s.id}/${s.artifact_key}/${encodeURIComponent(path.basename(s.file))}`,
       notes: this.noteEntries(s).map((e) => ({ ...e, note: this.noteView(e.note, a, p.status.get(e.note.id)) })),
@@ -704,31 +721,37 @@ export class Daemon {
         orphaned: this.orphaned(s, a).filter((id) => p.status.get(id) !== 'resolved'),
       };
     };
-    const pending = () => ({
+    // Nothing is consumed by any of these: the cursor moves only on an explicit --after.
+    const pending = (status: 'pending' | 'ended' | 'disconnected' = 'pending') => ({
       schema: FEEDBACK_SCHEMA,
       session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
-      status: 'pending',
+      status,
+      ...(status === 'ended' && s.ended ? { ended: s.ended } : {}),
       after,
       last_seq: this.store.lastSeq(s),
     });
 
+    // Feedback already sent is delivered first, even from a review that has since ended.
     const ready = s.log.filter((e) => e.seq > after);
     if (ready.length) return sendJson(res, 200, view(ready));
+    if (s.status === 'ended') return sendJson(res, 200, pending('ended'));
     if (hold === 0) return sendJson(res, 200, pending());
 
     const l = this.liveFor(s);
+    if (!l.waiters.size && Date.now() - l.lastWaiterGone >= PRESENCE_GRACE_MS) l.listeningSince = Date.now();
     await new Promise<void>((resolve) => {
       let finished = false;
       const waiter: Waiter = {
         after,
-        done: (entries) => {
+        done: (result) => {
           if (finished) return;
           finished = true;
           clearTimeout(timer);
+          clearTimeout(waiter.disconnectTimer);
           l.waiters.delete(waiter);
           l.lastWaiterGone = Date.now();
           this.schedulePresence(s);
-          if (!res.writableEnded && !res.destroyed) sendJson(res, 200, entries ? view(entries) : pending());
+          if (!res.writableEnded && !res.destroyed) sendJson(res, 200, Array.isArray(result) ? view(result) : pending(result ?? 'pending'));
           resolve();
         },
       };
@@ -736,7 +759,40 @@ export class Daemon {
       req.on('close', () => waiter.done(null));
       l.waiters.add(waiter);
       this.schedulePresence(s);
+      this.armDisconnect(l);
     });
+  }
+
+  /**
+   * A wait returns `disconnected` once no review page has been connected for
+   * the grace period, counted from when the page went away or the agent began
+   * waiting, whichever is later. A page that comes back in time keeps it waiting.
+   */
+  private armDisconnect(l: Live): void {
+    for (const w of l.waiters) {
+      clearTimeout(w.disconnectTimer);
+      if (l.sockets.size) continue;
+      const left = this.disconnectGraceMs - (Date.now() - Math.max(l.noBrowserSince, l.listeningSince));
+      if (left <= 0) w.done('disconnected');
+      else w.disconnectTimer = setTimeout(() => this.armDisconnect(l), left + 10);
+    }
+  }
+
+  /** Ends the review, by the agent (the CLI) or by the reviewer (the review page). */
+  private async receiveEnd(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
+    const body = (await readBody(req, 16 * 1024)) as { message?: unknown };
+    if (body.message !== undefined && typeof body.message !== 'string') throw new HttpError(400, 'message must be a string');
+    const message = (body.message ?? '').trim();
+    if (message.length > LIMITS.endMessage) throw new HttpError(413, `message is longer than ${LIMITS.endMessage} characters`);
+    // Only the review page sends an Origin; the CLI never does.
+    const by = req.headers.origin !== undefined && originAllowed(req, true) ? 'reviewer' : 'agent';
+    const already = s.status === 'ended';
+    const ended = this.store.endSession(s, by, message || undefined);
+    sendJson(res, 200, { session: s.id, status: s.status, ended, already });
+    if (already) return;
+    this.broadcast(s, { type: 'ended', ended });
+    const l = this.live.get(s.id);
+    if (l) for (const w of [...l.waiters]) w.done('ended');
   }
 
   private async receiveReply(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
@@ -852,9 +908,13 @@ export class Daemon {
       });
       ws.on('close', () => {
         l.sockets.delete(ws);
-        if (!l.sockets.size) this.unwatch(l);
+        if (l.sockets.size) return;
+        this.unwatch(l);
+        l.noBrowserSince = Date.now();
+        this.armDisconnect(l);
       });
       this.watch(s, l);
+      this.armDisconnect(l);
       ws.send(JSON.stringify({ type: 'hello', agent: this.presence(s), version: VERSION }));
     });
   }
@@ -908,7 +968,8 @@ export async function runDaemon(): Promise<void> {
   const envPort = process.env.VIVAMARK_PORT;
   const port = envPort !== undefined && /^\d+$/.test(envPort) && Number(envPort) < 65536 ? Number(envPort) : DEFAULT_PORT;
   const idleMs = Number(process.env.VIVAMARK_IDLE_MS) || 30 * 60_000;
-  const daemon = new Daemon(store, idleMs);
+  const disconnectGraceMs = Number(process.env.VIVAMARK_DISCONNECT_GRACE_MS) || DISCONNECT_GRACE_MS;
+  const daemon = new Daemon(store, idleMs, { disconnectGraceMs });
   await daemon.listen(port);
   daemon.writeServerInfo();
   daemon.startTimers();

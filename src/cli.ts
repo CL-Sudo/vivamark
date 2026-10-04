@@ -9,7 +9,7 @@ import { ApiError, ensureDaemon, request, runningDaemon, stopDaemon } from './cl
 import { FEEDBACK_SCHEMA } from './schema.js';
 import type { Anchor, Decision, Note, NoteKind } from './schema.js';
 import { findSession } from './store.js';
-import type { SessionRecord } from './store.js';
+import type { Ended, SessionRecord } from './store.js';
 import { VERSION } from './version.js';
 
 const EXIT = { ok: 0, error: 1, usage: 2, ended: 3, disconnected: 4, timeout: 5, approved: 6, dismissed: 7 } as const;
@@ -24,7 +24,9 @@ Usage:
                 [-m <text> | --reply-file <file>] [--json]
       Block until the reviewer sends notes or a decision, then print them.
       Nothing is consumed: re-running wait returns the same notes until you
-      pass --after <seq>. -m posts a reply first, then waits.
+      pass --after <seq>. -m posts a reply first, then waits. It also returns
+      when the review ends (exit 3), or when no review page has been open for
+      about 10 seconds (exit 4); notes already sent are delivered first.
   vivamark reply <file|session> (-m <text> | --file <file|->) [--json]
   vivamark reply <file|session> --note <id> --status addressed|declined|question
                 [-m <text>] [--json]
@@ -47,6 +49,11 @@ Usage:
       is, and whether the reviewer's browser and the agent are there. Never
       blocks and never moves a cursor, so a supervisor can poll it without
       taking notes from the agent. Without a file, lists every session.
+  vivamark end <file|session> [-m <text>] [--json]
+      End the review as the agent. The page shows it ended (with the message),
+      sends are refused, and wait returns ended (exit 3). The reviewer can end
+      it too, with End review on the page. A later open of the same file
+      starts a fresh review.
   vivamark stop
       Stop the background review server.
 
@@ -64,6 +71,8 @@ What wait returns (--json; the text form says the same):
 Exit codes for wait:
   0  notes; the reviewer requests changes     6  approved (or approved with notes)
   7  dismissed: the review closed with nothing 5  timeout
+  3  ended: the agent or the reviewer ended the review; nothing more will come
+  4  disconnected: no review page open for the grace period; nothing consumed
   1  error     130/143 interrupted, safe to re-run
 Durations: 90s, 5m, 1h, or milliseconds.
 `;
@@ -179,7 +188,8 @@ interface DeliveredNote extends Note {
 interface FeedbackView {
   schema: string;
   session: { id: string; file: string; status: string; labels: Record<string, string> };
-  status: 'feedback' | 'pending';
+  status: 'feedback' | 'pending' | 'ended' | 'disconnected';
+  ended?: Ended;
   seq?: { from: number; to: number };
   notes?: DeliveredNote[];
   decision?: Decision;
@@ -322,6 +332,25 @@ async function cmdWait(argv: string[]): Promise<void> {
       }
       process.exit(decision === 'dismiss' ? EXIT.dismissed : decision === 'request-changes' ? EXIT.ok : EXIT.approved);
     }
+    if (v.status === 'ended') {
+      const e = v.ended;
+      const next = `the review is over; to start a new one: vivamark open ${quote(s.file)}`;
+      if (values.json) process.stdout.write(JSON.stringify({ ...v, next }) + '\n');
+      else {
+        process.stdout.write(
+          `The review of ${s.file} has ended${e ? ` (by the ${e.by}, ${e.at})` : ''}; nothing more will come (last seq ${v.last_seq}).\n` +
+            (e?.message ? `    > ${e.message.split('\n').join('\n    > ')}\n` : '') +
+            `next: ${next}\n`,
+        );
+      }
+      process.exit(EXIT.ended);
+    }
+    if (v.status === 'disconnected') {
+      const next = `ask the reviewer to open the page again (vivamark open ${quote(s.file)} reopens it), then: vivamark wait ${quote(s.file)}`;
+      if (values.json) process.stdout.write(JSON.stringify({ ...v, next }) + '\n');
+      else process.stdout.write(`No review page is open for ${s.file}, so no notes can come (last seq ${v.last_seq}). Nothing was consumed.\nnext: ${next}\n`);
+      process.exit(EXIT.disconnected);
+    }
     if (Date.now() >= deadline) {
       if (values.json) process.stdout.write(JSON.stringify({ ...v, status: 'timeout' }) + '\n');
       else process.stdout.write(`No notes yet on ${s.file} (timed out; last seq ${v.last_seq}).\n`);
@@ -402,6 +431,29 @@ async function cmdNote(argv: string[]): Promise<void> {
         'The reviewer sees it; it reaches wait only if they endorse it or reply to it.\n',
     );
   }
+}
+
+// ---- end --------------------------------------------------------------------------
+
+async function cmdEnd(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      m: { type: 'string', short: 'm' },
+      json: { type: 'boolean' },
+    },
+  });
+  if (positionals.length !== 1) throw new UsageError('end takes exactly one file or session id');
+  const s = sessionFor(positionals[0]);
+  const info = await ensureDaemon();
+  const r = await request<{ session: string; status: string; ended: Ended; already: boolean }>(info.port, 'POST', `/api/s/${s.id}/end`, {
+    token: s.token,
+    body: values.m !== undefined ? { message: values.m } : {},
+  });
+  if (values.json) process.stdout.write(JSON.stringify({ schema: 'vivamark.end/1', ...r }) + '\n');
+  else if (r.already) process.stdout.write(`The review of ${path.basename(s.file)} had already ended (by the ${r.ended.by}, ${r.ended.at}).\n`);
+  else process.stdout.write(`Ended the review of ${path.basename(s.file)} (session ${s.id}). The page shows it ended; vivamark open starts a new one.\n`);
 }
 
 // ---- status -----------------------------------------------------------------------
@@ -501,6 +553,8 @@ export async function main(argv: string[]): Promise<void> {
         return await cmdNote(rest);
       case 'status':
         return await cmdStatus(rest);
+      case 'end':
+        return await cmdEnd(rest);
       case 'stop':
         return await cmdStop();
       case '__daemon': {

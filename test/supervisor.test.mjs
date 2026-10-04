@@ -1,16 +1,20 @@
-// What a supervisor sees without taking anything from the agent: status.
+// What a supervisor sees without taking anything from the agent (status), how
+// a review ends (end, End review on the page, a page that went away).
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import WebSocket from 'ws';
-import { ELEMENT_NOTE, FIXTURE, TEXT_NOTE, makeWorld, sendNotes } from './helpers/harness.mjs';
+import { ELEMENT_NOTE, FIXTURE, TEXT_NOTE, api, makeWorld, sendNotes, startCli } from './helpers/harness.mjs';
 
+const GRACE_MS = 1500;
 let world;
 
 before(() => {
   world = makeWorld();
+  // A short disconnect grace, so the tests need not sit out the 10 s default.
+  world.env.VIVAMARK_DISCONNECT_GRACE_MS = String(GRACE_MS);
 });
 
 after(async () => {
@@ -34,14 +38,27 @@ async function status(args) {
   return { code: r.code, out: r.stdout ? JSON.parse(r.stdout) : undefined, stderr: r.stderr, ms: Date.now() - started };
 }
 
+/** A stand-in for the review page's live socket; `events` collects what the server pushes. */
 function connectBrowser(s) {
   const ws = new WebSocket(`ws://127.0.0.1:${s.port}/api/s/${s.id}/events`, ['vivamark.v1', `vivamark.token.${s.token}`], {
     headers: { Origin: `http://127.0.0.1:${s.port}` },
   });
+  ws.events = [];
+  ws.on('message', (d) => ws.events.push(JSON.parse(String(d))));
   return new Promise((resolve, reject) => {
     ws.once('open', () => resolve(ws));
     ws.once('error', reject);
   });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Starts a wait and returns once its long poll has reached the server. */
+async function startWait(args) {
+  const w = startCli(['wait', ...args], world.env);
+  for (let i = 0; i < 50 && !w.stderr().includes('Waiting'); i++) await sleep(100);
+  await sleep(200);
+  return w;
 }
 
 test('status reports one session at once, and never moves a cursor', async () => {
@@ -115,4 +132,122 @@ test('status on a session that does not exist exits non-zero and says so', async
   const f = await world.cli(['status', path.join(world.pageDir, 'never-opened.html')]);
   assert.notEqual(f.code, 0);
   assert.match(f.stderr, /no review session/);
+});
+
+// ---- end ----------------------------------------------------------------------------
+
+test('end: the agent ends a review; wait returns ended (3), the page is told, sends are refused', async () => {
+  const s = await openPage('end-agent.html', ['--label', 'task=e1']);
+  const ws = await connectBrowser(s);
+  const waiting = await startWait([s.file, '--json']);
+
+  const r = await world.cli(['end', s.file, '-m', 'Merged, thanks for the review.']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /Ended the review of end-agent\.html/);
+
+  const w = await waiting.done;
+  assert.equal(w.code, 3, w.stderr);
+  const out = JSON.parse(w.stdout);
+  assert.equal(out.status, 'ended');
+  assert.equal(out.session.status, 'ended');
+  assert.equal(out.ended.by, 'agent');
+  assert.equal(out.ended.message, 'Merged, thanks for the review.');
+  assert.match(out.next, /vivamark open/);
+
+  for (let i = 0; i < 30 && !ws.events.some((e) => e.type === 'ended'); i++) await sleep(50);
+  const ev = ws.events.find((e) => e.type === 'ended');
+  assert.ok(ev, `the page was told; got ${JSON.stringify(ws.events)}`);
+  assert.equal(ev.ended.message, 'Merged, thanks for the review.');
+  const view = (await api(s.port, 'GET', `/api/s/${s.id}`, { token: s.token })).json;
+  assert.equal(view.status, 'ended');
+  assert.equal(view.ended.by, 'agent');
+  ws.close();
+
+  const refused = await sendNotes(s, [ELEMENT_NOTE]);
+  assert.equal(refused.status, 409);
+  assert.match(refused.json.error, /ended/);
+  assert.equal((await world.cli(['reply', s.file, '-m', 'one more thing'])).code, 1);
+
+  // wait, again, keeps saying so, by file or by id; and text output says it too.
+  const again = await world.cli(['wait', s.id]);
+  assert.equal(again.code, 3);
+  assert.match(again.stdout, /has ended \(by the agent/);
+  assert.match(again.stdout, /> Merged, thanks for the review\./);
+  assert.equal((await status([s.file])).out.session.status, 'ended');
+  const twice = await world.cli(['end', s.file]);
+  assert.equal(twice.code, 0);
+  assert.match(twice.stdout, /already ended/);
+
+  // A later open starts a fresh review instead of reviving the ended one.
+  const reopened = await world.cli(['open', s.file, '--no-browser', '--json']);
+  assert.equal(reopened.code, 0, reopened.stderr);
+  const fresh = JSON.parse(reopened.stdout);
+  assert.equal(fresh.created, true);
+  assert.notEqual(fresh.session.id, s.id);
+  assert.equal((await status([s.file])).out.session.id, fresh.session.id);
+  assert.equal((await status([s.id])).out.session.status, 'ended');
+  assert.equal((await world.cli(['wait', s.file, '--timeout', '300ms'])).code, 5, 'wait on the file follows the new review');
+  assert.equal((await world.cli(['wait', s.id])).code, 3, 'the old one stays ended');
+});
+
+test('end: the reviewer ends a review from the page; a waiting agent gets ended (3)', async () => {
+  const s = await openPage('end-reviewer.html');
+  const ws = await connectBrowser(s);
+  const waiting = await startWait([s.file, '--json']);
+  const r = await api(s.port, 'POST', `/api/s/${s.id}/end`, { token: s.token, origin: true, body: {} });
+  assert.equal(r.status, 200, r.text);
+  const w = await waiting.done;
+  assert.equal(w.code, 3, w.stderr);
+  assert.equal(JSON.parse(w.stdout).ended.by, 'reviewer');
+  ws.close();
+});
+
+test('end: notes sent before the end are still delivered first', async () => {
+  const s = await openPage('end-after-notes.html');
+  assert.equal((await sendNotes(s, [TEXT_NOTE])).status, 201);
+  assert.equal((await api(s.port, 'POST', `/api/s/${s.id}/end`, { token: s.token, origin: true, body: {} })).status, 200);
+  const first = await world.cli(['wait', s.file, '--json']);
+  assert.equal(first.code, 0, first.stderr);
+  assert.equal(JSON.parse(first.stdout).notes[0].comment, TEXT_NOTE.comment);
+  assert.equal((await world.cli(['wait', s.file, '--after', '1'])).code, 3);
+});
+
+// ---- disconnected -------------------------------------------------------------------
+
+test('disconnected: with no review page open past the grace, wait returns 4 and consumes nothing', async () => {
+  const s = await openPage('gone.html');
+  const started = Date.now();
+  const r = await world.cli(['wait', s.file, '--json']);
+  const took = Date.now() - started;
+  assert.equal(r.code, 4, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.status, 'disconnected');
+  assert.equal(out.session.status, 'open');
+  assert.ok(took >= GRACE_MS - 100 && took < GRACE_MS + 8_000, `returned after ${took} ms`);
+  assert.deepEqual(world.session(s.id).cursors, {}, 'no cursor moved');
+  const text = await world.cli(['wait', s.file]);
+  assert.equal(text.code, 4);
+  assert.match(text.stdout, /No review page is open/);
+
+  // Nothing consumed: notes sent later all arrive.
+  assert.equal((await sendNotes(s, [ELEMENT_NOTE])).status, 201);
+  const w = await world.cli(['wait', s.file, '--json']);
+  assert.equal(w.code, 0);
+  assert.deepEqual(JSON.parse(w.stdout).seq, { from: 1, to: 1 });
+});
+
+test('disconnected: a page that comes back within the grace keeps the agent waiting', async () => {
+  const s = await openPage('flaky.html');
+  let ws = await connectBrowser(s);
+  const waiting = await startWait([s.file, '--json']);
+  ws.close();
+  await sleep(GRACE_MS / 2);
+  ws = await connectBrowser(s);
+  // Well past the grace in total, with the page connected again.
+  await sleep(GRACE_MS * 2);
+  assert.equal(waiting.child.exitCode, null, `still waiting: ${waiting.stderr()}`);
+  assert.equal((await sendNotes(s, [ELEMENT_NOTE])).status, 201);
+  const w = await waiting.done;
+  assert.equal(w.code, 0, w.stderr);
+  ws.close();
 });

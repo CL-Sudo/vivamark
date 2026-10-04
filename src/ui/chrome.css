@@ -165,3 +165,6 @@ textarea:focus { border-color: rgba(14, 165, 233, .5); box-shadow: 0 0 0 4px var
   .body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
   .side { border-left: 0; border-top: 1px solid var(--line); max-height: 50vh; }
 }
+.ended { margin: 0 12px 12px; padding: 12px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--card-line); box-shadow: var(--shadow); color: var(--fg2); }
+.ended-head { font-weight: 600; }
+.ended-message { margin: 6px 0 0; white-space: pre-wrap; }

@@ -74,10 +74,17 @@ interface Changes {
   inserts: { at: number; text: string }[];
   removals: { at: number; text: string }[];
 }
+interface Ended {
+  at: string;
+  by: 'agent' | 'reviewer';
+  message?: string;
+}
 interface SessionView {
   id: string;
   file: string;
   name: string;
+  status: 'open' | 'ended';
+  ended?: Ended;
   artifact_url: string;
   notes: NoteEntry[];
   decisions: DecisionView[];
@@ -122,6 +129,7 @@ const sendBtn = $<HTMLButtonElement>('send');
 const pointBtn = $<HTMLButtonElement>('point');
 const approveBtn = $<HTMLButtonElement>('approve');
 const dismissBtn = $<HTMLButtonElement>('dismiss');
+const endBtn = $<HTMLButtonElement>('end');
 
 let session: SessionView | null = null;
 let sent: NoteEntry[] = [];
@@ -139,6 +147,8 @@ let tags: { intent?: Intent; severity?: Severity } = {};
 let loadNonce = '';
 let lastScroll = { x: 0, y: 0 };
 let sending = false;
+/** Set once the agent or the reviewer ends the review: nothing more can be sent. */
+let ended: Ended | null = null;
 
 function loadQueue(): Draft[] {
   try {
@@ -463,6 +473,7 @@ function render(): void {
   if (atBottom) thread.scrollTop = thread.scrollHeight;
 
   $('note-count').textContent = String(sent.length + queue.length);
+  renderEnded();
   sendBtn.disabled = sending || queue.length === 0;
   sendBtn.textContent = queue.length ? `Send ${queue.length}` : 'Send';
   approveBtn.disabled = sending;
@@ -486,6 +497,21 @@ function render(): void {
   renderTags();
   renderChanges();
   postMarks();
+}
+
+/** An ended review keeps its thread readable and takes nothing more. */
+function renderEnded(): void {
+  const box = $('ended');
+  box.hidden = !ended;
+  $('composer').hidden = !!ended;
+  if (!ended) return;
+  const who = ended.by === 'agent' ? 'The agent' : 'You';
+  $('ended-head').textContent = `${who} ended this review at ${new Date(ended.at).toLocaleTimeString()}`;
+  const msg = $('ended-message');
+  // Agent text, shown as plain text.
+  msg.textContent = ended.message ?? '';
+  msg.hidden = !ended.message;
+  if (pointBtn.getAttribute('aria-pressed') === 'true') setPicking(false);
 }
 
 function renderChanges(): void {
@@ -660,6 +686,22 @@ async function sendDecision(decision: Decision): Promise<void> {
   }
 }
 
+endBtn.addEventListener('click', async () => {
+  if (sending || ended) return;
+  if (!confirm('End this review? The agent is told, and nothing more can be sent on this page.')) return;
+  sending = true;
+  render();
+  try {
+    const res = await api<{ ended: Ended }>('POST', '/end', {});
+    ended = res.ended;
+  } catch (err) {
+    banner(`Could not end the review: ${(err as Error).message}`, true, 5000);
+  } finally {
+    sending = false;
+    render();
+  }
+});
+
 sendBtn.addEventListener('click', () => void sendDecision('request-changes'));
 approveBtn.addEventListener('click', () => void sendDecision(queue.length ? 'approve-with-notes' : 'approve'));
 dismissBtn.addEventListener('click', () => void sendDecision('dismiss'));
@@ -683,7 +725,7 @@ function connect(): void {
     backoff = 500;
   });
   ws.addEventListener('message', (e) => {
-    let ev: { type: string; agent?: 'listening' | 'away'; entries?: NoteEntry[]; reply?: ReplyView };
+    let ev: { type: string; agent?: 'listening' | 'away'; entries?: NoteEntry[]; reply?: ReplyView; ended?: Ended };
     try {
       ev = JSON.parse(String(e.data));
     } catch {
@@ -696,6 +738,9 @@ function connect(): void {
       render();
       // A reply can change a note's status and whose turn it is.
       void refresh();
+    } else if (ev.type === 'ended' && ev.ended) {
+      ended = ev.ended;
+      render();
     } else if (ev.type === 'state') {
       void refresh();
     } else if (ev.type === 'reload') {
@@ -712,7 +757,8 @@ function connect(): void {
     setTimeout(() => {
       void refresh().finally(connect);
     }, backoff);
-    backoff = Math.min(backoff * 2, 10_000);
+    // Under the server's disconnect grace, so a restart does not end an agent's wait.
+    backoff = Math.min(backoff * 2, 5_000);
   });
 }
 
@@ -727,6 +773,7 @@ async function refresh(): Promise<void> {
     changes = s.changes ?? null;
     turn = s.turn ?? 'reviewer';
     agentNotes = s.agent_notes ?? [];
+    ended = s.ended ?? null;
     setPresence(s.agent);
     render();
     postChanges();
@@ -755,6 +802,7 @@ async function start(): Promise<void> {
   changes = session.changes ?? null;
   turn = session.turn ?? 'reviewer';
   agentNotes = session.agent_notes ?? [];
+  ended = session.ended ?? null;
   setPresence(session.agent);
   render();
   loadFrame();

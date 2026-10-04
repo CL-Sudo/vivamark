@@ -368,3 +368,44 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   await page.close();
   assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
 });
+
+test('End review on the page ends the review: the agent is told and the page takes nothing more', { timeout: 60_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'end-review.html');
+  fs.writeFileSync(file, fs.readFileSync(FIXTURE, 'utf8'));
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { page, offLoopback, problems } = await reviewPage(JSON.parse(opened.stdout).url);
+  await page.frameLocator('#page').locator('#step-2').waitFor();
+  assert.equal(await page.isHidden('#ended'), true);
+
+  const waiting = startCli(['wait', file, '--json'], world.env);
+  await page.waitForSelector('#presence[data-state="listening"]', { timeout: 10_000 });
+  const dialogs = [];
+  page.on('dialog', (d) => {
+    dialogs.push(d.message());
+    void d.accept();
+  });
+  await page.click('#end');
+  const w = await waiting.done;
+  assert.equal(w.code, 3, w.stderr);
+  assert.equal(JSON.parse(w.stdout).ended.by, 'reviewer');
+  assert.match(dialogs[0] ?? '', /End this review/);
+  await page.waitForSelector('#ended:not([hidden])');
+  assert.match(await page.textContent('#ended-head'), /You ended this review/);
+  assert.equal(await page.isHidden('#composer'), true, 'nothing more can be written');
+
+  // The agent's own end, with a message, shows the same way on a fresh review.
+  const again = await world.cli(['open', file, '--no-browser', '--json']);
+  const { page: page2 } = await reviewPage(JSON.parse(again.stdout).url);
+  await page2.frameLocator('#page').locator('#step-2').waitFor();
+  assert.equal((await world.cli(['end', file, '-m', 'Shipped; closing this one.'])).code, 0);
+  await page2.waitForSelector('#ended:not([hidden])');
+  assert.match(await page2.textContent('#ended-head'), /The agent ended this review/);
+  assert.equal(await page2.textContent('#ended-message'), 'Shipped; closing this one.');
+
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+  await page2.close();
+});

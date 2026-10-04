@@ -209,6 +209,7 @@ export const LIMITS = {
   notesPerBatch: 200,
   sendBody: 1_000_000,
   reply: 256 * 1024,
+  endMessage: 2_000,
 };
 
 export const NOTE_ID = /^n_\d{4,}$/;

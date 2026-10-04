@@ -28,6 +28,7 @@
     <aside class="side" aria-label="Notes">
       <div class="side-title">Notes <span class="count" id="note-count">0</span></div>
       <div class="thread" id="thread" aria-live="polite"></div>
+      <div class="ended" id="ended" role="status" hidden><div class="ended-head" id="ended-head">This review has ended</div><p class="ended-message" id="ended-message" hidden></p></div>
       <form class="composer" id="composer" autocomplete="off">
         <div class="target" id="target">
           <span class="target-label">On</span>
@@ -56,6 +57,7 @@
         </div>
         <div class="decide">
           <button type="button" class="btn quiet" id="dismiss" title="Close this review without feedback">Dismiss</button>
+          <button type="button" class="btn quiet" id="end" title="End this review for good: nothing more can be sent">End review</button>
           <span class="spacer"></span>
           <button type="button" class="btn ok" id="approve" title="Approve: no further revision needed">Approve</button>
         </div>

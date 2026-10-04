@@ -63,13 +63,22 @@ export interface SessionRecord {
   id: string;
   file: string;
   labels: Record<string, string>;
-  status: 'open';
+  status: 'open' | 'ended';
   token: string;
   /** Unguessable path segment that lets the sandboxed frame load the page and its assets, and nothing else. */
   artifact_key: string;
   created: string;
   /** Read cursors on the feedback log, keyed by owner. */
   cursors: Record<string, number>;
+  /** Set once the session ends; an ended session is never revived. */
+  ended?: Ended;
+}
+
+/** Who ended a review, when, and what they said. */
+export interface Ended {
+  at: string;
+  by: 'agent' | 'reviewer';
+  message?: string;
 }
 
 export interface ServerInfo {
@@ -89,7 +98,10 @@ export function readServerInfo(dir = stateDir()): ServerInfo | null {
   return readJson<ServerInfo>(serverInfoPath(dir));
 }
 
-/** Finds a session by id or by the path of the reviewed file. Used by the CLI. */
+/**
+ * Finds a session by id or by the path of the reviewed file. Used by the CLI.
+ * By path it prefers the open session, else the one that ended last.
+ */
 export function findSession(ref: string, dir = stateDir()): SessionRecord | null {
   const sessionsDir = path.join(dir, 'sessions');
   if (/^s_[a-z0-9]+$/.test(ref)) {
@@ -108,12 +120,15 @@ export function findSession(ref: string, dir = stateDir()): SessionRecord | null
   } catch {
     return null;
   }
+  let found: SessionRecord | null = null;
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const s = readJson<SessionRecord>(path.join(sessionsDir, name));
-    if (s && s.file === canonical) return s;
+    if (!s || s.file !== canonical) continue;
+    if (s.status !== 'ended') return s;
+    if (!found || (s.ended?.at ?? s.created) > (found.ended?.at ?? found.created)) found = s;
   }
-  return null;
+  return found;
 }
 
 function readJsonl<T>(file: string): T[] {
@@ -189,16 +204,27 @@ export class Store {
       artifact_key: s.artifact_key,
       created: s.created,
       cursors: s.cursors,
+      ...(s.ended ? { ended: s.ended } : {}),
     };
     writeJsonAtomic(path.join(this.dir, 'sessions', `${s.id}.json`), rec);
   }
 
+  /** The open session for a file. An ended one is history, not a candidate. */
   byFile(file: string): Session | undefined {
-    for (const s of this.sessions.values()) if (s.file === file) return s;
+    for (const s of this.sessions.values()) if (s.file === file && s.status === 'open') return s;
     return undefined;
   }
 
-  /** Creates a session for a file, or resumes the existing one and merges labels. */
+  /** Ends a session for good: a later open of the same file starts a fresh one. */
+  endSession(s: Session, by: Ended['by'], message?: string): Ended {
+    if (s.ended) return s.ended;
+    s.status = 'ended';
+    s.ended = { at: new Date().toISOString(), by, ...(message ? { message } : {}) };
+    this.saveRecord(s);
+    return s.ended;
+  }
+
+  /** Creates a session for a file, or resumes its open one and merges labels. */
   openSession(file: string, labels: Record<string, string>): { session: Session; created: boolean } {
     const existing = this.byFile(file);
     if (existing) {
