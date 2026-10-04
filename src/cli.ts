@@ -33,6 +33,14 @@ Usage:
       note: addressed, declined, or a question back to the reviewer (needs -m).
       The reviewer's answer arrives as a new note with "answers": <id>. Only the
       reviewer resolves a note.
+  vivamark note add <file|session> --text <text> [--target <target>] [--source <name>] [--json]
+      Show the reviewer a note from the agent or a tool ("I guessed this number"),
+      labelled with --source (default: agent). The target is line:<n> (or <n>),
+      css:<selector> (or a selector starting with # or body), quote:<text>, or
+      any other text on the page; without one the note is on the whole page.
+      It never reaches wait unless the reviewer endorses it or replies to it;
+      then wait shows the reviewer's note with "endorses" or "replies_to" and
+      "agent_note".
   vivamark stop
       Stop the background review server.
 
@@ -206,11 +214,20 @@ function renderFeedback(v: FeedbackView, next: string): string {
   for (const n of notes) {
     const a = n.anchor;
     const nv = n as DeliveredNote & { status?: string; answers?: string; target_changed?: boolean };
-    const tags = [n.intent, n.severity, nv.status && nv.status !== 'open' ? nv.status : '', nv.answers ? `answers ${nv.answers}` : '', nv.target_changed ? 'target changed' : '']
+    const tags = [
+      n.intent,
+      n.severity,
+      nv.status && nv.status !== 'open' ? nv.status : '',
+      nv.answers ? `answers ${nv.answers}` : '',
+      n.endorses ? `endorses ${n.endorses}` : '',
+      n.replies_to ? `replies to ${n.replies_to}` : '',
+      nv.target_changed ? 'target changed' : '',
+    ]
       .filter(Boolean)
       .join(', ');
     lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${describeLines(a)}`);
     for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
+    if (n.agent_note && n.replies_to) lines.push(`    in reply to ${n.agent_note.source} (${n.agent_note.id}): "${n.agent_note.comment}"`);
     if (a) {
       const st = a as Anchor & { state?: string; current?: { selector: string; source_line: number | null } };
       if (st.state === 'orphaned') lines.push('    target: gone from the file (orphaned); the note is kept, not re-pinned');
@@ -336,6 +353,42 @@ async function cmdReply(argv: string[]): Promise<void> {
   else process.stdout.write(`Reply ${r.seq} delivered to the review page for ${path.basename(s.file)}.\n`);
 }
 
+// ---- note add ---------------------------------------------------------------------
+
+interface AddedNote {
+  note: { id: string; kind: NoteKind; comment: string; anchor: Anchor | null; source: string; at: string };
+}
+
+async function cmdNote(argv: string[]): Promise<void> {
+  const [sub, ...rest] = argv;
+  if (sub !== 'add') throw new UsageError('note wants a subcommand: vivamark note add <file> --target <t> --text <text>');
+  const { values, positionals } = parseArgs({
+    args: rest,
+    allowPositionals: true,
+    options: {
+      target: { type: 'string' },
+      text: { type: 'string' },
+      source: { type: 'string' },
+      json: { type: 'boolean' },
+    },
+  });
+  if (positionals.length !== 1) throw new UsageError('note add takes exactly one file or session id');
+  if (!values.text || !values.text.trim()) throw new UsageError('note add needs --text <text>');
+  const s = sessionFor(positionals[0]);
+  const info = await ensureDaemon();
+  const body = { text: values.text, ...(values.target !== undefined ? { target: values.target } : {}), ...(values.source !== undefined ? { source: values.source } : {}) };
+  const r = await request<AddedNote>(info.port, 'POST', `/api/s/${s.id}/agent-notes`, { token: s.token, body });
+  const n = r.note;
+  if (values.json) {
+    process.stdout.write(JSON.stringify({ schema: 'vivamark.note/1', session: s.id, note: n }) + '\n');
+  } else {
+    process.stdout.write(
+      `Added ${n.id} from ${n.source} on ${describeTarget(n.kind, n.anchor)}${describeLines(n.anchor)} to the review page for ${path.basename(s.file)}.\n` +
+        'The reviewer sees it; it reaches wait only if they endorse it or reply to it.\n',
+    );
+  }
+}
+
 // ---- stop -------------------------------------------------------------------------
 
 async function cmdStop(): Promise<void> {
@@ -368,6 +421,8 @@ export async function main(argv: string[]): Promise<void> {
         return await cmdWait(rest);
       case 'reply':
         return await cmdReply(rest);
+      case 'note':
+        return await cmdNote(rest);
       case 'stop':
         return await cmdStop();
       case '__daemon': {

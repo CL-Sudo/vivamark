@@ -14,11 +14,11 @@ import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensE
 import { createHash } from 'node:crypto';
 import { diffText } from './diff.js';
 import type { TextChanges } from './diff.js';
-import { docKind, findQuote, loadDoc, locate, placeAnchor, squash, textOf } from './doc.js';
+import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, squash, textOf } from './doc.js';
 import type { AnchorState, Doc, Place } from './doc.js';
 import { injectScript } from './html.js';
-import { AGENT_STATUSES, DECISIONS, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
-import type { AgentStatus, Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
+import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
+import type { AgentNote, AgentStatus, Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
@@ -363,6 +363,7 @@ export class Daemon {
         return this.receiveNotes(req, res, s);
       }
       if (sub === '/replies' && method === 'POST') return this.receiveReply(req, res, s);
+      if (sub === '/agent-notes' && method === 'POST') return this.receiveAgentNote(req, res, s);
       if (sub === '/resolve' && method === 'POST') {
         // Only the reviewer resolves a note (F6): from the review page, never the CLI.
         if (!originAllowed(req, true)) throw new HttpError(403, 'only the reviewer resolves a note, from the review page');
@@ -407,6 +408,7 @@ export class Daemon {
       turn: p.turn,
       decisions: this.decisions(s),
       changes: a.changes,
+      agent_notes: this.agentNotesView(s, a),
       replies: s.replies.map((r) => this.replyView(r)),
       agent: this.presence(s),
     };
@@ -529,11 +531,16 @@ export class Daemon {
     } catch {
       // The file is gone: so is every target on it.
     }
-    const key = `${source === null ? 'gone' : createHash('sha256').update(source).digest('hex')}:${s.log.length}`;
+    const key = `${source === null ? 'gone' : createHash('sha256').update(source).digest('hex')}:${s.log.length}:${s.annotations.length}`;
     const cached = this.analyses.get(s.id);
     if (cached?.key === key) return cached;
     const doc: Doc | null = source === null ? null : loadDoc(docKind(s.file) ?? 'html', source, path.basename(s.file));
     const notes = new Map<string, NoteState>();
+    for (const n of this.store.agentNotes(s)) {
+      if (!n.anchor) continue;
+      const found = doc ? locate(doc, n.anchor) : null;
+      notes.set(n.id, { state: found?.state ?? 'orphaned', current: found?.place ?? null });
+    }
     for (const e of this.noteEntries(s)) {
       const anchor = e.note.anchor;
       if (!anchor) continue;
@@ -567,14 +574,23 @@ export class Daemon {
   }
 
   /** A note as readers see it: the logged note, plus where its target is now. */
-  private noteView(n: Note, a: Analysis, status?: NoteStatus): Note & { status?: NoteStatus } {
-    const tail = status ? { status } : {};
+  private noteView<N extends Note | AgentNote>(n: N, a: Analysis, status?: string): N & { status?: string } {
+    const tail: { status?: string } = status ? { status } : {};
     const st = n.anchor ? a.notes.get(n.id) : undefined;
     if (!n.anchor || !st) return { ...n, ...tail };
     const anchor: Anchor & { state: AnchorState; current?: Place } = { ...n.anchor, state: st.state };
     const stale = st.current && (st.state === 'moved' || JSON.stringify(st.current.lines) !== JSON.stringify(n.anchor.lines ?? null));
     if (st.current && stale) anchor.current = st.current;
-    return { ...n, anchor, ...(st.changed !== undefined ? { target_changed: st.changed } : {}), ...tail };
+    return { ...n, anchor, ...(st.changed !== undefined ? { target_changed: st.changed } : {}), ...tail } as N & { status?: string };
+  }
+
+  /** Agent notes for the review page, each with what the reviewer has done with it (F7). */
+  private agentNotesView(s: Session, a: Analysis) {
+    const notes = this.noteEntries(s);
+    return this.store.agentNotes(s).map((n) => {
+      const status = notes.some((e) => e.note.endorses === n.id) ? 'endorsed' : notes.some((e) => e.note.replies_to === n.id) ? 'replied' : 'shown';
+      return this.noteView(n, a, status);
+    });
   }
 
   private orphaned(s: Session, a: Analysis): string[] {
@@ -603,16 +619,19 @@ export class Daemon {
     if (!(DECISION_SET as Set<string>).has(decision)) throw new HttpError(400, decision);
     const drafts: DraftNote[] = [];
     const known = new Set(this.noteEntries(s).map((e) => e.note.id));
+    const agentNotes = new Map(this.store.agentNotes(s).map((n) => [n.id, n]));
     for (const n of notes) {
       const d = parseDraft(n);
       if (typeof d === 'string') throw new HttpError(400, d);
       if (d.answers && !known.has(d.answers)) throw new HttpError(400, `note.answers: no note ${d.answers} in this review`);
+      const link = d.endorses ?? d.replies_to;
+      if (link && !agentNotes.has(link)) throw new HttpError(400, `no agent note ${link} in this review`);
       drafts.push(d);
     }
     const doc = this.readDoc(s);
     // F2: keep the file as the reviewer saw it, for "what changed since I last sent".
     const snapshot = doc ? this.store.saveSnapshot(s, doc.source) : undefined;
-    const entries = this.store.appendBatch(s, drafts, decision as Decision, snapshot, (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null));
+    const entries = this.store.appendBatch(s, drafts, decision as Decision, snapshot, (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null), (id) => agentNotes.get(id));
     sendJson(res, 201, { seq: { from: entries[0].seq, to: entries[entries.length - 1].seq }, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
     const l = this.liveFor(s);
@@ -706,6 +725,35 @@ export class Daemon {
     const reply = this.store.appendReply(s, text, about);
     sendJson(res, 201, { schema: REPLY_SCHEMA, session: s.id, seq: reply.seq, at: reply.at, ...(about ?? {}) });
     this.broadcast(s, { type: 'reply', reply: this.replyView(reply) });
+  }
+
+  /**
+   * A note from the agent or a tool (F7). It is shown on the review page and
+   * kept apart from the feedback log, so it can never wake or reach wait.
+   */
+  private async receiveAgentNote(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
+    const body = (await readBody(req, 64 * 1024)) as { target?: unknown; text?: unknown; source?: unknown };
+    if (typeof body.text !== 'string' || !body.text.trim()) throw new HttpError(400, 'text is required');
+    if (body.text.length > LIMITS.comment) throw new HttpError(413, `text is longer than ${LIMITS.comment} characters`);
+    const source = body.source === undefined ? 'agent' : body.source;
+    if (typeof source !== 'string' || !SOURCE_NAME.test(source) || source.toLowerCase() === 'reviewer') {
+      throw new HttpError(400, 'source must be a short name (letters, digits, . _ - and spaces), and not "reviewer"');
+    }
+    let kind: AgentNote['kind'] = 'page';
+    let anchor: Anchor | null = null;
+    if (body.target !== undefined) {
+      if (typeof body.target !== 'string' || !body.target.trim() || body.target.length > LIMITS.quote) throw new HttpError(400, 'target must be a selector, quote or line');
+      const doc = this.readDoc(s);
+      if (!doc) throw new HttpError(409, 'the reviewed file is missing');
+      const t = namedTarget(doc, body.target);
+      if (typeof t === 'string') throw new HttpError(400, t);
+      const place = placeAnchor(doc, t.anchor);
+      kind = t.kind;
+      anchor = { ...t.anchor, source_line: place?.source_line ?? null, lines: place?.lines ?? null };
+    }
+    const note = this.store.appendAgentNote(s, { kind, comment: body.text.trim(), anchor, source });
+    sendJson(res, 201, { note });
+    this.broadcast(s, { type: 'state' });
   }
 
   private async receiveResolve(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {

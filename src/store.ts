@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MOTIVATION } from './schema.js';
-import type { AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
+import type { AgentNote, AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
 
 export function stateDir(): string {
   const explicit = process.env.VIVAMARK_STATE_DIR;
@@ -243,11 +243,16 @@ export class Store {
     decision: Decision,
     snapshot: string | undefined,
     place: (d: DraftNote) => { source_line: number | null; lines: [number, number] | null } | null,
+    agentNote: (id: string) => AgentNote | undefined = () => undefined,
   ): LogEntry[] {
     const at = new Date().toISOString();
     const batch = randomId('b_');
     let seq = this.lastSeq(s);
     let noteCount = s.log.filter((e) => e.type === 'note').length;
+    const linked = (id: string | undefined) => {
+      const a = id ? agentNote(id) : undefined;
+      return a ? { agent_note: { id: a.id, source: a.source, comment: a.comment } } : {};
+    };
     const placed = (d: DraftNote) => {
       const p = place(d);
       return { source_line: p?.source_line ?? null, lines: p?.lines ?? null };
@@ -262,6 +267,9 @@ export class Store {
         ...(d.intent ? { intent: d.intent } : {}),
         ...(d.severity ? { severity: d.severity } : {}),
         ...(d.answers ? { answers: d.answers } : {}),
+        ...(d.endorses ? { endorses: d.endorses } : {}),
+        ...(d.replies_to ? { replies_to: d.replies_to } : {}),
+        ...linked(d.endorses ?? d.replies_to),
         motivation: d.intent ? MOTIVATION[d.intent] : 'commenting',
         anchor: d.anchor ? { ...d.anchor, ...placed(d) } : null,
         source: 'reviewer',
@@ -310,6 +318,18 @@ export class Store {
     fs.appendFileSync(this.repliesPath(s.id), JSON.stringify(reply) + '\n', { mode: 0o600 });
     s.replies.push(reply);
     return reply;
+  }
+
+  agentNotes(s: Session): AgentNote[] {
+    return s.annotations.filter((a) => a.type === 'agent-note').map((a) => a.note);
+  }
+
+  /** Adds a note from the agent or a tool (F7), numbered a_0001 on. */
+  appendAgentNote(s: Session, note: Omit<AgentNote, 'id' | 'at'>): AgentNote {
+    const at = new Date().toISOString();
+    const full: AgentNote = { id: `a_${String(this.agentNotes(s).length + 1).padStart(4, '0')}`, ...note, at };
+    this.appendAnnotation(s, { type: 'agent-note', at, note: full });
+    return full;
   }
 
   appendAnnotation(s: Session, entry: AnnotationEntry): void {

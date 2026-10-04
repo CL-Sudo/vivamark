@@ -22,7 +22,8 @@
     control?: { role: string; name: string };
     point?: { x: number; y: number; width: number; height: number };
   };
-  type Mark = { n: number; kind: 'element' | 'text' | 'page'; anchor: Anchor | null; queued: boolean };
+  /** A note to draw. `agent` marks a note from the agent or a tool (F7), drawn in its own colour. */
+  type Mark = { n: number | string; kind: 'element' | 'text' | 'page'; anchor: Anchor | null; queued: boolean; agent?: boolean };
 
   const post = (msg: Record<string, unknown>) => window.parent.postMessage({ vivamark: 1, load, ...msg }, parentOrigin);
 
@@ -291,13 +292,17 @@
     return d;
   }
 
-  function badge(n: number, x: number, y: number, queued: boolean): HTMLElement {
+  function badge(n: number | string, x: number, y: number, queued: boolean, agent = false): HTMLElement {
     const b = document.createElement('div');
     b.textContent = String(n);
     b.style.cssText =
       `position:absolute;left:${x + scrollX}px;top:${y + scrollY}px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;` +
       `border-radius:999px;font:600 12px/22px Inter,ui-sans-serif,system-ui,sans-serif;text-align:center;` +
-      (queued ? 'background:#fff;color:#0369a1;border:1.5px solid #0ea5e9;line-height:19px;' : 'background:#0ea5e9;color:#fff;') +
+      (agent
+        ? 'background:#f5f3ff;color:#6d28d9;border:1.5px solid #8b5cf6;line-height:19px;'
+        : queued
+          ? 'background:#fff;color:#0369a1;border:1.5px solid #0ea5e9;line-height:19px;'
+          : 'background:#0ea5e9;color:#fff;') +
       'box-shadow:0 2px 8px rgba(14,60,120,.18);';
     return b;
   }
@@ -355,20 +360,21 @@
     drawChanges(l);
     for (const m of marks) {
       if (!m.anchor) continue;
-      const accent = m.queued ? 'rgba(14,165,233,.55)' : '#0ea5e9';
+      const accent = m.agent ? 'rgba(139,92,246,.7)' : m.queued ? 'rgba(14,165,233,.55)' : '#0ea5e9';
+      const line = m.agent ? 'dotted' : m.queued ? 'dashed' : 'solid';
       if (m.kind === 'element') {
         const el = resolveElement(m.anchor);
         if (!el) continue;
         const r = el.getBoundingClientRect();
-        l.appendChild(box(r, `outline:2px ${m.queued ? 'dashed' : 'solid'} ${accent};outline-offset:2px;border-radius:8px;background:rgba(14,165,233,.06);`));
-        l.appendChild(badge(m.n, r.right + 8, r.top + r.height / 2 - 11, m.queued));
+        l.appendChild(box(r, `outline:2px ${line} ${accent};outline-offset:2px;border-radius:8px;background:${m.agent ? 'rgba(139,92,246,.05)' : 'rgba(14,165,233,.06)'};`));
+        l.appendChild(badge(m.n, r.right + 8, r.top + r.height / 2 - 11, m.queued, m.agent));
       } else if (m.kind === 'text') {
         const range = resolveText(m.anchor);
         if (!range) continue;
         const rects = [...range.getClientRects()];
-        for (const r of rects) l.appendChild(box(r, 'background:rgba(250,204,21,.35);border-radius:3px;'));
+        for (const r of rects) l.appendChild(box(r, m.agent ? 'background:rgba(139,92,246,.16);border-radius:3px;' : 'background:rgba(250,204,21,.35);border-radius:3px;'));
         const last = rects[rects.length - 1];
-        if (last) l.appendChild(badge(m.n, last.right + 6, last.top + last.height / 2 - 11, m.queued));
+        if (last) l.appendChild(badge(m.n, last.right + 6, last.top + last.height / 2 - 11, m.queued, m.agent));
       }
     }
     if (picking && hoverEl) {

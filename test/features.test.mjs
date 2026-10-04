@@ -407,3 +407,109 @@ test('F6: per-note status from the agent, answers from the reviewer, and whose t
   assert.equal((await world.cli(['reply', s.file, '--note', 'n_0001', '--status', 'question'])).code, 2, 'a question needs its text');
   assert.equal((await send(s, [{ ...answer, answers: 'n_0077' }])).status, 400, 'answers must name a note of this review');
 });
+
+// ---- F7 ---------------------------------------------------------------------------
+
+test('F7: agent notes are shown with their source and never reach wait on their own', async () => {
+  const s = await openPage('f7.html');
+  const html = fs.readFileSync(s.file, 'utf8');
+  const lineOf = (needle) => html.slice(0, html.indexOf(needle)).split('\n').length;
+
+  // An agent waits; adding notes must not wake it.
+  const waiting = startCli(['wait', s.file, '--json', '--timeout', '4s'], world.env);
+  for (let i = 0; i < 50 && !waiting.stderr().includes('Waiting'); i++) await new Promise((r) => setTimeout(r, 100));
+
+  const byLine = await world.cli(['note', 'add', s.file, '--target', `line:${lineOf('id="step-3"')}`, '--text', 'I guessed the rollback order.', '--json']);
+  assert.equal(byLine.code, 0, byLine.stderr);
+  const a1 = JSON.parse(byLine.stdout).note;
+  assert.equal(a1.id, 'a_0001');
+  assert.equal(a1.source, 'agent');
+  assert.equal(a1.kind, 'element');
+  assert.equal(a1.anchor.stable_id, 'step-3');
+  assert.equal(a1.anchor.source_line, lineOf('id="step-3"'));
+
+  const bySelector = await world.cli(['note', 'add', s.file, '--target', '#rollout > tbody:nth-of-type(1) > tr:nth-of-type(2)', '--text', 'Payments team not confirmed.', '--source', 'lint']);
+  assert.equal(bySelector.code, 0, bySelector.stderr);
+  assert.match(bySelector.stdout, /Added a_0002 from lint on <tr>/);
+  assert.match(bySelector.stdout, /only if they endorse it or reply to it/);
+  const byQuote = await world.cli(['note', 'add', s.file, '--target', 'enrols their own certificate', '--text', 'Is self-enrolment allowed by policy?', '--json']);
+  assert.equal(byQuote.code, 0, byQuote.stderr);
+  const a3 = JSON.parse(byQuote.stdout).note;
+  assert.equal(a3.kind, 'text');
+  assert.equal(a3.anchor.stable_id, 'summary');
+  assert.equal(a3.anchor.quote, 'enrols their own certificate');
+  assert.equal(a3.anchor.prefix, 'A Setup screen where a Director or Attestor '.slice(-32), 'context as the review page records it');
+  assert.equal(a3.anchor.suffix, '. Nothing is written to the data');
+  const onPage = await world.cli(['note', 'add', s.file, '--text', 'Numbers are from last week.', '--json']);
+  assert.equal(JSON.parse(onPage.stdout).note.kind, 'page');
+
+  const w = await waiting.done;
+  assert.equal(w.code, 5, `agent notes do not wake wait: ${w.stdout}`);
+  assert.equal((await world.cli(['wait', s.file, '--timeout', '500ms'])).code, 5);
+
+  for (const [args, re] of [
+    [['--target', 'no such words anywhere', '--text', 'x'], /no text "no such words anywhere"/],
+    [['--target', '#missing', '--text', 'x'], /no element matches #missing/],
+    [['--target', 'line:9999', '--text', 'x'], /line 9999/],
+    [['--text', 'x', '--source', 'reviewer'], /not "reviewer"/],
+  ]) {
+    const r = await world.cli(['note', 'add', s.file, ...args]);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.stderr, re);
+  }
+  assert.equal((await world.cli(['note', 'add', s.file])).code, 2, '--text is required');
+
+  const v = await view(s);
+  assert.deepEqual(v.agent_notes.map((n) => [n.id, n.source, n.status]), [
+    ['a_0001', 'agent', 'shown'],
+    ['a_0002', 'lint', 'shown'],
+    ['a_0003', 'agent', 'shown'],
+    ['a_0004', 'agent', 'shown'],
+  ]);
+  assert.equal(v.agent_notes[0].anchor.state, 'anchored');
+  assert.equal(v.notes.length, 0, 'nothing in the feedback log');
+});
+
+test('F7: an agent note reaches wait when the reviewer endorses it or replies to it', async () => {
+  const s = await openPage('f7-act.html');
+  const add = async (target, text, source) =>
+    JSON.parse((await world.cli(['note', 'add', s.file, '--target', target, '--text', text, '--json', ...(source ? ['--source', source] : [])])).stdout).note;
+  const a1 = await add('#step-2', 'This step is the riskiest.');
+  const a2 = await add('Nothing is written to the database', 'Verified by reading the save handler.', 'reader');
+
+  const endorse = { kind: a1.kind, comment: a1.comment, endorses: a1.id, anchor: { stable_id: a1.anchor.stable_id, selector: a1.anchor.selector, tag: a1.anchor.tag, text: a1.anchor.text } };
+  const reply = {
+    kind: a2.kind,
+    comment: 'Please show me where.',
+    replies_to: a2.id,
+    anchor: { stable_id: a2.anchor.stable_id, selector: a2.anchor.selector, quote: a2.anchor.quote, prefix: a2.anchor.prefix, suffix: a2.anchor.suffix },
+  };
+  assert.equal((await send(s, [endorse, reply])).status, 201);
+  const w = await waitJson(s);
+  assert.equal(w.code, 0);
+  const [e, r] = w.out.notes;
+  assert.equal(e.source, 'reviewer');
+  assert.equal(e.endorses, 'a_0001');
+  assert.deepEqual(e.agent_note, { id: 'a_0001', source: 'agent', comment: 'This step is the riskiest.' });
+  assert.equal(r.replies_to, 'a_0002');
+  assert.deepEqual(r.agent_note, { id: 'a_0002', source: 'reader', comment: 'Verified by reading the save handler.' });
+  const text = await world.cli(['wait', s.file]);
+  assert.match(text.stdout, /endorses a_0001/);
+  assert.match(text.stdout, /in reply to reader \(a_0002\): "Verified by reading the save handler\."/);
+
+  const v = await view(s);
+  assert.deepEqual(v.agent_notes.map((n) => n.status), ['endorsed', 'replied']);
+  for (const bad of [{ ...endorse, endorses: 'a_0099' }, { ...endorse, endorses: 'n_0001' }, { ...endorse, replies_to: 'a_0002' }]) {
+    assert.equal((await send(s, [bad])).status, 400, JSON.stringify(bad).slice(0, 80));
+  }
+});
+
+test('F7: a line target in Markdown names the block on that line', async () => {
+  const s = await openPage('f7.md', PLAN_MD);
+  const r = await world.cli(['note', 'add', s.file, '--target', '7', '--text', 'Split the save handler out.', '--json']);
+  assert.equal(r.code, 0, r.stderr);
+  const n = JSON.parse(r.stdout).note;
+  assert.equal(n.anchor.tag, 'li');
+  assert.equal(n.anchor.selector, 'body > ul:nth-of-type(1) > li:nth-of-type(2)');
+  assert.deepEqual(n.anchor.lines, [7, 7]);
+});

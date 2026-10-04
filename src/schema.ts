@@ -69,6 +69,11 @@ export interface Note {
   anchor: Anchor | null;
   /** F6: the reviewer's answer to the agent's question on this note. */
   answers?: string;
+  /** F7: the reviewer endorses, or replies to, a note from the agent or a tool. */
+  endorses?: string;
+  replies_to?: string;
+  /** F7: the agent's note acted on, so the reader needs nothing else. */
+  agent_note?: { id: string; source: string; comment: string };
   /** F2, derived when read: the target's text changed since the note was sent. */
   target_changed?: boolean;
   /** Who made the note. Only `reviewer` notes exist today. */
@@ -156,7 +161,31 @@ export interface ResolveEntry {
   resolved: boolean;
 }
 
-export type AnnotationEntry = ResolveEntry;
+/**
+ * F7: a note added by the agent or a tool, shown to the reviewer labelled with
+ * its source. It never reaches wait: only a reviewer note that endorses or
+ * replies to it does.
+ */
+export interface AgentNote {
+  id: string;
+  kind: NoteKind;
+  comment: string;
+  anchor: Anchor | null;
+  /** Who added it: `agent` unless --source names a tool. Never `reviewer`. */
+  source: string;
+  at: string;
+}
+
+export interface AgentNoteEntry {
+  type: 'agent-note';
+  at: string;
+  note: AgentNote;
+}
+
+export type AnnotationEntry = ResolveEntry | AgentNoteEntry;
+
+export const AGENT_NOTE_ID = /^a_\d{4,}$/;
+export const SOURCE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,39}$/;
 
 /** What the review UI posts for each queued note. The server assigns ids, times and source lines. */
 export interface DraftNote {
@@ -165,6 +194,8 @@ export interface DraftNote {
   intent?: Intent;
   severity?: Severity;
   answers?: string;
+  endorses?: string;
+  replies_to?: string;
   anchor: Omit<Anchor, 'source_line' | 'lines'> | null;
 }
 
@@ -230,7 +261,7 @@ export function parseDraft(input: unknown): DraftNote | string {
   const comment = typeof x.comment === 'string' ? x.comment.trim() : '';
   if (!comment) return 'note.comment is required';
   if (comment.length > LIMITS.comment) return `note.comment is longer than ${LIMITS.comment} characters`;
-  const tags: Pick<DraftNote, 'intent' | 'severity' | 'answers'> = {};
+  const tags: Pick<DraftNote, 'intent' | 'severity' | 'answers' | 'endorses' | 'replies_to'> = {};
   if (x.intent !== undefined && x.intent !== null) {
     if (!(INTENTS as readonly unknown[]).includes(x.intent)) return `note.intent must be one of ${INTENTS.join(', ')}`;
     tags.intent = x.intent as Intent;
@@ -243,6 +274,13 @@ export function parseDraft(input: unknown): DraftNote | string {
     if (typeof x.answers !== 'string' || !NOTE_ID.test(x.answers)) return 'note.answers must be a note id';
     tags.answers = x.answers;
   }
+  for (const link of ['endorses', 'replies_to'] as const) {
+    const v = x[link];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string' || !AGENT_NOTE_ID.test(v)) return `note.${link} must be an agent note id`;
+    tags[link] = v;
+  }
+  if (tags.endorses && tags.replies_to) return 'a note endorses or replies to an agent note, not both';
   if (kind === 'page') return { kind, comment, ...tags, anchor: null };
 
   const a = x.anchor;

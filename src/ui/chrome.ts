@@ -28,6 +28,8 @@ interface Draft {
   intent?: Intent;
   severity?: Severity;
   answers?: string;
+  endorses?: string;
+  replies_to?: string;
   anchor: Anchor | null;
 }
 type NoteStatus = 'open' | 'addressed' | 'declined' | 'question' | 'answered' | 'resolved';
@@ -48,6 +50,16 @@ interface DecisionView {
   seq: number;
   at: string;
   decision: Decision;
+}
+/** F7: a note from the agent or a tool, shown until the reviewer acts on it. */
+interface AgentNoteView {
+  id: string;
+  kind: Kind;
+  comment: string;
+  anchor: Anchor | null;
+  source: string;
+  at: string;
+  status: 'shown' | 'endorsed' | 'replied';
 }
 interface ReplyView {
   seq: number;
@@ -71,6 +83,7 @@ interface SessionView {
   decisions: DecisionView[];
   changes: Changes | null;
   turn: 'agent' | 'reviewer';
+  agent_notes: AgentNoteView[];
   replies: ReplyView[];
   agent: 'listening' | 'away';
 }
@@ -116,8 +129,9 @@ let replies: ReplyView[] = [];
 let decisions: DecisionView[] = [];
 let changes: Changes | null = null;
 let turn: 'agent' | 'reviewer' = 'reviewer';
-/** The sent note the reviewer is answering (F6), if any. */
-let answering: { id: string; n: number } | null = null;
+/** The note the next one answers (F6) or replies to (F7), if any. */
+let linking: { field: 'answers' | 'replies_to'; id: string; label: string } | null = null;
+let agentNotes: AgentNoteView[] = [];
 let showChanges = false;
 let queue: Draft[] = loadQueue();
 let target: { kind: Kind; anchor: Anchor | null } = { kind: 'page', anchor: null };
@@ -236,6 +250,8 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   if (d.intent) tagRow.append(el('span', `pill intent ${d.intent}`, INTENT_LABEL[d.intent]));
   if (d.severity) tagRow.append(el('span', `pill sev ${d.severity}`, SEVERITY_LABEL[d.severity]));
   if (d.answers) tagRow.append(el('span', 'pill flag', `Answer to ${noteNumber(d.answers) ?? d.answers}`));
+  if (d.endorses) tagRow.append(el('span', 'pill flag agent', `Endorses ${agentLabel(d.endorses)}`));
+  if (d.replies_to) tagRow.append(el('span', 'pill flag agent', `Reply to ${agentLabel(d.replies_to)}`));
   card.append(head, tagRow, el('p', 'comment', d.comment));
   if (queuedIndex === null) sentExtras(card, n, d as Note);
   return card;
@@ -257,6 +273,54 @@ const STATUS_TITLE: Record<NoteStatus, string> = {
   answered: 'You answered the agent’s question',
   resolved: 'You resolved this note',
 };
+
+/** Agent notes are labelled A1, A2… on the page and in the list. */
+function agentLabel(id: string): string {
+  return `A${Number(id.slice(2))}`;
+}
+
+const AGENT_STATUS_LABEL: Record<AgentNoteView['status'], string> = { shown: 'Not sent', endorsed: 'Endorsed', replied: 'Replied' };
+
+function agentNoteCard(a: AgentNoteView): HTMLElement {
+  const card = el('div', 'note agent');
+  card.dataset.agentId = a.id;
+  card.dataset.status = a.status;
+  const head = el('div', 'note-head');
+  head.append(el('span', 'num agent', agentLabel(a.id)), el('span', 'kind source', `From ${a.source}`));
+  const where = el('span', 'where', describe(a.kind, a.anchor));
+  where.title = where.textContent ?? '';
+  head.append(where);
+  const queued = queue.some((d) => d.endorses === a.id || d.replies_to === a.id);
+  head.append(
+    Object.assign(el('span', 'state', queued ? 'Queued' : AGENT_STATUS_LABEL[a.status]), {
+      title: 'Notes from the agent or a tool reach the agent only if you endorse them or reply to them',
+    }),
+  );
+  card.append(head, el('p', 'comment', a.comment));
+  if (a.anchor?.state === 'orphaned') card.classList.add('orphaned');
+  const actions = el('div', 'note-actions');
+  const endorse = el('button', 'btn small endorse', 'Endorse');
+  endorse.type = 'button';
+  endorse.title = 'Queue this as your own note, to send to the agent';
+  endorse.disabled = queued || a.status === 'endorsed';
+  endorse.addEventListener('click', () => {
+    queue.push({ kind: a.kind, comment: a.comment, endorses: a.id, anchor: stripDerived(a.anchor) });
+    saveQueue();
+    render();
+  });
+  const reply = el('button', 'btn small', 'Reply');
+  reply.type = 'button';
+  reply.title = 'Write a note in reply, to send to the agent';
+  reply.addEventListener('click', () => {
+    linking = { field: 'replies_to', id: a.id, label: `reply to ${agentLabel(a.id)} (${a.source})` };
+    target = { kind: a.kind, anchor: stripDerived(a.anchor) };
+    render();
+    comment.focus();
+  });
+  actions.append(endorse, reply);
+  card.append(actions);
+  return card;
+}
 
 function noteNumber(id: string): number | null {
   const i = sent.findIndex((e) => e.note.id === id);
@@ -284,7 +348,7 @@ function sentExtras(card: HTMLElement, n: number, note: Note): void {
     const answer = el('button', 'btn small answer', 'Answer');
     answer.type = 'button';
     answer.addEventListener('click', () => {
-      answering = { id: note.id, n };
+      linking = { field: 'answers', id: note.id, label: `answer to note ${n}` };
       target = { kind: note.kind, anchor: stripDerived(note.anchor) };
       render();
       comment.focus();
@@ -384,6 +448,7 @@ function render(): void {
     if (e.note.anchor?.state === 'orphaned') orphans.push(card);
     else items.push({ at: e.at, node: card });
   });
+  agentNotes.forEach((a) => items.push({ at: a.at, node: agentNoteCard(a) }));
   // A reply about one note is shown on that note's card.
   replies.filter((r) => !r.note).forEach((r) => items.push({ at: r.at, node: replyCard(r) }));
   // A decision follows the notes it was sent with.
@@ -409,9 +474,9 @@ function render(): void {
 
   const t = $('target');
   t.dataset.kind = target.kind;
-  $('target-text').textContent = answering ? `answer to note ${answering.n}` : describe(target.kind, target.anchor);
-  t.dataset.answering = String(!!answering);
-  $('target-clear').hidden = target.kind === 'page' && !answering;
+  $('target-text').textContent = linking ? linking.label : describe(target.kind, target.anchor);
+  t.dataset.answering = String(!!linking);
+  $('target-clear').hidden = target.kind === 'page' && !linking;
   const turnEl = $('turn');
   turnEl.dataset.turn = turn;
   turnEl.textContent = turn === 'agent' ? "Agent's turn" : 'Your turn';
@@ -459,6 +524,11 @@ function postMarks(): void {
       return [{ n: i + 1, kind: e.note.kind, anchor, queued: false }];
     }),
     ...queue.map((d, i) => ({ n: sent.length + i + 1, kind: d.kind, anchor: d.anchor, queued: true })),
+    ...agentNotes.flatMap((a) => {
+      if (a.status !== 'shown' || a.anchor?.state === 'orphaned') return [];
+      const anchor = a.anchor?.current && a.anchor.state === 'moved' ? { ...a.anchor, stable_id: a.anchor.current.stable_id, selector: a.anchor.current.selector } : a.anchor;
+      return [{ n: agentLabel(a.id), kind: a.kind, anchor, queued: false, agent: true }];
+    }),
   ];
   toFrame({ type: 'marks', marks });
 }
@@ -509,12 +579,12 @@ window.addEventListener('message', (e) => {
 function addNote(): void {
   const text = comment.value.trim();
   if (!text) return;
-  queue.push({ kind: target.kind, comment: text, ...tags, ...(answering ? { answers: answering.id } : {}), anchor: target.anchor });
+  queue.push({ kind: target.kind, comment: text, ...tags, ...(linking ? { [linking.field]: linking.id } : {}), anchor: target.anchor });
   saveQueue();
   comment.value = '';
   target = { kind: 'page', anchor: null };
   tags = {};
-  answering = null;
+  linking = null;
   render();
   // The new card takes the focus, so one key can still set its intent or severity.
   focusQueued(queue.length - 1);
@@ -546,7 +616,7 @@ comment.addEventListener('keydown', (e) => {
 });
 $('target-clear').addEventListener('click', () => {
   target = { kind: 'page', anchor: null };
-  answering = null;
+  linking = null;
   render();
 });
 pointBtn.addEventListener('click', () => setPicking(pointBtn.getAttribute('aria-pressed') !== 'true'));
@@ -654,6 +724,7 @@ async function refresh(): Promise<void> {
     decisions = s.decisions ?? [];
     changes = s.changes ?? null;
     turn = s.turn ?? 'reviewer';
+    agentNotes = s.agent_notes ?? [];
     setPresence(s.agent);
     render();
     postChanges();
@@ -681,6 +752,7 @@ async function start(): Promise<void> {
   decisions = session.decisions ?? [];
   changes = session.changes ?? null;
   turn = session.turn ?? 'reviewer';
+  agentNotes = session.agent_notes ?? [];
   setPresence(session.agent);
   render();
   loadFrame();

@@ -335,6 +335,12 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   // The approval took a new snapshot: nothing has changed since.
   await page.waitForFunction(() => document.getElementById('show-changes').disabled);
 
+  // F7: a note from a tool shows on the page, labelled, and reaches no one by itself.
+  const added = await world.cli(['note', 'add', file, '--target', '#step-1', '--text', 'Autoload refresh is untested.', '--source', 'lint']);
+  assert.equal(added.code, 0, added.stderr);
+  await page.waitForSelector('.note.agent[data-agent-id="a_0001"] >> text=From lint');
+  await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === 'A1'));
+
   // F2 again: a follow-up edit after the approval shows against the approved version.
   const approvedHtml = fs.readFileSync(file, 'utf8');
   fs.writeFileSync(file, approvedHtml.replace('Nothing is written to the database.', 'Nothing is written to the database before approval.'));
@@ -346,6 +352,16 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
     fs.mkdirSync(process.env.VIVAMARK_SCREENSHOT_DIR, { recursive: true });
     await page.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, 'review-features.png') });
   }
+
+  // F7: endorsing the tool's note makes it the reviewer's own, and only then does it reach wait.
+  const beforeEndorse = JSON.parse((await world.cli(['wait', file, '--json', '--after', '0'])).stdout).seq.to;
+  await page.click('.note.agent[data-agent-id="a_0001"] button.endorse');
+  await page.waitForSelector('.note.queued >> text=Endorses A1');
+  await page.click('#send');
+  await page.waitForSelector('.note.agent[data-status="endorsed"]');
+  const endorsed = JSON.parse((await world.cli(['wait', file, '--json', '--after', String(beforeEndorse)])).stdout);
+  assert.equal(endorsed.notes.length, 1);
+  assert.deepEqual([endorsed.notes[0].endorses, endorsed.notes[0].agent_note.source], ['a_0001', 'lint']);
 
   assert.deepEqual(offLoopback, [], 'the browser only talked to loopback');
   assert.deepEqual(problems, [], 'no script errors or CSP violations');

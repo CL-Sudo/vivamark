@@ -487,3 +487,81 @@ function locateText(doc: Doc, a: Omit<Anchor, 'source_line'>): Located {
 export function locate(doc: Doc, a: Omit<Anchor, 'source_line'>): Located {
   return a.quote !== undefined ? locateText(doc, a) : locateElement(doc, a);
 }
+
+// ---- targets named by the agent (F7) --------------------------------------------------------
+
+export interface NamedTarget {
+  kind: 'element' | 'text';
+  anchor: Omit<Anchor, 'source_line' | 'lines'>;
+}
+
+const CONTEXT = 32;
+
+function elementTarget(doc: Doc, el: Element): NamedTarget {
+  const text = squash(textOf(doc, el));
+  return {
+    kind: 'element',
+    anchor: { stable_id: stableIdOf(el), selector: cssPath(doc, el), tag: el.tagName, text: text.length > 200 ? text.slice(0, 199) + '…' : text },
+  };
+}
+
+/** The smallest body element covering a line of the saved file. */
+function elementAtLine(doc: Doc, line: number): Element | null {
+  let best: Element | null = null;
+  let bestSpan = Infinity;
+  for (const el of doc.ranges.keys()) {
+    let range: [number, number] | null = null;
+    if (doc.kind === 'markdown') {
+      const v = attr(el, LINES_ATTR);
+      const m = v ? /^(\d+)-(\d+)$/.exec(v) : null;
+      if (m) range = trimBlank(doc, [Number(m[1]), Number(m[2])]);
+    } else if (el.sourceCodeLocation && el !== doc.body) {
+      range = [el.sourceCodeLocation.startLine, el.sourceCodeLocation.endLine];
+    }
+    if (!range || line < range[0] || line > range[1]) continue;
+    const span = range[1] - range[0];
+    // Ties go to the deeper element, which comes later in document order.
+    if (span <= bestSpan) {
+      best = el;
+      bestSpan = span;
+    }
+  }
+  return best;
+}
+
+/**
+ * What `vivamark note add --target` names: `line:12` or `12`, `css:<selector>`
+ * or a selector starting with `#` or `body`, `quote:<text>` or any other
+ * text found on the page. Returns an error message when it names nothing.
+ */
+export function namedTarget(doc: Doc, target: string): NamedTarget | string {
+  const t = target.trim();
+  let m: RegExpExecArray | null;
+  if ((m = /^(?:line:)?(\d+)$/.exec(t))) {
+    const el = elementAtLine(doc, Number(m[1]));
+    return el ? elementTarget(doc, el) : `line ${m[1]} is not in the page's body`;
+  }
+  const explicit = /^(css|quote):([\s\S]+)$/.exec(t);
+  const selector = explicit?.[1] === 'css' ? explicit[2].trim() : !explicit && /^(#|body\b)/.test(t) ? t : null;
+  if (selector !== null) {
+    const el = resolveSelector(doc, selector);
+    return el ? elementTarget(doc, el) : `no element matches ${selector} (selectors are #id or body, then tag:nth-of-type(n) steps)`;
+  }
+  const quote = explicit?.[1] === 'quote' ? explicit[2] : t;
+  const at = doc.text.indexOf(quote);
+  if (!quote || at < 0) return `the page has no text "${quote}"`;
+  const end = at + quote.length;
+  const el = containerOf(doc, at, end);
+  if (!el) return `the page has no text "${quote}"`;
+  const r = doc.ranges.get(el) ?? [0, doc.text.length];
+  return {
+    kind: 'text',
+    anchor: {
+      stable_id: stableIdOf(el),
+      selector: cssPath(doc, el),
+      quote,
+      prefix: doc.text.slice(Math.max(r[0], at - CONTEXT), at),
+      suffix: doc.text.slice(end, Math.min(r[1], end + CONTEXT)),
+    },
+  };
+}
