@@ -478,3 +478,110 @@ test('images: attached by file picker, paste or drop, shown as thumbnails, remov
   assert.deepEqual(problems.filter((p) => !/status of 415/.test(p)), []);
   await page.close();
 });
+
+const ANSWER_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Decide</title></head>
+<body>
+<section id="decision-id" class="your-input">
+  <h2>Which ID check?</h2>
+  <label><input type="radio" name="idcheck" id="idcheck-mykad" value="mykad" data-vivamark-suggest="looks-good"> MyKad only (recommended)</label>
+  <label><input type="radio" name="idcheck" id="idcheck-passport" value="passport" data-vivamark-suggest="looks-good"> MyKad or passport</label>
+  <label><input type="radio" name="idcheck" id="idcheck-none" value="none" data-vivamark-suggest="looks-good"> No ID check</label>
+</section>
+<section id="decision-extras" class="your-input">
+  <label><input type="checkbox" id="extra-audit" data-vivamark-suggest="change"> Also log every enrolment</label>
+  <label for="region">Region</label>
+  <select id="region">
+    <option value="">Choose…</option>
+    <option id="region-my" data-vivamark-suggest="looks-good">Malaysia first</option>
+    <option id="region-all" data-vivamark-suggest="looks-good">All regions</option>
+  </select>
+</section>
+<button type="button" id="fake">Page script: fake a choice</button>
+<script>
+  // A page script tries to answer for the reviewer, with an untrusted event.
+  document.getElementById('fake').addEventListener('click', () => {
+    const r = document.getElementById('idcheck-none');
+    r.checked = true;
+    r.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+</script>
+</body></html>
+`;
+
+test('click-to-answer: a marked control queues one note per group, from the page, sent only with Send', { timeout: 90_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'answer.html');
+  fs.writeFileSync(file, ANSWER_PAGE);
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { page, offLoopback, problems } = await reviewPage(JSON.parse(opened.stdout).url);
+  const doc = page.frameLocator('#page');
+  await doc.locator('#idcheck-mykad').waitFor();
+  const suggested = () => page.locator('.note.queued.suggested').evaluateAll((els) => els.map((e) => e.querySelector('p.comment').textContent));
+
+  // A real click queues one note, marked as from the page.
+  await doc.locator('#idcheck-mykad').check();
+  await page.waitForSelector('.note.queued.suggested >> text=From the page');
+  assert.deepEqual(await suggested(), ['MyKad only (recommended)']);
+  assert.equal(await page.locator('.note.queued.suggested .pill.intent.looks-good').count(), 1);
+  // Another choice in the same group replaces it.
+  await doc.locator('#idcheck-passport').check();
+  await page.waitForFunction(() => document.querySelector('.note.queued.suggested p.comment')?.textContent === 'MyKad or passport');
+  assert.equal(await page.locator('.note.queued').count(), 1);
+
+  // A page script's synthetic change queues nothing. A trusted tick after it
+  // proves the frame's messages have all arrived: they come in order.
+  await doc.locator('#fake').click();
+  await doc.locator('#extra-audit').check();
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 2);
+  assert.deepEqual(await suggested(), ['MyKad or passport', 'Also log every enrolment']);
+  // Unticking the checkbox withdraws its note.
+  await doc.locator('#extra-audit').uncheck();
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 1);
+  // A select, chosen with the keyboard (Playwright's selectOption fires an
+  // untrusted change, which is exactly what must not count): a marked option
+  // queues, the next one replaces it, an unmarked one withdraws it.
+  const regionNotes = () => page.locator('.note.queued.suggested p.comment').evaluateAll((els) => els.map((p) => p.textContent).filter((x) => x.startsWith('Region')));
+  await doc.locator('#region').focus();
+  await page.keyboard.press('ArrowDown');
+  await page.waitForFunction(() => [...document.querySelectorAll('.note.queued.suggested p.comment')].some((p) => p.textContent === 'Region: Malaysia first'));
+  await page.keyboard.press('ArrowDown');
+  await page.waitForFunction(() => [...document.querySelectorAll('.note.queued.suggested p.comment')].some((p) => p.textContent === 'Region: All regions'));
+  assert.deepEqual(await regionNotes(), ['Region: All regions']);
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 1);
+  await page.keyboard.press('ArrowDown');
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 2);
+
+  // The reviewer can make one their own: Edit moves it into the composer.
+  await page.click('.note.queued.suggested:has-text("Region") button.edit');
+  assert.equal(await page.inputValue('#comment'), 'Region: Malaysia first');
+  await page.fill('#comment', 'Malaysia first, then Singapore.');
+  await page.click('#add');
+  assert.equal(await page.locator('.note.queued').count(), 2);
+  assert.equal(await page.locator('.note.queued.suggested').count(), 1);
+
+  // Nothing has reached the agent.
+  const early = await world.cli(['wait', file, '--timeout', '800ms']);
+  assert.equal(early.code, 5, early.stdout);
+
+  await page.click('#send');
+  await page.waitForSelector('.note:not(.queued) >> text=Sent');
+  const w = await world.cli(['wait', file, '--json']);
+  assert.equal(w.code, 0, w.stderr);
+  const [radio, region] = JSON.parse(w.stdout).notes;
+  assert.equal(radio.comment, 'MyKad or passport');
+  assert.equal(radio.intent, 'looks-good');
+  assert.equal(radio.anchor.stable_id, 'idcheck-passport');
+  assert.deepEqual(radio.anchor.control, { role: 'radio', name: 'MyKad or passport' });
+  assert.ok(radio.anchor.source_line > 1);
+  assert.equal(radio.suggested, undefined, 'the page-only marker is not sent');
+  assert.equal(region.comment, 'Malaysia first, then Singapore.');
+  assert.equal(region.anchor.stable_id, 'region-my');
+
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});

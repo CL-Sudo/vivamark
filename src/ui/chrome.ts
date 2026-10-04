@@ -41,6 +41,11 @@ interface Draft {
   replies_to?: string;
   attachments?: Image[];
   anchor: Anchor | null;
+  /**
+   * Queued from a control on the page (click-to-answer): which radio group,
+   * checkbox or select it came from. Kept in the review page only; never sent.
+   */
+  suggested?: string;
 }
 type NoteStatus = 'open' | 'addressed' | 'declined' | 'question' | 'answered' | 'resolved';
 interface Note extends Draft {
@@ -377,7 +382,10 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
     card.tabIndex = 0;
     card.title = 'Keys: C Q D G set the intent, B I N the severity, Delete removes';
     card.addEventListener('keydown', (e) => onQueuedKey(e, queuedIndex));
-    head.append(el('span', 'state', 'Queued'));
+    if (d.suggested) {
+      card.classList.add('suggested');
+      head.append(Object.assign(el('span', 'state from-page', 'From the page'), { title: 'Queued by your choice on the page. Edit or remove it; it is sent only with your next Send.' }));
+    } else head.append(el('span', 'state', 'Queued'));
     const rm = el('button', 'icon remove', '×');
     rm.type = 'button';
     rm.title = 'Remove this note';
@@ -404,6 +412,15 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   if (d.replies_to) tagRow.append(el('span', 'pill flag agent', `Reply to ${agentLabel(d.replies_to)}`));
   card.append(head, tagRow, el('p', 'comment', d.comment));
   const images = d.attachments ?? [];
+  if (queuedIndex !== null && d.suggested) {
+    const actions = el('div', 'note-actions');
+    const edit = el('button', 'btn small edit', 'Edit');
+    edit.type = 'button';
+    edit.title = 'Move this note into the editor and make it your own';
+    edit.addEventListener('click', () => editQueued(queuedIndex));
+    actions.append(edit);
+    card.append(actions);
+  }
   if (queuedIndex !== null) {
     if (images.length)
       card.append(
@@ -537,6 +554,56 @@ function stripDerived(a: Anchor | null): Anchor | null {
   if (!a) return null;
   const { state: _s, current, source_line: _l, lines: _ls, ...rest } = a;
   return current && a.state === 'moved' ? { ...rest, stable_id: current.stable_id, selector: current.selector } : rest;
+}
+
+/** Takes a queued note back into the composer, to be changed and added again as the reviewer's own. */
+function editQueued(i: number): void {
+  const d = queue[i];
+  if (!d) return;
+  queue.splice(i, 1);
+  saveQueue();
+  target = { kind: d.kind, anchor: d.anchor };
+  tags = { ...(d.intent ? { intent: d.intent } : {}), ...(d.severity ? { severity: d.severity } : {}) };
+  pendingImages = [...pendingImages, ...(d.attachments ?? [])];
+  linking = null;
+  comment.value = d.comment;
+  render();
+  comment.focus();
+}
+
+const SUGGEST_INTENTS: Intent[] = ['change', 'question', 'delete', 'looks-good'];
+
+/**
+ * Click-to-answer: the reviewer changed a control the page author marked with
+ * data-vivamark-suggest. It is queued, marked "from the page", one per radio
+ * group or control; it is never sent by itself. The page proposes; the
+ * reviewer sends.
+ */
+function onSuggest(d: { key?: unknown; remove?: unknown; kind?: unknown; anchor?: unknown; intent?: unknown; text?: unknown }): void {
+  if (ended || typeof d.key !== 'string' || !d.key || d.key.length > 2_000) return;
+  const at = queue.findIndex((q) => q.suggested === d.key);
+  if (d.remove === true) {
+    if (at >= 0) queue.splice(at, 1);
+  } else {
+    const text = typeof d.text === 'string' ? d.text.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+    if (d.kind !== 'element' || !d.anchor || typeof d.anchor !== 'object' || !text) return;
+    const intent = SUGGEST_INTENTS.includes(d.intent as Intent) ? (d.intent as Intent) : undefined;
+    const prev = at >= 0 ? queue[at] : undefined;
+    const draft: Draft = {
+      kind: 'element',
+      comment: text,
+      ...(intent ? { intent } : {}),
+      // A severity or images the reviewer added stay with the new choice.
+      ...(prev?.severity ? { severity: prev.severity } : {}),
+      ...(prev?.attachments?.length ? { attachments: prev.attachments } : {}),
+      anchor: d.anchor as Anchor,
+      suggested: d.key,
+    };
+    if (at >= 0) queue[at] = draft;
+    else queue.push(draft);
+  }
+  saveQueue();
+  render();
 }
 
 function onQueuedKey(e: KeyboardEvent, i: number): void {
@@ -757,6 +824,9 @@ window.addEventListener('message', (e) => {
         comment.focus();
       }
       break;
+    case 'suggest':
+      onSuggest(d as Parameters<typeof onSuggest>[0]);
+      break;
     case 'pick-cancelled':
       pointBtn.setAttribute('aria-pressed', 'false');
       break;
@@ -864,7 +934,7 @@ async function sendDecision(decision: Decision): Promise<void> {
   render();
   try {
     // Images go by id: the server already has them, and fills in the rest.
-    const body = notes.map((d) => ({ ...d, attachments: d.attachments?.map((a) => a.id) }));
+    const body = notes.map(({ suggested: _s, ...d }) => ({ ...d, attachments: d.attachments?.map((a) => a.id) }));
     const res = await api<{ notes: (NoteEntry & { type: string })[] }>('POST', '/send', { notes: body, decision });
     if (notes.length) {
       queue = [];

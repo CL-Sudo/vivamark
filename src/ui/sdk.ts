@@ -2,6 +2,8 @@
 // It has no token and no API access. It reports what the reviewer points at
 // to the review UI through postMessage, and draws the note marks it is told
 // to draw. It never changes the saved file and never talks to the network.
+// A control the author marked with data-vivamark-suggest proposes a note when
+// the reviewer changes it; the review UI only queues it, never sends it.
 
 (() => {
   const script = document.currentScript as HTMLScriptElement | null;
@@ -460,6 +462,51 @@
       post({ type: 'pick-cancelled' });
     }
   });
+
+  // ---- click-to-answer ------------------------------------------------------------
+
+  const SUGGEST_INTENTS = ['change', 'question', 'delete', 'looks-good'];
+  const suggestIntent = (v: string | null | undefined) => (v && SUGGEST_INTENTS.includes(v) ? v : undefined);
+
+  /**
+   * The reviewer ticked a radio or checkbox, or chose an option, that the
+   * author marked with data-vivamark-suggest="<intent>". It becomes a proposed
+   * note: one per radio group, checkbox or select (`key`), so a new choice
+   * replaces the old one, and unticking a checkbox withdraws it. Only a real
+   * change by the reviewer counts: a script's dispatchEvent is not trusted.
+   */
+  document.addEventListener(
+    'change',
+    (e) => {
+      if (!e.isTrusted) return;
+      const t = e.target;
+      if (t instanceof HTMLInputElement && (t.type === 'radio' || t.type === 'checkbox')) {
+        if (!t.hasAttribute('data-vivamark-suggest')) return;
+        const key = t.type === 'radio' && t.name ? `radio:${t.form ? cssPath(t.form) + ' ' : ''}${t.name}` : `${t.type}:${cssPath(t)}`;
+        if (!t.checked) {
+          // A radio is unticked only by ticking another one, which sends its own suggestion.
+          if (t.type === 'checkbox') post({ type: 'suggest', key, remove: true });
+          return;
+        }
+        const label = accessibleName(t) || t.value;
+        post({ type: 'suggest', key, kind: 'element', anchor: elementAnchor(t), intent: suggestIntent(t.getAttribute('data-vivamark-suggest')), text: clipText(label, 300) });
+      } else if (t instanceof HTMLSelectElement) {
+        const opt = t.selectedOptions[0];
+        const marked = opt?.hasAttribute('data-vivamark-suggest') ? opt : t.hasAttribute('data-vivamark-suggest') ? t : null;
+        const key = `select:${cssPath(t)}`;
+        if (!opt || !marked) {
+          // A choice the author did not mark withdraws an earlier suggestion from this select.
+          post({ type: 'suggest', key, remove: true });
+          return;
+        }
+        const name = accessibleName(t);
+        const choice = squash(opt.label || opt.text || opt.value);
+        const anchor = elementAnchor(opt.id || opt.hasAttribute('data-vivamark-id') ? opt : t);
+        post({ type: 'suggest', key, kind: 'element', anchor, intent: suggestIntent(marked.getAttribute('data-vivamark-suggest')), text: clipText(name ? `${name}: ${choice}` : choice, 300) });
+      }
+    },
+    true,
+  );
 
   let scrollTimer = 0;
   window.addEventListener(

@@ -69,6 +69,9 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 .note-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; min-width: 0; }
 .num { width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 600; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
 .note.queued .num { background: #fff; color: var(--accent-strong); border: 1.5px solid var(--accent); }
+.note.queued.suggested { border: 1.5px dashed rgba(16, 185, 129, .6); background: rgba(240, 253, 248, .75); }
+.note.queued.suggested .num { color: #047857; border-color: var(--ok); }
+.state.from-page { color: #047857; font-weight: 600; }
 .kind { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--chip-fg); font-weight: 600; flex: none; }
 .kind.text { background: var(--mark); color: #854d0e; }
 .kind.page { background: var(--q-soft); color: var(--q); }
