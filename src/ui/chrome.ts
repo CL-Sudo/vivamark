@@ -481,6 +481,8 @@ function render(): void {
   turnEl.dataset.turn = turn;
   turnEl.textContent = turn === 'agent' ? "Agent's turn" : 'Your turn';
   turnEl.title = turn === 'agent' ? 'Notes are waiting on the agent' : 'Nothing is waiting on the agent';
+  // The how-to hint is for an empty review; once there are notes the thread needs the room.
+  $('hint').hidden = sent.length + queue.length > 0;
   renderTags();
   renderChanges();
   postMarks();

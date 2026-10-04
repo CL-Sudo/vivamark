@@ -6,8 +6,11 @@ mean: a paragraph, a table cell, a line of a diff. You say what you want, and
 the agent receives each note tied to exactly that spot. It edits the file, the
 page updates in place, and the conversation carries on until you approve.
 
-> **Status: early.** The core loop works: `open`, `wait` and `reply` on an HTML
-> file. The first-version features F1–F8 are not built yet. See
+> **Status: early.** The core loop works (`open`, `wait` and `reply` on an
+> HTML or Markdown file), with the first-version features F1–F8: decisions,
+> "what changed", notes that re-attach after edits, intent and severity,
+> Markdown with line ranges, per-note replies with whose turn it is, notes
+> from the agent, and named table cells, controls and chart points. See
 > [`docs/DECISIONS.md`](docs/DECISIONS.md) for what has been decided and
 > [`docs/research/`](docs/research/) for how we got there.
 
@@ -31,21 +34,56 @@ the agent:
 node dist/cli.js wait examples/plan.html
 ```
 
-On the page, select some text, or press **Point** and click an element. Type a
-note and press **Add note**, then **Send**. `wait` prints each note with what it
-points at (an id or selector, the quoted text, and the line in the file) and
-exits. Answer on the page:
+On the page, select some text, or press **Point** and click an element: a
+paragraph, a table cell (named by its row and column), a button (named by its
+label) or a spot on a chart. Type a note, pick an intent (Change, Question,
+Delete, Looks good) and a severity if you like, and press **Add note**. On a
+queued note, one key does the same: C Q D G for the intent, B I N for the
+severity. Then decide:
+
+- **Send** requests changes. `wait` prints each note with what it points at
+  (an id or selector, the quoted text, the lines in the file) and exits 0.
+- **Approve** (or **Approve with notes**, when notes are queued) exits 6.
+- **Dismiss** closes the round with nothing and exits 7.
+
+Answer on the page, as a whole or note by note:
 
 ```sh
 node dist/cli.js reply examples/plan.html -m "Split step 2 as asked."
+node dist/cli.js reply examples/plan.html --note n_0001 --status addressed
+node dist/cli.js reply examples/plan.html --note n_0002 --status question -m "Which owner?"
 ```
 
-Edit `examples/plan.html` and the page reloads in place. Running `wait` again
-returns the same notes; `wait examples/plan.html --after <seq>` waits for newer
-ones. `node dist/cli.js --help` lists every option; `node dist/cli.js stop` stops
-the background server.
+A question shows on that note's card with an **Answer** button; the answer
+comes back to `wait` as a new note with `"answers": "n_0002"`. Only the
+reviewer resolves a note. The page and `wait` both say whose turn it is.
 
-![The review page](docs/screenshots/review-ui.png)
+Edit `examples/plan.html` and the page reloads in place. Every note is
+re-attached to the new file: `anchored`, `moved` (with where it is now), or
+`orphaned` when what it pointed at is gone, listed apart and never pinned to a
+guess. **Show changes** highlights what changed since you last sent. Running
+`wait` again returns the same notes; `wait examples/plan.html --after <seq>`
+waits for newer ones.
+
+The agent, or a tool, can point things out to the reviewer. Such a note is
+shown labelled with its source and reaches `wait` only if the reviewer
+endorses it or replies to it:
+
+```sh
+node dist/cli.js note add examples/plan.html --target '#step-3' --text "I guessed this order." --source agent
+```
+
+Markdown works the same way, and each note carries `lines: [first, last]` in
+the source:
+
+```sh
+node dist/cli.js open examples/plan.md
+```
+
+`node dist/cli.js --help` lists every option and what `wait` returns;
+`node dist/cli.js stop` stops the background server.
+
+![The review page: notes with intents and severities, an approval, and Show changes](docs/screenshots/review-ui.png)
 
 ## What it will be
 

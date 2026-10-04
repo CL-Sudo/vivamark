@@ -19,13 +19,12 @@ const HELP = `vivamark ${VERSION}: point at what you mean on a page; the agent g
 Usage:
   vivamark open <file.html> [--label k=v]... [--no-browser] [--json]
       Start (or resume) a review of a saved HTML or Markdown (.md) file and open
-      it in the browser. Markdown is rendered with raw HTML shown as text; each note
-      carries the source lines it points at.
+      it in the browser. Markdown is rendered with raw HTML shown as text.
   vivamark wait <file|session> [--after <seq>] [--timeout <dur>] [--owner <name>]
                 [-m <text> | --reply-file <file>] [--json]
-      Block until the reviewer sends notes, then print them. Nothing is consumed:
-      re-running wait returns the same notes until you pass --after <seq>.
-      -m posts a reply first, then waits.
+      Block until the reviewer sends notes or a decision, then print them.
+      Nothing is consumed: re-running wait returns the same notes until you
+      pass --after <seq>. -m posts a reply first, then waits.
   vivamark reply <file|session> (-m <text> | --file <file|->) [--json]
   vivamark reply <file|session> --note <id> --status addressed|declined|question
                 [-m <text>] [--json]
@@ -33,7 +32,8 @@ Usage:
       note: addressed, declined, or a question back to the reviewer (needs -m).
       The reviewer's answer arrives as a new note with "answers": <id>. Only the
       reviewer resolves a note.
-  vivamark note add <file|session> --text <text> [--target <target>] [--source <name>] [--json]
+  vivamark note add <file|session> --text <text> [--target <target>]
+                [--source <name>] [--json]
       Show the reviewer a note from the agent or a tool ("I guessed this number"),
       labelled with --source (default: agent). The target is line:<n> (or <n>),
       css:<selector> (or a selector starting with # or body), quote:<text>, or
@@ -44,12 +44,21 @@ Usage:
   vivamark stop
       Stop the background review server.
 
+What wait returns (--json; the text form says the same):
+  decision     request-changes, approve, approve-with-notes or dismiss
+  turn         agent while a note waits on you, else reviewer
+  orphaned     ids of notes whose target is gone from the file
+  per note     comment, intent (change, question, delete, looks-good), severity
+               (blocking, important, nit), motivation (W3C), status (open,
+               addressed, declined, question, answered, resolved), anchor with
+               lines [first, last], state (anchored, moved, orphaned) and
+               current place when it moved, cell {row, column}, control
+               {role, name} or point {x, y, width, height}, target_changed.
+
 Exit codes for wait:
-  0  notes, the reviewer requests changes      6  approved (or approved with notes)
+  0  notes; the reviewer requests changes     6  approved (or approved with notes)
   7  dismissed: the review closed with nothing 5  timeout
   1  error     130/143 interrupted, safe to re-run
-  The JSON output's "decision" field says the same: request-changes, approve,
-  approve-with-notes or dismiss.
 Durations: 90s, 5m, 1h, or milliseconds.
 `;
 
