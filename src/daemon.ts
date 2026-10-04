@@ -19,6 +19,12 @@ import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
 
 export const DEFAULT_PORT = 47470;
+/** Fallback ports: explicit, and below the 32768-60999 ephemeral range most systems use. */
+export const FALLBACK_PORTS = { min: 20000, max: 32000 } as const;
+
+function randomPort(): number {
+  return FALLBACK_PORTS.min + Math.floor(Math.random() * (FALLBACK_PORTS.max - FALLBACK_PORTS.min + 1));
+}
 const MAX_HOLD_MS = 25_000;
 const PRESENCE_GRACE_MS = 4_000;
 const RELOAD_DEBOUNCE_MS = 150;
@@ -160,14 +166,19 @@ export class Daemon {
         else res.end();
       });
     };
-    let port = preferredPort;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // Port 0 (let the OS pick) is never used: in some agent sandboxes a socket
+    // bound to an OS-assigned port cannot be connected to, while an explicitly
+    // chosen port works. Those sandboxes are a real place vivamark runs, so a
+    // busy or unset port falls back to explicit random ports below the usual
+    // ephemeral range instead.
+    let port = preferredPort > 0 ? preferredPort : randomPort();
+    for (let attempt = 0; attempt < 20; attempt++) {
       const v4 = http.createServer(handler);
       try {
         await listenOn(v4, LOOPBACK_HOSTS[0], port);
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE' && port !== 0) {
-          port = 0;
+        if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+          port = randomPort();
           continue;
         }
         throw err;
@@ -181,7 +192,7 @@ export class Daemon {
         const code = (err as NodeJS.ErrnoException).code;
         if (code === 'EADDRINUSE') {
           v4.close();
-          port = 0;
+          port = randomPort();
           continue;
         }
         // No IPv6 loopback on this machine: serve IPv4 loopback only.
@@ -617,8 +628,9 @@ function listenOn(server: http.Server, host: string, port: number): Promise<void
 /** Entry point for `vivamark __daemon`, which the CLI starts detached. */
 export async function runDaemon(): Promise<void> {
   const store = new Store();
+  // VIVAMARK_PORT picks the port only, never the address. 0 means "a random free port".
   const envPort = process.env.VIVAMARK_PORT;
-  const port = envPort !== undefined && /^\d+$/.test(envPort) ? Number(envPort) : DEFAULT_PORT;
+  const port = envPort !== undefined && /^\d+$/.test(envPort) && Number(envPort) < 65536 ? Number(envPort) : DEFAULT_PORT;
   const idleMs = Number(process.env.VIVAMARK_IDLE_MS) || 30 * 60_000;
   const daemon = new Daemon(store, idleMs);
   await daemon.listen(port);

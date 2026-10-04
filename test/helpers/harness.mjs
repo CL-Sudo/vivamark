@@ -1,7 +1,9 @@
 // Test helpers: an isolated state directory per test, the built CLI run as a
-// child process, and a small HTTP client for the review UI's API. Every port
-// is chosen at runtime (VIVAMARK_PORT=0), so tests never collide with
-// anything running on the machine.
+// child process, and a small HTTP client for the review UI's API. Each world
+// gets an explicit random port from 20000-32000, below the ephemeral range.
+// Not port 0: in some agent sandboxes a socket on an OS-assigned port cannot
+// be connected to. If the port is taken, the daemon retries other explicit
+// ports in the same range, and tests read the real one from server.json.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -27,7 +29,7 @@ export function makeWorld({ guardEgress = false } = {}) {
   const env = {
     ...process.env,
     VIVAMARK_STATE_DIR: stateDir,
-    VIVAMARK_PORT: '0',
+    VIVAMARK_PORT: String(randomTestPort()),
     VIVAMARK_NO_BROWSER: '1',
     VIVAMARK_IDLE_MS: '120000',
   };
@@ -51,6 +53,10 @@ export function makeWorld({ guardEgress = false } = {}) {
       fs.rmSync(base, { recursive: true, force: true });
     },
   };
+}
+
+function randomTestPort() {
+  return 20000 + Math.floor(Math.random() * 12001);
 }
 
 function pathToImport(p) {
