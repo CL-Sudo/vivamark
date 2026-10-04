@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { after, before, test } from 'node:test';
-import { EGRESS_GUARD, ELEMENT_NOTE, TEXT_NOTE, api, makeWorld, openSession, sendNotes, startCli } from './helpers/harness.mjs';
+import { EGRESS_GUARD, ELEMENT_NOTE, TEXT_NOTE, api, makeWorld, openSession, sendNotes, startCli, untilListening } from './helpers/harness.mjs';
 
 let world;
 
@@ -39,7 +39,7 @@ test('the whole loop makes no outbound connection', async () => {
   const daemonPid = world.server().pid;
 
   const waiting = startCli(['wait', world.page, '--json'], world.env);
-  await new Promise((r) => setTimeout(r, 500));
+  await untilListening(s, waiting);
   assert.equal((await sendNotes(s, [ELEMENT_NOTE, TEXT_NOTE])).status, 201);
   const w = await waiting.done;
   assert.equal(w.code, 0, w.stderr);

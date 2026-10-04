@@ -52,6 +52,8 @@ export function makeWorld({ guardEgress = false } = {}) {
     session: (id) => JSON.parse(fs.readFileSync(path.join(stateDir, 'sessions', `${id}.json`), 'utf8')),
     egress: () => (fs.existsSync(egressLog) ? fs.readFileSync(egressLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
     async cleanup() {
+      // First any child a failed test left running: a leftover wait would start the daemon again after stop.
+      killChildren();
       await runCli(['stop'], env).catch(() => undefined);
       fs.rmSync(base, { recursive: true, force: true });
     },
@@ -87,15 +89,72 @@ export function runCli(args, env, { input, timeoutMs = 30_000 } = {}) {
   });
 }
 
-/** Starts a CLI command without waiting for it, for long polls that a test completes later. */
-export function startCli(args, env) {
+/** Children started by startCli and not yet exited, so cleanup can kill any a failed test left behind. */
+const liveChildren = new Set();
+
+/** Kills every child startCli started that is still running. */
+export function killChildren() {
+  for (const child of liveChildren) child.kill('SIGKILL');
+  liveChildren.clear();
+}
+
+/**
+ * Starts a CLI command without waiting for it, for long polls that a test
+ * completes later. Bounded: after `timeoutMs` the child is killed and `done`
+ * resolves with `timedOut: true`, so a test that never completes the poll
+ * fails instead of hanging the suite. `waitForStdout` waits for output a test
+ * can observe; `stop` kills the child and waits for it, on any path.
+ */
+export function startCli(args, env, { timeoutMs = 60_000 } = {}) {
   const child = spawn(process.execPath, [CLI, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  liveChildren.add(child);
   let stdout = '';
   let stderr = '';
-  child.stdout.on('data', (d) => (stdout += d));
+  let timedOut = false;
+  const watchers = new Set();
+  const check = () => {
+    for (const w of watchers) w();
+  };
+  child.stdout.on('data', (d) => {
+    stdout += d;
+    check();
+  });
   child.stderr.on('data', (d) => (stderr += d));
-  const done = new Promise((resolve) => child.on('close', (code) => resolve({ code, stdout, stderr })));
-  return { child, done, stderr: () => stderr };
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill('SIGKILL');
+  }, timeoutMs);
+  timer.unref();
+  const done = new Promise((resolve) =>
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      liveChildren.delete(child);
+      check();
+      resolve({ code, signal, stdout, stderr, timedOut });
+    }),
+  );
+  /** Resolves with stdout once `pred(stdout)` holds; rejects if the child exits first or `ms` passes. */
+  const waitForStdout = (pred, ms = 10_000) =>
+    new Promise((resolve, reject) => {
+      const finish = (err) => {
+        clearTimeout(t);
+        watchers.delete(w);
+        if (err) reject(err);
+        else resolve(stdout);
+      };
+      const w = () => {
+        if (pred(stdout)) finish();
+        else if (child.exitCode !== null || child.signalCode !== null) finish(new Error(`vivamark ${args.join(' ')} exited before the expected output\nstdout: ${stdout}\nstderr: ${stderr}`));
+      };
+      const t = setTimeout(() => finish(new Error(`no expected output from vivamark ${args.join(' ')} within ${ms} ms\nstdout: ${stdout}\nstderr: ${stderr}`)), ms);
+      watchers.add(w);
+      w();
+    });
+  const stop = async (signal = 'SIGKILL') => {
+    if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+    return done;
+  };
+  return { child, done, stderr: () => stderr, stdout: () => stdout, waitForStdout, stop };
 }
 
 /**
@@ -139,6 +198,21 @@ export async function openSession(world, extraArgs = []) {
   const { port, admin_token } = world.server();
   const rec = world.session(out.session.id);
   return { out, port, adminToken: admin_token, id: out.session.id, token: rec.token, record: rec };
+}
+
+/**
+ * Resolves once the session's agent shows as listening: a wait started with
+ * startCli has its long poll on the server. Rejects if the wait exits first.
+ */
+export async function untilListening(s, waiting, ms = 10_000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (waiting.child.exitCode !== null) throw new Error(`wait exited early (${waiting.child.exitCode}): ${waiting.stderr()}`);
+    const view = await api(s.port, 'GET', `/api/s/${s.id}`, { token: s.token });
+    if (view.json?.agent === 'listening') return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`wait never reached the server: ${waiting.stderr()}`);
 }
 
 /** Posts notes the way the review UI's Send button does. */

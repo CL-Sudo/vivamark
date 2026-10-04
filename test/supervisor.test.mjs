@@ -56,9 +56,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Starts a wait and returns once its long poll has reached the server. */
 async function startWait(args) {
   const w = startCli(['wait', ...args], world.env);
-  for (let i = 0; i < 50 && !w.stderr().includes('Waiting'); i++) await sleep(100);
-  await sleep(200);
-  return w;
+  // Observed, not timed: the server itself says the agent is listening.
+  for (let i = 0; i < 100; i++) {
+    if (w.child.exitCode !== null) throw new Error(`wait exited early (${w.child.exitCode}): ${w.stderr()}`);
+    if ((await status([args[0]])).out?.agent === 'listening') return w;
+    await sleep(100);
+  }
+  await w.stop();
+  throw new Error(`wait never reached the server: ${w.stderr()}`);
 }
 
 test('status reports one session at once, and never moves a cursor', async () => {

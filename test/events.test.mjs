@@ -152,18 +152,26 @@ test('events prints the log after a seq, as text or JSON, without the server', a
   assert.equal((await world.cli(['events', 'some-file.html'])).code, 2);
 });
 
-test('events --follow streams new events until interrupted', async () => {
+test('events --follow streams new events until interrupted', { timeout: 30_000 }, async () => {
   const before = readLog().length;
-  const follow = startCli(['events', '--follow', '--json', '--after', String(before)], world.env);
-  const p = await openPage('events-follow.html', ['--label', 'task=follow']);
-  let out = '';
-  follow.child.stdout.on('data', (d) => (out += d));
-  for (let i = 0; i < 40 && !out.includes('session.opened'); i++) await sleep(100);
-  const got = out.trim().split('\n').map((l) => JSON.parse(l));
-  assert.equal(got[0].type, 'session.opened');
-  assert.equal(got[0].session, p.id);
-  assert.equal(got[0].seq, before + 1);
-  assert.equal(follow.child.exitCode, null, 'still following');
-  follow.child.kill('SIGINT');
-  await follow.done;
+  const follow = startCli(['events', '--follow', '--json', '--after', String(before)], world.env, { timeoutMs: 25_000 });
+  try {
+    const p = await openPage('events-follow.html', ['--label', 'task=follow']);
+    // Wait for the line itself, read from everything the child printed since it started.
+    const out = await follow.waitForStdout((o) => o.split('\n').some((l) => l.includes('"session.opened"')), 10_000);
+    const got = out
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l));
+    assert.equal(got[0].type, 'session.opened');
+    assert.equal(got[0].session, p.id);
+    assert.equal(got[0].seq, before + 1);
+    assert.equal(follow.child.exitCode, null, 'still following');
+    follow.child.kill('SIGINT');
+    const r = await follow.done;
+    assert.equal(r.timedOut, false);
+  } finally {
+    // On every path, a failed assertion included: a --follow child never exits by itself.
+    await follow.stop();
+  }
 });

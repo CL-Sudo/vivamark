@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { after, before, test } from 'node:test';
 import WebSocket from 'ws';
-import { ELEMENT_NOTE, TEXT_NOTE, api, makeWorld, openSession, sendNotes, startCli } from './helpers/harness.mjs';
+import { ELEMENT_NOTE, TEXT_NOTE, api, makeWorld, openSession, sendNotes, startCli, untilListening } from './helpers/harness.mjs';
 
 let world;
 let s;
@@ -67,7 +67,7 @@ test('nothing reaches wait before Send', async () => {
 test('a note sent from the review page reaches a waiting agent with its anchor', async () => {
   const waiting = startCli(['wait', world.page, '--json'], world.env);
   // Let the agent's long poll arrive first, so this proves a wake-up, not a read.
-  for (let i = 0; i < 50 && !waiting.stderr().includes('Waiting'); i++) await new Promise((r) => setTimeout(r, 100));
+  await untilListening(s, waiting);
   const view = await api(s.port, 'GET', `/api/s/${s.id}`, { token: s.token });
   assert.equal(view.json.agent, 'listening');
 
