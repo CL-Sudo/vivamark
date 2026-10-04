@@ -268,8 +268,11 @@ export function containerOf(doc: Doc, start: number, end: number): Element | nul
   return doc.body;
 }
 
-/** Finds the quote in [from, to) of the text, preferring the occurrence with its prefix and suffix. */
-export function findQuote(doc: Doc, a: Pick<Anchor, 'quote' | 'prefix' | 'suffix'>, from = 0, to = doc.text.length): number {
+/**
+ * Finds the quote in [from, to) of the text, preferring the occurrence with
+ * its prefix and suffix. With `bare` false, a quote without either is not enough.
+ */
+export function findQuote(doc: Doc, a: Pick<Anchor, 'quote' | 'prefix' | 'suffix'>, from = 0, to = doc.text.length, bare = true): number {
   const q = a.quote ?? '';
   if (!q) return -1;
   const hay = doc.text.slice(from, to);
@@ -284,6 +287,7 @@ export function findQuote(doc: Doc, a: Pick<Anchor, 'quote' | 'prefix' | 'suffix
     const at = hay.indexOf(lead + q + tail);
     if (at >= 0) return from + at + lead.length;
   }
+  if (!bare) return -1;
   const at = hay.indexOf(q);
   return at >= 0 ? from + at : -1;
 }
@@ -377,4 +381,109 @@ export function placeAnchor(doc: Doc, a: Omit<Anchor, 'source_line'>): Place | n
     }
   }
   return placeOf(doc, el);
+}
+
+// ---- re-anchoring (F3) ------------------------------------------------------------------
+
+/**
+ * Where a note's target is after the file changed:
+ * - `anchored`: found where it was;
+ * - `moved`: found, but somewhere else (`place` says where);
+ * - `orphaned`: gone. Never pinned to a guess.
+ */
+export type AnchorState = 'anchored' | 'moved' | 'orphaned';
+
+export interface Located {
+  state: AnchorState;
+  el: Element | null;
+  place: Place | null;
+}
+
+const ORPHANED: Located = { state: 'orphaned', el: null, place: null };
+
+/** Lower case, no whitespace: browsers' innerText and the parsed text differ in spacing and text-transform. */
+const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+const words = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+
+/** An element's recorded text, without the ellipsis the SDK adds when it clips it. */
+const recordedText = (t: string | undefined) => (t ?? '').replace(/…$/, '');
+
+/** Enough words in common that an edited element is still the one the note was about. */
+function similar(before: string, after: string): boolean {
+  const a = words(before);
+  if (a.length < 3) return true;
+  const b = new Set(words(after));
+  return a.filter((w) => b.has(w)).length / a.length >= 0.34;
+}
+
+function bodyElements(doc: Doc): Element[] {
+  return [...doc.ranges.keys()];
+}
+
+function locateElement(doc: Doc, a: Omit<Anchor, 'source_line'>): Located {
+  const original = a.selector ? resolveSelector(doc, a.selector) : null;
+  const tag = (a.tag ?? '').toLowerCase();
+  const found = (el: Element, state: AnchorState): Located => ({ state, el, place: placeOf(doc, el) });
+  // 1. The stable id: the same element, wherever it is now.
+  if (a.stable_id) {
+    const el = byStableId(doc, a.stable_id);
+    if (el) return found(el, !a.selector || cssPath(doc, el) === a.selector ? 'anchored' : 'moved');
+  }
+  // 2. The element's text: an element of the same tag that still starts with it.
+  const want = norm(recordedText(a.text));
+  if (want) {
+    const matches = bodyElements(doc).filter((el) => (!tag || el.tagName.toLowerCase() === tag) && norm(textOf(doc, el)).startsWith(want));
+    if (original && matches.includes(original)) return found(original, 'anchored');
+    if (matches.length === 1) return found(matches[0], 'moved');
+  }
+  // 3. The selector, if what is there now is still recognisably the same element.
+  if (original && (!tag || original.tagName.toLowerCase() === tag) && similar(recordedText(a.text), textOf(doc, original))) {
+    return found(original, 'anchored');
+  }
+  return ORPHANED;
+}
+
+function count(hay: string, needle: string): number {
+  let n = 0;
+  for (let at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + 1)) n++;
+  return n;
+}
+
+function locateText(doc: Doc, a: Omit<Anchor, 'source_line'>): Located {
+  const q = a.quote ?? '';
+  if (!q) return ORPHANED;
+  const byId = a.stable_id ? byStableId(doc, a.stable_id) : null;
+  const bySelector = a.selector ? resolveSelector(doc, a.selector) : null;
+  const original = byId ?? bySelector;
+  const within = (el: Element | null, bare: boolean) => {
+    const r = el ? doc.ranges.get(el) : undefined;
+    return r ? findQuote(doc, a, r[0], r[1], bare) : -1;
+  };
+  const inside = (el: Element | null, at: number) => {
+    const r = el ? doc.ranges.get(el) : undefined;
+    return !!r && r[0] <= at && at + q.length <= r[1];
+  };
+  const found = (at: number, state: AnchorState, el?: Element | null): Located => {
+    const container = el ?? containerOf(doc, at, at + q.length) ?? doc.body;
+    if (!container) return ORPHANED;
+    return { state, el: container, place: placeOf(doc, container, { start: at, end: at + q.length, text: q }) };
+  };
+  // 1. The stable id's element still holds the quote.
+  let at = within(byId, true);
+  if (at >= 0) return found(at, 'anchored', byId);
+  // 2. The quote with its prefix or suffix, anywhere on the page.
+  at = within(original, false);
+  if (at < 0) at = findQuote(doc, a, 0, doc.text.length, false);
+  if (at >= 0) return inside(original, at) ? found(at, 'anchored', original) : found(at, 'moved');
+  // 3. The selector's element still holds the bare quote.
+  at = within(bySelector, true);
+  if (at >= 0) return found(at, 'anchored', bySelector);
+  // Last, the bare quote, but only where it is unambiguous.
+  if (count(doc.text, q) === 1) return found(doc.text.indexOf(q), 'moved');
+  return ORPHANED;
+}
+
+/** Re-resolves a note's anchor against the document as it is now. */
+export function locate(doc: Doc, a: Omit<Anchor, 'source_line'>): Located {
+  return a.quote !== undefined ? locateText(doc, a) : locateElement(doc, a);
 }

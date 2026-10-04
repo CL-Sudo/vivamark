@@ -155,6 +155,7 @@ interface FeedbackView {
   seq?: { from: number; to: number };
   notes?: DeliveredNote[];
   decision?: Decision;
+  orphaned?: string[];
   after?: number;
   last_seq?: number;
 }
@@ -202,6 +203,10 @@ function renderFeedback(v: FeedbackView, next: string): string {
     lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${describeLines(a)}`);
     for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
     if (a) {
+      const st = a as Anchor & { state?: string; current?: { selector: string; source_line: number | null } };
+      if (st.state === 'orphaned') lines.push('    target: gone from the file (orphaned); the note is kept, not re-pinned');
+      else if (st.state === 'moved' && st.current) lines.push(`    target: moved to ${st.current.selector}${st.current.source_line ? ` (line ${st.current.source_line})` : ''}`);
+      else if (st.current?.source_line) lines.push(`    target: now at line ${st.current.source_line}`);
       if (a.selector) lines.push(`    selector: ${a.selector}`);
       if (n.kind === 'element' && a.text) lines.push(`    text: "${a.text}"`);
       if (a.cell) lines.push(`    cell: ${describeCell(a.cell)}`);
@@ -210,6 +215,7 @@ function renderFeedback(v: FeedbackView, next: string): string {
     }
     lines.push('');
   }
+  if (v.orphaned?.length) lines.push(`orphaned (target gone): ${v.orphaned.join(', ')}`);
   lines.push(`next: ${next}`);
   return lines.join('\n') + '\n';
 }
@@ -267,7 +273,7 @@ async function cmdWait(argv: string[]): Promise<void> {
             ? 'the review is closed; stop, or ask the reviewer to look again later'
             : `carry on with the work${decision === 'approve-with-notes' ? ', following the notes' : ''}; to wait for more: vivamark wait ${quote(s.file)} --after ${to}`;
       if (values.json) {
-        const out = { schema: FEEDBACK_SCHEMA, session: v.session, status: v.status, seq: v.seq, notes: v.notes, next, decision };
+        const out = { schema: FEEDBACK_SCHEMA, session: v.session, status: v.status, seq: v.seq, notes: v.notes, next, decision, orphaned: v.orphaned ?? [] };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
       } else {
         process.stdout.write(renderFeedback(v, next));

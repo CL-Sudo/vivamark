@@ -235,19 +235,27 @@
 
   /** Finds the quote under its container, preferring the occurrence that matches the prefix. */
   function resolveText(a: Anchor): Range | null {
-    const root = resolveElement(a) ?? document.body;
     if (!a.quote) return null;
+    const root = resolveElement(a);
+    return (root && findText(root, a, a.quote)) || findText(document.body, a, a.quote);
+  }
+
+  function findText(root: Element, a: Anchor, quote: string): Range | null {
     const nodes: Text[] = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
     const full = nodes.map((n) => n.data).join('');
-    let at = a.prefix ? full.indexOf(a.prefix + a.quote) : -1;
-    at = at >= 0 ? at + (a.prefix ?? '').length : full.indexOf(a.quote);
+    let at = a.prefix ? full.indexOf(a.prefix + quote) : -1;
+    at = at >= 0 ? at + (a.prefix ?? '').length : full.indexOf(quote);
     if (at < 0) return null;
+    return rangeAt(nodes, at, at + quote.length);
+  }
+
+  /** A DOM range over [at, end) of the joined text of `nodes`. */
+  function rangeAt(nodes: Text[], at: number, end: number): Range | null {
     const range = document.createRange();
     let pos = 0;
     let startSet = false;
-    const end = at + a.quote.length;
     for (const n of nodes) {
       const next = pos + n.data.length;
       if (!startSet && at < next) {

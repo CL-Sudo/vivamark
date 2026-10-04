@@ -11,10 +11,12 @@ import MarkdownIt from 'markdown-it';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensEqual, wsToken } from './guard.js';
-import { docKind, loadDoc, placeAnchor } from './doc.js';
+import { createHash } from 'node:crypto';
+import { docKind, loadDoc, locate, placeAnchor } from './doc.js';
+import type { AnchorState, Doc, Place } from './doc.js';
 import { injectScript } from './html.js';
 import { DECISIONS, entryDecision, FEEDBACK_SCHEMA, LIMITS, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
-import type { Decision, DraftNote, LogEntry, NoteEntry, Reply } from './schema.js';
+import type { Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
@@ -91,6 +93,18 @@ interface Live {
   lastPresence?: string;
 }
 
+/** What re-anchoring found for one note, against the file as it is now. */
+interface NoteState {
+  state: AnchorState;
+  current: Place | null;
+}
+
+/** The derived state of a session for one version of the file and the log. */
+interface Analysis {
+  key: string;
+  notes: Map<string, NoteState>;
+}
+
 class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -137,6 +151,7 @@ export class Daemon {
   private servers: http.Server[] = [];
   private wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, handleProtocols: () => 'vivamark.v1' });
   private live = new Map<string, Live>();
+  private analyses = new Map<string, Analysis>();
   private idleMs: number;
   private idleSince = Date.now();
   private timers: NodeJS.Timeout[] = [];
@@ -355,6 +370,7 @@ export class Daemon {
   }
 
   private sessionView(s: Session) {
+    const a = this.analyze(s);
     return {
       id: s.id,
       file: s.file,
@@ -362,7 +378,7 @@ export class Daemon {
       status: s.status,
       labels: s.labels,
       artifact_url: `/a/${s.id}/${s.artifact_key}/${encodeURIComponent(path.basename(s.file))}`,
-      notes: s.log.filter((e): e is NoteEntry => e.type === 'note'),
+      notes: this.noteEntries(s).map((e) => ({ ...e, note: this.noteView(e.note, a) })),
       decisions: this.decisions(s),
       replies: s.replies.map((r) => this.replyView(r)),
       agent: this.presence(s),
@@ -450,6 +466,53 @@ export class Daemon {
 
   // ---- feedback -----------------------------------------------------------
 
+  private noteEntries(s: Session): NoteEntry[] {
+    return s.log.filter((e): e is NoteEntry => e.type === 'note');
+  }
+
+  /**
+   * Re-resolves every note's anchor against the file as it is now (F3).
+   * Cached until the file or the log changes.
+   */
+  private analyze(s: Session): Analysis {
+    let source: string | null = null;
+    try {
+      source = fs.readFileSync(s.file, 'utf8');
+    } catch {
+      // The file is gone: so is every target on it.
+    }
+    const key = `${source === null ? 'gone' : createHash('sha256').update(source).digest('hex')}:${s.log.length}`;
+    const cached = this.analyses.get(s.id);
+    if (cached?.key === key) return cached;
+    const doc: Doc | null = source === null ? null : loadDoc(docKind(s.file) ?? 'html', source, path.basename(s.file));
+    const notes = new Map<string, NoteState>();
+    for (const e of this.noteEntries(s)) {
+      const anchor = e.note.anchor;
+      if (!anchor) continue;
+      const found = doc ? locate(doc, anchor) : null;
+      notes.set(e.note.id, { state: found?.state ?? 'orphaned', current: found?.place ?? null });
+    }
+    const analysis: Analysis = { key, notes };
+    this.analyses.set(s.id, analysis);
+    return analysis;
+  }
+
+  /** A note as readers see it: the logged note, plus where its target is now. */
+  private noteView(n: Note, a: Analysis): Note {
+    const st = n.anchor ? a.notes.get(n.id) : undefined;
+    if (!n.anchor || !st) return n;
+    const anchor: Anchor & { state: AnchorState; current?: Place } = { ...n.anchor, state: st.state };
+    const stale = st.current && (st.state === 'moved' || JSON.stringify(st.current.lines) !== JSON.stringify(n.anchor.lines ?? null));
+    if (st.current && stale) anchor.current = st.current;
+    return { ...n, anchor };
+  }
+
+  private orphaned(s: Session, a: Analysis): string[] {
+    return this.noteEntries(s)
+      .filter((e) => a.notes.get(e.note.id)?.state === 'orphaned')
+      .map((e) => e.note.id);
+  }
+
   /** The reviewed file, parsed; null when it is gone (notes then keep their anchors, without lines). */
   private readDoc(s: Session) {
     let source: string;
@@ -499,15 +562,20 @@ export class Daemon {
       after = s.cursors[owner] ?? 0;
     }
     const hold = Math.min(MAX_HOLD_MS, Math.max(0, Number(url.searchParams.get('hold') ?? 0) || 0));
-    const view = (entries: LogEntry[]) => ({
-      schema: FEEDBACK_SCHEMA,
-      session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
-      status: 'feedback',
-      seq: { from: entries[0].seq, to: entries[entries.length - 1].seq },
-      notes: entries.filter((e): e is NoteEntry => e.type === 'note').map((e) => ({ seq: e.seq, ...e.note })),
-      // The latest Send in the range decides.
-      decision: entryDecision(entries[entries.length - 1]),
-    });
+    const view = (entries: LogEntry[]) => {
+      const a = this.analyze(s);
+      return {
+        schema: FEEDBACK_SCHEMA,
+        session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
+        status: 'feedback',
+        seq: { from: entries[0].seq, to: entries[entries.length - 1].seq },
+        notes: entries.filter((e): e is NoteEntry => e.type === 'note').map((e) => ({ seq: e.seq, ...this.noteView(e.note, a) })),
+        // The latest Send in the range decides.
+        decision: entryDecision(entries[entries.length - 1]),
+        // Every note in the session whose target is gone, not only those in this range.
+        orphaned: this.orphaned(s, a),
+      };
+    };
     const pending = () => ({
       schema: FEEDBACK_SCHEMA,
       session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
@@ -620,7 +688,11 @@ export class Daemon {
       l.watcher = fs.watch(path.dirname(s.file), { persistent: false }, (_event, changed) => {
         if (changed && changed.toString() !== name) return;
         clearTimeout(l.reloadTimer);
-        l.reloadTimer = setTimeout(() => this.broadcast(s, { type: 'reload' }), RELOAD_DEBOUNCE_MS);
+        l.reloadTimer = setTimeout(() => {
+          // Re-anchor every note against the new file before the page asks for it.
+          this.analyze(s);
+          this.broadcast(s, { type: 'reload' });
+        }, RELOAD_DEBOUNCE_MS);
       });
       l.watcher.on('error', () => this.unwatch(l));
     } catch {

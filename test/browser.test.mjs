@@ -238,7 +238,8 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   await pickAndAdd(doc.locator('#region'), 'Add APAC.');
   await pickAndAdd(doc.locator('#merged td', { hasText: 'Monday' }), 'Which Monday?');
   await pickAndAdd(doc.locator('#chart'), 'Why the spike here?', { x: 180, y: 30 });
-  assert.equal(await page.locator('.note.queued').count(), 7);
+  await pickAndAdd(doc.locator('p', { hasText: 'The save handler touches' }), 'Say how.');
+  assert.equal(await page.locator('.note.queued').count(), 8);
 
   // F1: with notes queued, Approve becomes Approve with notes and Dismiss waits.
   assert.equal(await page.textContent('#approve'), 'Approve with notes');
@@ -263,6 +264,35 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   const pt = chart.anchor.point;
   assert.deepEqual([pt.width, pt.height], [240, 120]);
   assert.ok(Math.abs(pt.x - 180) <= 1 && Math.abs(pt.y - 30) <= 1, JSON.stringify(pt));
+
+  // F3: the agent rewords step 2, deletes step 3 and inserts a paragraph above the risks.
+  fs.writeFileSync(
+    file,
+    original
+      .replace('Applet scaffold, save handler and container page.', 'Applet scaffold and container page.')
+      .replace(/\s*<li id="step-3">.*<\/li>/, '')
+      .replace('<h2>Risks</h2>', '<h2>Risks</h2>\n  <p>Rollback is covered in step 4.</p>'),
+  );
+  await doc.locator('p', { hasText: 'Rollback is covered' }).waitFor({ timeout: 10_000 });
+  await page.waitForSelector('.orphans .note[data-n="2"]');
+  assert.equal(await page.locator('.orphans .note').count(), 1, 'only the deleted step is listed apart');
+  assert.match(await page.textContent('.orphans-head'), /Target gone · 1/);
+  assert.equal(await page.locator('.note[data-n="8"] .pill.flag.moved').count(), 1);
+  // The orphan is not drawn on the page; the moved note is drawn where its paragraph is now.
+  const layerBadges = () =>
+    frame().evaluate(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].map((c) => c.textContent).filter(Boolean));
+  await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === '8'));
+  const badges = await layerBadges();
+  assert.ok(!badges.includes('2'), `no badge for the orphaned note: ${badges}`);
+  const markTop = await frame().evaluate(() => {
+    const b = [...document.getElementById('__vivamark_layer').children].find((c) => c.textContent === '8');
+    const p = [...document.querySelectorAll('p')].find((x) => x.textContent.startsWith('The save handler'));
+    return { badge: b.getBoundingClientRect().top, para: p.getBoundingClientRect().top, bottom: p.getBoundingClientRect().bottom };
+  });
+  assert.ok(markTop.badge >= markTop.para - 12 && markTop.badge <= markTop.bottom, JSON.stringify(markTop));
+  const reanchored = JSON.parse((await world.cli(['wait', file, '--json', '--after', '0'])).stdout);
+  assert.deepEqual(reanchored.orphaned, ['n_0002']);
+  assert.equal(reanchored.notes[7].anchor.state, 'moved');
 
   // F1: Approve with nothing queued sends a decision alone; wait exits 6.
   assert.equal(await page.textContent('#approve'), 'Approve');

@@ -5,3 +5,4 @@ export { loopbackAuthority, hostAllowed, originAllowed, tokenProof, tokensEqual,
 export { renderReply } from './daemon.js';
 export { Daemon } from './daemon.js';
 export { Store } from './store.js';
+export { cssEscape, cssPath, loadDoc, locate, resolveSelector } from './doc.js';

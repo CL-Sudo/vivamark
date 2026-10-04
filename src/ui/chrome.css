@@ -96,6 +96,13 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 .note-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; }
 .note-tags:empty { display: none; }
 .note.queued:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pill.flag { background: rgba(14, 165, 233, .1); color: var(--accent-strong); }
+.pill.flag.changed { background: rgba(245, 158, 11, .12); color: #b45309; }
+.orphans { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--r); background: rgba(244, 63, 94, .04); border: 1px dashed rgba(244, 63, 94, .3); }
+.orphans-head { font-size: 12px; font-weight: 600; color: #be123c; }
+.orphans-hint { margin: 0; font-size: 12px; color: var(--muted); }
+.note.orphaned { box-shadow: none; opacity: .85; }
+.note.orphaned .num { background: #94a3b8; }
 .composer { display: flex; flex-direction: column; gap: 10px; }
 .target { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
 .target-label { flex: none; }

@@ -15,6 +15,10 @@ interface Anchor {
   control?: { role: string; name: string };
   point?: { x: number; y: number; width: number; height: number };
   source_line?: number | null;
+  lines?: [number, number] | null;
+  /** F3, on sent notes: where the target is now. */
+  state?: 'anchored' | 'moved' | 'orphaned';
+  current?: { stable_id: string | null; selector: string; source_line: number | null; lines: [number, number] | null };
 }
 type Intent = 'change' | 'question' | 'delete' | 'looks-good';
 type Severity = 'blocking' | 'important' | 'nit';
@@ -182,7 +186,9 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   card.dataset.n = String(n);
   const head = el('div', 'note-head');
   head.append(el('span', 'num', String(n)), el('span', `kind ${d.kind}`, KIND_LABEL[d.kind]));
-  const where = el('span', 'where', describe(d.kind, d.anchor) + (line ? ` · line ${line}` : ''));
+  const state = d.anchor?.state;
+  const lineNow = d.anchor?.current?.source_line ?? line;
+  const where = el('span', 'where', describe(d.kind, d.anchor) + (lineNow && state !== 'orphaned' ? ` · line ${lineNow}` : ''));
   where.title = where.textContent ?? '';
   head.append(where);
   if (queuedIndex !== null) {
@@ -203,6 +209,8 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
     head.append(el('span', 'state', 'Sent'));
   }
   const tagRow = el('div', 'note-tags');
+  if (state === 'moved') tagRow.append(Object.assign(el('span', 'pill flag moved', 'Moved'), { title: `Re-attached at ${d.anchor?.current?.selector ?? 'a new place'}` }));
+  if (state === 'orphaned') card.classList.add('orphaned');
   if (d.intent) tagRow.append(el('span', `pill intent ${d.intent}`, INTENT_LABEL[d.intent]));
   if (d.severity) tagRow.append(el('span', `pill sev ${d.severity}`, SEVERITY_LABEL[d.severity]));
   card.append(head, tagRow, el('p', 'comment', d.comment));
@@ -263,15 +271,30 @@ function decisionCard(d: DecisionView): HTMLElement {
   return card;
 }
 
+function orphanGroup(cards: HTMLElement[]): HTMLElement {
+  const group = el('section', 'orphans');
+  group.setAttribute('aria-label', 'Notes whose target is gone');
+  const head = el('div', 'orphans-head', `Target gone · ${cards.length}`);
+  const hint = el('p', 'orphans-hint', 'What these notes pointed at is no longer in the file. They are kept here, not pinned to a guess.');
+  group.append(head, hint, ...cards);
+  return group;
+}
+
 function render(): void {
   const items: { at: string; node: HTMLElement }[] = [];
-  sent.forEach((e, i) => items.push({ at: e.at, node: noteCard(i + 1, e.note, null, e.note.anchor?.source_line) }));
+  const orphans: HTMLElement[] = [];
+  sent.forEach((e, i) => {
+    const card = noteCard(i + 1, e.note, null, e.note.anchor?.source_line);
+    if (e.note.anchor?.state === 'orphaned') orphans.push(card);
+    else items.push({ at: e.at, node: card });
+  });
   replies.forEach((r) => items.push({ at: r.at, node: replyCard(r) }));
   // A decision follows the notes it was sent with.
   decisions.forEach((d) => items.push({ at: `${d.at}~`, node: decisionCard(d) }));
   items.sort((a, b) => a.at.localeCompare(b.at));
   const nodes = items.map((i) => i.node);
   queue.forEach((d, i) => nodes.push(noteCard(sent.length + i + 1, d, i)));
+  if (orphans.length) nodes.unshift(orphanGroup(orphans));
   if (!nodes.length) nodes.push(el('div', 'empty', 'No notes yet.'));
   const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 40;
   thread.replaceChildren(...nodes);
@@ -311,7 +334,13 @@ function toFrame(msg: Record<string, unknown>): void {
 
 function postMarks(): void {
   const marks = [
-    ...sent.map((e, i) => ({ n: i + 1, kind: e.note.kind, anchor: e.note.anchor, queued: false })),
+    ...sent.flatMap((e, i) => {
+      const a = e.note.anchor;
+      // An orphaned note is not drawn at all; a moved one is drawn where it is now.
+      if (a?.state === 'orphaned') return [];
+      const anchor = a?.current && a.state === 'moved' ? { ...a, stable_id: a.current.stable_id, selector: a.current.selector } : a;
+      return [{ n: i + 1, kind: e.note.kind, anchor, queued: false }];
+    }),
     ...queue.map((d, i) => ({ n: sent.length + i + 1, kind: d.kind, anchor: d.anchor, queued: true })),
   ];
   toFrame({ type: 'marks', marks });
@@ -468,6 +497,8 @@ function connect(): void {
       mergeReply(ev.reply);
       render();
     } else if (ev.type === 'reload') {
+      // The file changed: the server has re-anchored every note against it.
+      void refresh();
       loadFrame();
       const chip = $('reload-chip');
       chip.hidden = false;

@@ -247,3 +247,60 @@ test('F5: HTML notes carry lines too', async () => {
   assert.deepEqual(w.out.notes[0].anchor.lines, [lineOf('id="step-2"'), lineOf('id="step-2"')]);
   assert.deepEqual(w.out.notes[1].anchor.lines, [lineOf('Director or Attestor'), lineOf('Director or Attestor')]);
 });
+
+// ---- F3 ---------------------------------------------------------------------------
+
+const STEP3_NOTE = {
+  kind: 'element',
+  comment: 'Who verifies?',
+  anchor: { stable_id: 'step-3', selector: '#step-3', tag: 'li', text: 'Deploy and rollback SQL, browser verification.' },
+};
+const RISKS_NOTE = {
+  kind: 'element',
+  comment: 'Say how.',
+  anchor: { stable_id: null, selector: 'body > p:nth-of-type(2)', tag: 'p', text: 'The save handler touches the certificate store; a failed enrolment must leave no partial rows.' },
+};
+
+/** The agent's edit: step 2 reworded, step 3 deleted, a paragraph inserted before the risks. */
+function agentEdit(html) {
+  return html
+    .replace('Applet scaffold, save handler and container page.', 'Applet scaffold and container page.')
+    .replace(/\s*<li id="step-3">.*<\/li>/, '')
+    .replace('<h2>Risks</h2>', '<h2>Risks</h2>\n  <p>Rollback is covered in step 4.</p>');
+}
+
+test('F3: after an edit each note is anchored, moved or orphaned, in wait output', async () => {
+  const s = await openPage('f3.html');
+  assert.equal((await send(s, [ELEMENT_NOTE, STEP3_NOTE, RISKS_NOTE, TEXT_NOTE])).status, 201);
+  const before = await waitJson(s);
+  assert.deepEqual(before.out.notes.map((n) => n.anchor.state), ['anchored', 'anchored', 'anchored', 'anchored']);
+  assert.deepEqual(before.out.orphaned, []);
+
+  fs.writeFileSync(s.file, agentEdit(fs.readFileSync(s.file, 'utf8')));
+  const w = await waitJson(s);
+  const [step2, step3, risks, quote] = w.out.notes;
+  assert.equal(step2.anchor.state, 'anchored');
+  assert.equal(step3.anchor.state, 'orphaned');
+  assert.equal(step3.anchor.current, undefined);
+  assert.equal(risks.anchor.state, 'moved');
+  assert.equal(risks.anchor.current.selector, 'body > p:nth-of-type(3)');
+  const edited = fs.readFileSync(s.file, 'utf8');
+  assert.equal(risks.anchor.current.source_line, edited.slice(0, edited.indexOf('The save handler touches')).split('\n').length);
+  assert.equal(quote.anchor.state, 'anchored');
+  assert.deepEqual(w.out.orphaned, [step3.id]);
+
+  // Orphaned notes in an earlier range are still reported to a reader that has moved on.
+  assert.equal((await send(s, [{ kind: 'page', comment: 'Next round.', anchor: null }])).status, 201);
+  const later = await waitJson(s, ['--after', String(before.out.seq.to)]);
+  assert.equal(later.out.notes.length, 1);
+  assert.deepEqual(later.out.orphaned, [step3.id]);
+
+  const text = await world.cli(['wait', s.file, '--after', '0']);
+  assert.match(text.stdout, /target: gone from the file \(orphaned\)/);
+  assert.match(text.stdout, /target: moved to body > p:nth-of-type\(3\)/);
+  assert.match(text.stdout, /orphaned \(target gone\): n_0002/);
+
+  // The review page gets the same states.
+  const v = await view(s);
+  assert.deepEqual(v.notes.map((e) => e.note.anchor?.state ?? null), ['anchored', 'orphaned', 'moved', 'anchored', null]);
+});
