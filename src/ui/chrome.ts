@@ -11,6 +11,9 @@ interface Anchor {
   quote?: string;
   prefix?: string;
   suffix?: string;
+  cell?: { row?: string; column?: string };
+  control?: { role: string; name: string };
+  point?: { x: number; y: number; width: number; height: number };
   source_line?: number | null;
 }
 type Intent = 'change' | 'question' | 'delete' | 'looks-good';
@@ -149,6 +152,12 @@ function describe(kind: Kind, a: Anchor | null): string {
   if (kind === 'page' || !a) return 'the whole page';
   if (kind === 'text') return `“${clip(a.quote ?? '', 60)}”`;
   const name = `<${a.tag ?? 'element'}${a.stable_id ? `#${a.stable_id}` : ''}>`;
+  if (a.control) return `${a.control.role} “${clip(a.control.name, 40)}”`;
+  if (a.cell) {
+    const parts = [a.cell.row, a.cell.column].filter((x) => x !== undefined) as string[];
+    return `cell ${parts.map((p) => clip(p, 24)).join(' · ')}`;
+  }
+  if (a.point) return `${name} at ${Math.round(a.point.x)}, ${Math.round(a.point.y)}`;
   return a.text ? `${name} ${clip(a.text, 48)}` : name;
 }
 

@@ -169,7 +169,14 @@ function readReplyFile(p: string): string {
 function describeTarget(kind: NoteKind, a: Anchor | null): string {
   if (kind === 'page' || !a) return 'the whole page';
   if (kind === 'text') return `text "${a.quote}"`;
-  return `<${a.tag || 'element'}${a.stable_id ? `#${a.stable_id}` : ''}>`;
+  const el = `<${a.tag || 'element'}${a.stable_id ? `#${a.stable_id}` : ''}>`;
+  if (a.control) return `${a.control.role} "${a.control.name}" ${el}`;
+  if (a.cell) return `cell ${describeCell(a.cell)} ${el}`;
+  return el;
+}
+
+function describeCell(c: NonNullable<Anchor['cell']>): string {
+  return [c.row !== undefined ? `row "${c.row}"` : '', c.column !== undefined ? `column "${c.column}"` : ''].filter(Boolean).join(', ');
 }
 
 const DECISION_TEXT: Record<Decision, string> = {
@@ -191,6 +198,8 @@ function renderFeedback(v: FeedbackView, next: string): string {
     if (a) {
       if (a.selector) lines.push(`    selector: ${a.selector}`);
       if (n.kind === 'element' && a.text) lines.push(`    text: "${a.text}"`);
+      if (a.cell) lines.push(`    cell: ${describeCell(a.cell)}`);
+      if (a.point) lines.push(`    point: x ${a.point.x}, y ${a.point.y} in a ${a.point.width} x ${a.point.height} box`);
       if (n.kind === 'text') lines.push(`    context: "…${a.prefix ?? ''}[${a.quote}]${a.suffix ?? ''}…"`);
     }
     lines.push('');

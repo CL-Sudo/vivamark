@@ -24,5 +24,19 @@
   </ol>
   <h2>Risks</h2>
   <p>The save handler touches the certificate store; a failed enrolment must leave no partial rows.</p>
+  <h2>Rollout</h2>
+  <table id="rollout">
+    <thead><tr><th>Stage</th><th>Owner</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Shadow traffic</td><td>Platform team</td><td>Ready</td></tr>
+      <tr><td>Canary</td><td>Payments team</td><td><code>blocked</code></td></tr>
+    </tbody>
+  </table>
+  <table id="merged">
+    <tr><th colspan="2">Window</th></tr>
+    <tr><td>Start</td><td>Monday</td></tr>
+  </table>
+  <div id="controls"><button type="button" aria-label="Approve rollout">&#10003;</button> <label>Region <select id="region"><option>EU</option><option>US</option></select></label></div>
+  <svg id="chart" width="240" height="120" viewBox="0 0 240 120" role="img" aria-label="Error rate"><rect width="240" height="120" fill="#f0f9ff"/><polyline points="0,100 60,80 120,90 180,30 240,40" fill="none" stroke="#0ea5e9" stroke-width="3"/></svg>
 </body>
 </html>

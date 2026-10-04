@@ -18,6 +18,9 @@
     quote?: string;
     prefix?: string;
     suffix?: string;
+    cell?: { row?: string; column?: string };
+    control?: { role: string; name: string };
+    point?: { x: number; y: number; width: number; height: number };
   };
   type Mark = { n: number; kind: 'element' | 'text' | 'page'; anchor: Anchor | null; queued: boolean };
 
@@ -60,9 +63,135 @@
 
   const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 
-  function elementAnchor(el: Element): Anchor {
-    const text = squash((el as HTMLElement).innerText ?? el.textContent ?? '');
-    return { stable_id: stableId(el), selector: cssPath(el), tag: el.localName, text: text.length > 200 ? text.slice(0, 199) + '…' : text };
+  const clipText = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+  const textOf = (el: Element | null | undefined) => squash((el as HTMLElement | null)?.innerText ?? el?.textContent ?? '');
+
+  /**
+   * A table cell named by its row's first cell and its column's header, as
+   * an agent would grep for them. Omitted when any cell of the table spans
+   * rows or columns: the header above a cell is then a guess.
+   */
+  function cellName(el: Element): Anchor['cell'] {
+    const cell = el.closest('td, th') as HTMLTableCellElement | null;
+    const table = cell?.closest('table');
+    if (!cell || !table) return undefined;
+    for (const c of table.querySelectorAll<HTMLTableCellElement>('td, th')) {
+      if (c.closest('table') === table && (c.rowSpan > 1 || c.colSpan > 1)) return undefined;
+    }
+    const row = cell.parentElement as HTMLTableRowElement;
+    const rows = [...table.rows];
+    const first = rows[0];
+    const header = table.tHead?.rows[table.tHead.rows.length - 1] ?? (first && [...first.cells].every((c) => c.localName === 'th') ? first : undefined);
+    const out: { row?: string; column?: string } = {};
+    const column = header ? textOf(header.cells[cell.cellIndex]) : '';
+    if (column) out.column = clipText(column, 120);
+    if (row !== header) {
+      const name = textOf(row.cells[0]);
+      if (name) out.row = clipText(name, 120);
+    }
+    return out.row || out.column ? out : undefined;
+  }
+
+  const CONTROLS =
+    'button, a[href], input, select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], ' +
+    '[role="switch"], [role="tab"], [role="menuitem"], [role="combobox"], [role="slider"], [role="textbox"], [role="option"]';
+
+  function implicitRole(el: Element): string {
+    const explicit = el.getAttribute('role');
+    if (explicit) return explicit.split(/\s+/)[0];
+    switch (el.localName) {
+      case 'a':
+        return 'link';
+      case 'select':
+        return (el as HTMLSelectElement).multiple ? 'listbox' : 'combobox';
+      case 'textarea':
+        return 'textbox';
+      case 'input': {
+        const type = (el as HTMLInputElement).type;
+        if (type === 'checkbox' || type === 'radio') return type;
+        if (type === 'range') return 'slider';
+        if (['button', 'submit', 'reset', 'image'].includes(type)) return 'button';
+        return 'textbox';
+      }
+      default:
+        return 'button';
+    }
+  }
+
+  /** Text of a label without the control inside it (a wrapping label holds the select's options too). */
+  function labelText(label: Element): string {
+    const copy = label.cloneNode(true) as Element;
+    for (const c of copy.querySelectorAll('input, select, textarea, button')) c.remove();
+    return squash(copy.textContent ?? '');
+  }
+
+  /** The control's accessible name, by the usual precedence: labelledby, aria-label, label, alt or value, text, title, placeholder. */
+  function accessibleName(el: Element): string {
+    const ids = el.getAttribute('aria-labelledby');
+    if (ids) {
+      const t = squash(ids.split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' '));
+      if (t) return t;
+    }
+    const aria = squash(el.getAttribute('aria-label') ?? '');
+    if (aria) return aria;
+    const labels = (el as HTMLInputElement).labels;
+    if (labels && labels.length) {
+      const t = squash([...labels].map((l) => labelText(l)).join(' '));
+      if (t) return t;
+    }
+    if (el.localName === 'input') {
+      const input = el as HTMLInputElement;
+      if (input.type === 'image' && input.alt) return squash(input.alt);
+      if (['button', 'submit', 'reset'].includes(input.type) && input.value) return squash(input.value);
+    }
+    if (!['input', 'select', 'textarea'].includes(el.localName)) {
+      const t = textOf(el) || squash([...el.querySelectorAll('img[alt]')].map((i) => i.getAttribute('alt') ?? '').join(' '));
+      if (t) return t;
+    }
+    return squash(el.getAttribute('title') ?? el.getAttribute('placeholder') ?? '');
+  }
+
+  function controlName(el: Element): Anchor['control'] {
+    const control = el.closest(CONTROLS);
+    if (!control) return undefined;
+    const name = accessibleName(control);
+    return name ? { role: implicitRole(control), name: clipText(name, 200) } : undefined;
+  }
+
+  /** The image, canvas or outermost svg a click landed on, if any. */
+  function graphicOf(el: Element): Element | null {
+    if (el.localName === 'img' || el.localName === 'canvas') return el;
+    let svg = el.closest('svg');
+    while (svg?.parentElement?.closest('svg')) svg = svg.parentElement.closest('svg');
+    return svg;
+  }
+
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+
+  /**
+   * What a picked element is called. A click on an image, canvas or chart
+   * names the graphic and the point within it, in CSS pixels of its box, so
+   * the point scales to the viewBox or the image's natural size.
+   */
+  function elementAnchor(picked: Element, at?: { x: number; y: number }): Anchor {
+    const graphic = at ? graphicOf(picked) : null;
+    const el = graphic ?? picked;
+    const text = textOf(el);
+    const anchor: Anchor = { stable_id: stableId(el), selector: cssPath(el), tag: el.localName, text: clipText(text, 200) };
+    const cell = cellName(el);
+    if (cell) anchor.cell = cell;
+    const control = controlName(el);
+    if (control) anchor.control = control;
+    if (graphic && at) {
+      const r = graphic.getBoundingClientRect();
+      anchor.point = {
+        x: round1(Math.min(Math.max(at.x - r.left, 0), r.width)),
+        y: round1(Math.min(Math.max(at.y - r.top, 0), r.height)),
+        width: round1(r.width),
+        height: round1(r.height),
+      };
+    }
+    return anchor;
   }
 
   function textAnchor(range: Range): Anchor | null {
@@ -240,7 +369,7 @@
       hoverEl = null;
       document.documentElement.style.cursor = '';
       redraw();
-      post({ type: 'pick', kind: 'element', anchor: elementAnchor(el) });
+      post({ type: 'pick', kind: 'element', anchor: elementAnchor(el, { x: (e as MouseEvent).clientX, y: (e as MouseEvent).clientY }) });
     },
     true,
   );

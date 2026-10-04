@@ -145,3 +145,41 @@ test('F4: intent and severity travel with each note, with the W3C motivation', a
     assert.equal(res.status, 400, JSON.stringify(bad));
   }
 });
+
+// ---- F8 ---------------------------------------------------------------------------
+
+test('F8: cell, control and point names are kept, checked and shown to the agent', async () => {
+  const s = await openPage('f8.html');
+  const cellNote = {
+    kind: 'element',
+    comment: 'Which person?',
+    anchor: { stable_id: null, selector: '#rollout > tbody:nth-of-type(1) > tr:nth-of-type(1) > td:nth-of-type(2)', tag: 'td', text: 'Platform team', cell: { row: 'Shadow traffic', column: 'Owner' } },
+  };
+  const controlNote = {
+    kind: 'element',
+    comment: 'Confirm first.',
+    anchor: { stable_id: null, selector: '#controls > button:nth-of-type(1)', tag: 'button', text: '✓', control: { role: 'button', name: 'Approve rollout' } },
+  };
+  const pointNote = {
+    kind: 'element',
+    comment: 'Spike?',
+    anchor: { stable_id: 'chart', selector: '#chart', tag: 'svg', text: '', point: { x: 180.04, y: 30, width: 240, height: 120 } },
+  };
+  assert.equal((await send(s, [cellNote, controlNote, pointNote])).status, 201);
+  const w = await waitJson(s);
+  const [c, b, p] = w.out.notes;
+  assert.deepEqual(c.anchor.cell, { row: 'Shadow traffic', column: 'Owner' });
+  assert.deepEqual(b.anchor.control, { role: 'button', name: 'Approve rollout' });
+  assert.deepEqual(p.anchor.point, { x: 180, y: 30, width: 240, height: 120 });
+  assert.ok(c.anchor.source_line > 1);
+
+  const text = await world.cli(['wait', s.file]);
+  assert.match(text.stdout, /cell row "Shadow traffic", column "Owner" <td>/);
+  assert.match(text.stdout, /button "Approve rollout"/);
+  assert.match(text.stdout, /point: x 180, y 30 in a 240 x 120 box/);
+
+  const bad = { ...pointNote, anchor: { ...pointNote.anchor, point: { x: -1, y: 0, width: 1, height: 1 } } };
+  assert.equal((await send(s, [bad])).status, 400);
+  const nan = { ...pointNote, anchor: { ...pointNote.anchor, point: { x: 'a' } } };
+  assert.equal((await send(s, [nan])).status, 400);
+});

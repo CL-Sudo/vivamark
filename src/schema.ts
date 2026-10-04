@@ -44,6 +44,12 @@ export interface Anchor {
   quote?: string;
   prefix?: string;
   suffix?: string;
+  /** F8: a table cell, by its row's first cell and its column's header. Absent when spans make that ambiguous. */
+  cell?: { row?: string; column?: string };
+  /** F8: a control, by its role and accessible name. */
+  control?: { role: string; name: string };
+  /** F8: where a click landed on an image, canvas or svg, in CSS pixels of the graphic's box. */
+  point?: { x: number; y: number; width: number; height: number };
   /** 1-based line in the saved file, or null when it cannot be mapped. */
   source_line: number | null;
 }
@@ -143,6 +149,37 @@ function nullableStr(v: unknown, max: number): string | null {
   return str(v, max) ?? null;
 }
 
+function plainObject(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+/** The F8 names of an element target: cell, control and point. Unknown or empty parts are dropped. */
+function parseNames(ar: Record<string, unknown>): Pick<Anchor, 'cell' | 'control' | 'point'> | string {
+  const out: Pick<Anchor, 'cell' | 'control' | 'point'> = {};
+  const cell = plainObject(ar.cell);
+  if (cell) {
+    const row = str(cell.row, LIMITS.text);
+    const column = str(cell.column, LIMITS.text);
+    if (row || column) out.cell = { ...(row ? { row } : {}), ...(column ? { column } : {}) };
+  }
+  const control = plainObject(ar.control);
+  if (control) {
+    const name = str(control.name, LIMITS.text);
+    const role = str(control.role, 40);
+    if (name) out.control = { role: role || 'button', name };
+  }
+  if (ar.point !== undefined && ar.point !== null) {
+    const p = plainObject(ar.point);
+    const nums = p && [p.x, p.y, p.width, p.height];
+    if (!nums || !nums.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1e6)) {
+      return 'anchor.point needs x, y, width and height as non-negative numbers';
+    }
+    const [x, y, width, height] = (nums as number[]).map((n) => Math.round(n * 10) / 10);
+    out.point = { x, y, width, height };
+  }
+  return out;
+}
+
 /** Validates one note from the review UI. Returns an error message for bad input. */
 export function parseDraft(input: unknown): DraftNote | string {
   if (!input || typeof input !== 'object') return 'note must be an object';
@@ -174,6 +211,9 @@ export function parseDraft(input: unknown): DraftNote | string {
     anchor.tag = str(ar.tag, 40) ?? '';
     anchor.text = str(ar.text, LIMITS.text) ?? '';
     if (!anchor.stable_id && !anchor.selector) return 'an element note needs stable_id or selector';
+    const named = parseNames(ar);
+    if (typeof named === 'string') return named;
+    Object.assign(anchor, named);
   } else {
     const quote = str(ar.quote, LIMITS.quote);
     if (!quote || !quote.trim()) return 'a text note needs anchor.quote';

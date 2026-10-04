@@ -225,6 +225,21 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   assert.equal(await page.locator('.note.queued[data-n="2"] .pill.sev.nit').count(), 1);
   assert.equal(await page.locator('.note.queued[data-n="1"] .pill.intent.change').count(), 1);
 
+  // F8: a table cell by row and column, controls by accessible name, a point on a chart.
+  const pickAndAdd = async (locator, comment, position) => {
+    await point(locator, position);
+    const described = await page.textContent('#target-text');
+    await page.fill('#comment', comment);
+    await page.click('#add');
+    return described;
+  };
+  assert.equal(await pickAndAdd(doc.locator('#rollout td', { hasText: 'Platform team' }), 'Which person?'), 'cell Shadow traffic · Owner');
+  await pickAndAdd(doc.locator('#controls button'), 'Needs a confirmation step.');
+  await pickAndAdd(doc.locator('#region'), 'Add APAC.');
+  await pickAndAdd(doc.locator('#merged td', { hasText: 'Monday' }), 'Which Monday?');
+  await pickAndAdd(doc.locator('#chart'), 'Why the spike here?', { x: 180, y: 30 });
+  assert.equal(await page.locator('.note.queued').count(), 7);
+
   // F1: with notes queued, Approve becomes Approve with notes and Dismiss waits.
   assert.equal(await page.textContent('#approve'), 'Approve with notes');
   assert.equal(await page.isDisabled('#dismiss'), true);
@@ -235,7 +250,19 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   assert.equal(first.code, 0, first.stderr);
   const out1 = JSON.parse(first.stdout);
   assert.equal(out1.decision, 'request-changes');
-  assert.deepEqual(out1.notes.map((n) => [n.intent, n.severity]), [['change', 'blocking'], ['question', 'nit']]);
+  assert.deepEqual(out1.notes.slice(0, 2).map((n) => [n.intent, n.severity]), [['change', 'blocking'], ['question', 'nit']]);
+  const [, , cell, button, select, merged, chart] = out1.notes;
+  assert.deepEqual(cell.anchor.cell, { row: 'Shadow traffic', column: 'Owner' });
+  assert.equal(cell.anchor.tag, 'td');
+  assert.deepEqual(button.anchor.control, { role: 'button', name: 'Approve rollout' });
+  assert.deepEqual(select.anchor.control, { role: 'combobox', name: 'Region' });
+  assert.equal(merged.anchor.tag, 'td');
+  assert.equal(merged.anchor.cell, undefined, 'no cell name where a span makes the header a guess');
+  assert.equal(chart.anchor.stable_id, 'chart');
+  assert.equal(chart.anchor.tag, 'svg');
+  const pt = chart.anchor.point;
+  assert.deepEqual([pt.width, pt.height], [240, 120]);
+  assert.ok(Math.abs(pt.x - 180) <= 1 && Math.abs(pt.y - 30) <= 1, JSON.stringify(pt));
 
   // F1: Approve with nothing queued sends a decision alone; wait exits 6.
   assert.equal(await page.textContent('#approve'), 'Approve');
