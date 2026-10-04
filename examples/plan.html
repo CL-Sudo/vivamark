@@ -2,39 +2,176 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Request Certificate screen: plan</title>
 <style>
-  body { font: 16px/1.6 system-ui, sans-serif; color: #33415c; max-width: 44rem; margin: 40px 56px; }
-  h1 { color: #0b1324; font-size: 30px; line-height: 1.2; margin: 0 0 12px; }
-  h2 { color: #0b1324; font-size: 19px; margin: 26px 0 10px; }
-  .eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #0ea5e9; }
-  ol { padding-left: 22px; }
-  li { padding: 4px 8px; }
-  table { border-collapse: collapse; } th, td { border-bottom: 1px solid #e2e8f0; padding: 6px 14px 6px 0; text-align: left; }
+/* vivamark "Smooth glass" page style (vivamark guide design). Fetches nothing. */
+:root {
+  color-scheme: light dark;
+  --bg: #f7fbff;
+  --bg-tint: linear-gradient(135deg, #f6faff, #ffffff 45%, #f3f8ff);
+  --panel: rgba(255, 255, 255, .85);
+  --fg: #0b1324;
+  --fg2: #33415c;
+  --muted: #7083a3;
+  --line: rgba(15, 40, 90, .08);
+  --accent: #0ea5e9;
+  --accent-strong: #0369a1;
+  --accent-soft: rgba(14, 165, 233, .08);
+  --ok: #047857; --ok-soft: rgba(16, 185, 129, .1);
+  --warn: #b45309; --warn-soft: rgba(245, 158, 11, .12);
+  --bad: #be123c; --bad-soft: rgba(244, 63, 94, .08);
+  --q: #6d28d9; --q-soft: rgba(139, 92, 246, .1);
+  --shadow: 0 8px 30px rgba(14, 60, 120, .06);
+  --r: 16px; --r-sm: 10px;
+  --s1: 4px; --s2: 8px; --s3: 16px; --s4: 24px; --s5: 40px;
+  --ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --measure: 46rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --bg-tint: linear-gradient(135deg, #0b1220, #0f172a 45%, #0b1626);
+    --panel: rgba(30, 41, 59, .7);
+    --fg: #e6edf7; --fg2: #c1cce0; --muted: #8a9bb8;
+    --line: rgba(148, 180, 230, .14);
+    --accent: #38bdf8; --accent-strong: #7dd3fc; --accent-soft: rgba(56, 189, 248, .12);
+    --ok: #34d399; --ok-soft: rgba(52, 211, 153, .12);
+    --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .12);
+    --bad: #fb7185; --bad-soft: rgba(251, 113, 133, .12);
+    --q: #c4b5fd; --q-soft: rgba(167, 139, 250, .14);
+    --shadow: 0 8px 30px rgba(0, 0, 0, .3);
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; min-height: 100vh; background: var(--bg-tint); color: var(--fg2); font: 16px/1.6 var(--ui); -webkit-font-smoothing: antialiased; }
+main { max-width: var(--measure); margin: 0 auto; padding: var(--s5) var(--s3); }
+h1, h2, h3 { color: var(--fg); line-height: 1.25; }
+h1 { font-size: 30px; margin: 0 0 var(--s2); }
+h2 { font-size: 20px; margin: var(--s5) 0 var(--s2); }
+h3 { font-size: 16px; margin: var(--s4) 0 var(--s2); }
+p, ul, ol { margin: 0 0 var(--s3); }
+li { margin: var(--s1) 0; }
+a { color: var(--accent-strong); }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 var(--s1); }
+.lede { font-size: 18px; }
+.meta { font-size: 13px; color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: var(--s3) 20px; box-shadow: var(--shadow); margin: 0 0 var(--s3); }
+.grid { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.q { background: var(--q-soft); color: var(--q); }
+.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: var(--r-sm); padding: var(--s2) var(--s3); margin: 0 0 var(--s3); }
+.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.options { list-style: none; padding: 0; display: grid; gap: var(--s2); }
+.option { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px var(--s3); margin: 0; }
+.option.recommended { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.scroll { overflow-x: auto; margin: 0 0 var(--s3); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: var(--s2) 12px; border-bottom: 1px solid var(--line); }
+th { color: var(--fg); font-weight: 600; white-space: nowrap; }
+tr:last-child > td { border-bottom: 0; }
+code { font: .9em var(--mono); background: var(--accent-soft); border-radius: 6px; padding: 1px 5px; }
+pre { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px var(--s3); font: 13px/1.5 var(--mono); }
+pre code { background: none; padding: 0; }
+table.diff td { font: 13px/1.5 var(--mono); white-space: pre; padding: 0 12px; border: 0; }
+table.diff .ln { color: var(--muted); text-align: right; user-select: none; width: 1%; }
+table.diff tr.add td { background: var(--ok-soft); }
+table.diff tr.del td { background: var(--bad-soft); }
+table.diff tr.hunk td { color: var(--muted); padding-top: var(--s2); }
+img, svg { max-width: 100%; height: auto; }
+@media (max-width: 600px) {
+  body { font-size: 15px; }
+  main { padding: var(--s4) var(--s3); }
+  h1 { font-size: 24px; }
+}
 </style>
 </head>
 <body>
-  <div class="eyebrow">Implementation plan</div>
+<main>
+  <p class="eyebrow">Plan</p>
   <h1 id="title">Request Certificate screen</h1>
-  <p id="summary">A Setup screen where a Director or Attestor enrols their own certificate. Nothing is written to the database.</p>
-  <h2>Phases</h2>
-  <ol id="plan">
-    <li id="step-1">Enrolment class and unit tests, autoload refresh.</li>
-    <li id="step-2">Applet scaffold, save handler and container page.</li>
-    <li id="step-3">Deploy and rollback SQL, browser verification.</li>
-  </ol>
-  <h2>Risks</h2>
-  <p>The save handler touches the certificate store; a failed enrolment must leave no partial rows.</p>
-  <h2>Rollout</h2>
-  <table id="rollout">
-    <thead><tr><th>Stage</th><th>Owner</th><th>Status</th></tr></thead>
-    <tbody>
-      <tr><td>Shadow traffic</td><td>Platform team</td><td>Ready</td></tr>
-      <tr><td>Canary</td><td>Payments team</td><td>Blocked</td></tr>
-    </tbody>
-  </table>
-  <p><button type="button" aria-label="Approve rollout">Approve</button> <label>Region <select><option>EU</option><option>US</option></select></label></p>
-  <h2>Error rate in shadow traffic</h2>
-  <svg id="error-rate" width="320" height="120" viewBox="0 0 320 120" role="img" aria-label="Error rate"><rect width="320" height="120" rx="10" fill="#f0f9ff"/><polyline points="10,100 80,85 150,92 220,30 310,44" fill="none" stroke="#0ea5e9" stroke-width="3"/></svg>
+  <p class="lede" id="summary">A Setup screen where a Director or Attestor enrols their own certificate. Nothing is written to the database.</p>
+  <p class="meta" id="scope-note">Not in scope: revoking or renewing certificates, and enrolment on behalf of someone else.</p>
+
+  <section id="context">
+    <h2>Context</h2>
+    <p id="context-problem">Directors and Attestors ask support to enrol certificates for them today, which takes a day and needs a ticket each time. The enrolment service already exists; only the screen is missing.</p>
+  </section>
+
+  <section id="approach">
+    <h2>Approach</h2>
+    <p id="approach-shape">A new applet under Setup calls the existing enrolment class. The save handler writes to the certificate store in one transaction, so a failed enrolment leaves nothing behind.</p>
+  </section>
+
+  <section id="steps">
+    <h2>Steps</h2>
+    <ol id="plan">
+      <li id="step-1">Enrolment class and unit tests, autoload refresh.</li>
+      <li id="step-2">Applet scaffold, save handler and container page.</li>
+      <li id="step-3">Deploy and rollback SQL, browser verification.</li>
+    </ol>
+  </section>
+
+  <section id="testing">
+    <h2>Testing</h2>
+    <p id="testing-units">Unit tests for the enrolment class, including a failed enrolment that must leave no rows. Then a staged rollout:</p>
+    <div class="scroll">
+      <table id="rollout">
+        <thead><tr><th>Stage</th><th>Owner</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr id="rollout-shadow"><td>Shadow traffic</td><td>Platform team</td><td><span class="pill ok">Ready</span></td></tr>
+          <tr id="rollout-canary"><td>Canary</td><td>Payments team</td><td><span class="pill bad">Blocked</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 id="error-rate-title">Error rate in shadow traffic</h3>
+    <svg id="error-rate" width="320" height="120" viewBox="0 0 320 120" role="img" aria-label="Error rate in shadow traffic, rising on day 4">
+      <rect width="320" height="120" rx="10" fill="rgba(14, 165, 233, .08)"/>
+      <polyline id="series-errors" points="10,100 80,85 150,92 220,30 310,44" fill="none" stroke="#0ea5e9" stroke-width="3"/>
+    </svg>
+  </section>
+
+  <section id="risks">
+    <h2>Risks</h2>
+    <ul>
+      <li id="risk-partial-rows"><span class="pill warn">Medium</span> The save handler touches the certificate store; a failed enrolment must leave no partial rows. Mitigation: one transaction, and a test that forces a failure halfway.</li>
+      <li id="risk-canary-owner"><span class="pill bad">High</span> The canary stage is blocked until the payments team names an owner. Mitigation: ask this week; the shadow stage does not wait for it.</li>
+    </ul>
+  </section>
+
+  <section id="open-questions">
+    <h2>Open questions</h2>
+    <ul>
+      <li id="q-expiry">How long should an enrolled certificate stay valid? I assumed one year, as in the service's default.</li>
+      <li id="q-audit">Does enrolment need an audit entry of its own, or is the service's log enough?</li>
+    </ul>
+  </section>
+
+  <section id="decisions">
+    <h2>Decisions for you</h2>
+    <p class="callout" id="decisions-how">Point at an option and choose <strong>Looks good</strong> to pick it. Approving without a note here accepts the recommended options.</p>
+
+    <section id="decision-placement">
+      <h3>Where should the screen live?</h3>
+      <ul class="options">
+        <li class="option recommended" id="decision-placement-setup"><strong>Setup menu</strong> (recommended): next to the other self-service screens. Cost: Setup needs a new permission check.</li>
+        <li class="option" id="decision-placement-profile"><strong>User profile</strong>: where people look for their own settings. Cost: the profile page has no applet container yet.</li>
+      </ul>
+    </section>
+
+    <section id="decision-rollout">
+      <h3>How should it roll out?</h3>
+      <ul class="options">
+        <li class="option recommended" id="decision-rollout-staged"><strong>Shadow, then canary, then everyone</strong> (recommended): as in the table above. Cost: about a week longer.</li>
+        <li class="option" id="decision-rollout-direct"><strong>Straight to everyone</strong>, behind a feature flag. Cost: a failed enrolment would reach every Director at once.</li>
+      </ul>
+    </section>
+  </section>
+</main>
 </body>
 </html>

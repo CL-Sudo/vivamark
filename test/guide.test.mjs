@@ -131,3 +131,19 @@ test('open points at the guide; for a .md file, at the markdown topic', async ()
     await world.cleanup();
   }
 });
+
+test('examples/plan.html follows the plan playbook and carries the design CSS', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'examples', 'plan.html'), 'utf8');
+  assert.ok(html.includes(PAGE_CSS), 'the design CSS, verbatim');
+  assert.doesNotMatch(html, /\b(src|href)=["']?(https?:)?\/\//i, 'no external URLs');
+  assert.doesNotMatch(html, /<script|<link /i);
+  const order = ['id="steps"', 'id="testing"', 'id="risks"', 'id="open-questions"', 'id="decisions"'].map((s) => html.indexOf(s));
+  assert.ok(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), 'steps, testing, risks, open questions, then decisions last');
+  for (const li of html.match(/<li\b[^>]*>/g)) assert.match(li, /\bid="[a-z0-9-]+"/, `every list item has an id: ${li}`);
+  for (const tr of html.match(/<tbody>[\s\S]*?<\/tbody>/)[0].match(/<tr\b[^>]*>/g)) assert.match(tr, /\bid="/, 'every body row has an id');
+  const options = html.match(/<li class="option[^"]*" id="decision-[a-z-]+"/g) ?? [];
+  assert.ok(options.length >= 4, 'decisions shown as options to point at');
+  assert.doesNotMatch(html, /type="radio"|type="checkbox"/, 'decisions are answered by pointing, not by controls');
+  const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique');
+});
