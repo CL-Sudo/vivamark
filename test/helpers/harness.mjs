@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -231,3 +232,55 @@ export const TEXT_NOTE = {
   comment: 'Can an Attestor really enrol on their own?',
   anchor: { stable_id: 'summary', selector: '#summary', quote: 'Director or Attestor', prefix: 'A Setup screen where a ', suffix: ' enrols their own certif' },
 };
+
+/** A real PNG of one colour, made by hand: tests need images without an image library. */
+export function makePng(width, height, [r, g, b] = [14, 165, 233]) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // truecolour
+  const row = Buffer.alloc(1 + width * 3);
+  for (let x = 0; x < width; x++) row.set([r, g, b], 1 + x * 3);
+  const raw = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/** Uploads an image the way the review page does: raw bytes, the session token and the page's Origin. */
+export function uploadImage(s, bytes, { origin = true, token = s.token } = {}) {
+  return new Promise((resolve, reject) => {
+    const headers = { Host: `127.0.0.1:${s.port}`, 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (origin === true) headers.Origin = `http://127.0.0.1:${s.port}`;
+    else if (origin) headers.Origin = origin;
+    const req = http.request({ host: '127.0.0.1', port: s.port, method: 'POST', path: `/api/s/${s.id}/attachments`, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = undefined;
+        }
+        resolve({ status: res.statusCode, text, json });
+      });
+    });
+    req.on('error', reject);
+    req.end(bytes);
+  });
+}

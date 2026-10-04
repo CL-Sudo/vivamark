@@ -22,6 +22,15 @@ interface Anchor {
 }
 type Intent = 'change' | 'question' | 'delete' | 'looks-good';
 type Severity = 'blocking' | 'important' | 'nit';
+/** An image uploaded to this review for a note; sent notes also carry its local `path`. */
+interface Image {
+  id: string;
+  mime: string;
+  width: number;
+  height: number;
+  bytes: number;
+  path?: string;
+}
 interface Draft {
   kind: Kind;
   comment: string;
@@ -30,6 +39,7 @@ interface Draft {
   answers?: string;
   endorses?: string;
   replies_to?: string;
+  attachments?: Image[];
   anchor: Anchor | null;
 }
 type NoteStatus = 'open' | 'addressed' | 'declined' | 'question' | 'answered' | 'resolved';
@@ -93,6 +103,7 @@ interface SessionView {
   agent_notes: AgentNoteView[];
   replies: ReplyView[];
   agent: 'listening' | 'away';
+  limits?: { image_bytes: number; note_image_bytes: number };
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -149,6 +160,9 @@ let lastScroll = { x: 0, y: 0 };
 let sending = false;
 /** Set once the agent or the reviewer ends the review: nothing more can be sent. */
 let ended: Ended | null = null;
+/** Images for the note being written, uploaded already, added to it on Add note. */
+let pendingImages: Image[] = [];
+let limits = { image_bytes: 10 * 1024 * 1024, note_image_bytes: 25 * 1024 * 1024 };
 
 function loadQueue(): Draft[] {
   try {
@@ -186,6 +200,132 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
   return data as T;
+}
+
+// ---- images ------------------------------------------------------------------------
+
+const IMAGE_TYPES = 'PNG, JPEG, GIF and WebP';
+
+function sizeText(n: number): string {
+  return n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${Math.round((n / (1024 * 1024)) * 10) / 10} MB`;
+}
+
+/** Uploads one image the reviewer chose. The server checks what it really is; nothing is sent to the agent here. */
+async function uploadImage(file: Blob): Promise<Image> {
+  if (file.size > limits.image_bytes) throw new Error(`that image is ${sizeText(file.size)}; an image may be at most ${sizeText(limits.image_bytes)}`);
+  const res = await fetch(`/api/s/${sessionId}/attachments`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
+    body: file,
+    cache: 'no-store',
+    credentials: 'omit',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
+  return data as Image;
+}
+
+/**
+ * Adds the reviewer's files to the note being written, or to a queued note.
+ * Only files from a paste, a drop or the file picker get here; the reviewed
+ * page has no way to attach anything.
+ */
+async function attachFiles(files: File[], queuedIndex: number | null): Promise<void> {
+  if (!files.length || ended) return;
+  for (const file of files) {
+    const list = queuedIndex === null ? pendingImages : (queue[queuedIndex]?.attachments ?? []);
+    const total = list.reduce((n, a) => n + a.bytes, 0) + file.size;
+    if (total > limits.note_image_bytes) {
+      banner(`Not attached: the images on one note may come to at most ${sizeText(limits.note_image_bytes)}.`, true, 6000);
+      return;
+    }
+    let img: Image;
+    try {
+      img = await uploadImage(file);
+    } catch (err) {
+      banner(`Not attached${file.name ? ` (${file.name})` : ''}: ${(err as Error).message}`, true, 6000);
+      continue;
+    }
+    if (queuedIndex === null) {
+      if (!pendingImages.some((a) => a.id === img.id)) pendingImages.push(img);
+    } else {
+      const d = queue[queuedIndex];
+      if (!d) return;
+      d.attachments = d.attachments ?? [];
+      if (!d.attachments.some((a) => a.id === img.id)) d.attachments.push(img);
+      saveQueue();
+    }
+    render();
+  }
+}
+
+/** Thumbnails as data: URLs (the review page's CSP allows no blob: images), fetched once with the session token. */
+const thumbs = new Map<string, Promise<string>>();
+function thumbUrl(id: string): Promise<string> {
+  let p = thumbs.get(id);
+  if (!p) {
+    p = fetch(`/api/s/${sessionId}/attachments/${id}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', credentials: 'omit' })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(
+        (b) =>
+          new Promise<string>((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(String(fr.result));
+            fr.onerror = () => reject(fr.error);
+            fr.readAsDataURL(b);
+          }),
+      );
+    p.catch(() => thumbs.delete(id));
+    thumbs.set(id, p);
+  }
+  return p;
+}
+
+function thumbStrip(images: Image[], remove?: (i: number) => void): HTMLElement {
+  const strip = el('div', 'thumbs');
+  images.forEach((a, i) => {
+    const t = el('div', 'thumb');
+    t.dataset.attachment = a.id;
+    t.title = `${a.mime.slice(6).toUpperCase()}, ${a.width} × ${a.height}, ${sizeText(a.bytes)}${a.path ? `\n${a.path}` : ''}`;
+    const img = el('img');
+    img.alt = `Attached image ${i + 1}`;
+    void thumbUrl(a.id).then(
+      (u) => (img.src = u),
+      () => t.classList.add('broken'),
+    );
+    t.append(img);
+    if (remove) {
+      const rm = el('button', 'icon remove-image', '×');
+      rm.type = 'button';
+      rm.title = 'Remove this image';
+      rm.addEventListener('click', (e) => {
+        e.stopPropagation();
+        remove(i);
+      });
+      t.append(rm);
+    }
+    strip.append(t);
+  });
+  return strip;
+}
+
+/** A drop zone for image files: the composer, or one queued note. */
+function dropZone(zone: HTMLElement, queuedIndex: () => number | null): void {
+  zone.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer?.types.includes('Files') || ended) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    zone.classList.add('drop-over');
+  });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drop-over'));
+  zone.addEventListener('drop', (e) => {
+    zone.classList.remove('drop-over');
+    if (!e.dataTransfer?.files.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void attachFiles([...e.dataTransfer.files], queuedIndex());
+  });
 }
 
 // ---- describing targets ---------------------------------------------------------
@@ -263,6 +403,18 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   if (d.endorses) tagRow.append(el('span', 'pill flag agent', `Endorses ${agentLabel(d.endorses)}`));
   if (d.replies_to) tagRow.append(el('span', 'pill flag agent', `Reply to ${agentLabel(d.replies_to)}`));
   card.append(head, tagRow, el('p', 'comment', d.comment));
+  const images = d.attachments ?? [];
+  if (queuedIndex !== null) {
+    if (images.length)
+      card.append(
+        thumbStrip(images, (i) => {
+          images.splice(i, 1);
+          saveQueue();
+          render();
+        }),
+      );
+    dropZone(card, () => queuedIndex);
+  } else if (images.length) card.append(thumbStrip(images));
   if (queuedIndex === null) sentExtras(card, n, d as Note);
   return card;
 }
@@ -482,6 +634,18 @@ function render(): void {
   dismissBtn.disabled = sending || queue.length > 0;
   dismissBtn.title = queue.length ? 'Send or remove the queued notes first' : 'Close this review without feedback';
   addBtn.disabled = !comment.value.trim();
+  const composerImages = $('composer-images');
+  composerImages.hidden = !pendingImages.length;
+  composerImages.replaceChildren(
+    ...(pendingImages.length
+      ? [
+          thumbStrip(pendingImages, (i) => {
+            pendingImages.splice(i, 1);
+            render();
+          }),
+        ]
+      : []),
+  );
 
   const t = $('target');
   t.dataset.kind = target.kind;
@@ -607,9 +771,17 @@ window.addEventListener('message', (e) => {
 function addNote(): void {
   const text = comment.value.trim();
   if (!text) return;
-  queue.push({ kind: target.kind, comment: text, ...tags, ...(linking ? { [linking.field]: linking.id } : {}), anchor: target.anchor });
+  queue.push({
+    kind: target.kind,
+    comment: text,
+    ...tags,
+    ...(linking ? { [linking.field]: linking.id } : {}),
+    ...(pendingImages.length ? { attachments: pendingImages } : {}),
+    anchor: target.anchor,
+  });
   saveQueue();
   comment.value = '';
+  pendingImages = [];
   target = { kind: 'page', anchor: null };
   tags = {};
   linking = null;
@@ -648,6 +820,28 @@ $('target-clear').addEventListener('click', () => {
   render();
 });
 pointBtn.addEventListener('click', () => setPicking(pointBtn.getAttribute('aria-pressed') !== 'true'));
+
+// Images: the file picker, a drop on the composer or a queued note, or a paste.
+const imageInput = $<HTMLInputElement>('image-input');
+$('attach').addEventListener('click', () => imageInput.click());
+imageInput.addEventListener('change', () => {
+  const files = [...(imageInput.files ?? [])];
+  imageInput.value = '';
+  void attachFiles(files, null);
+});
+dropZone($('composer'), () => null);
+// A file dropped anywhere else must not replace the review page with the image.
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
+document.addEventListener('paste', (e) => {
+  const files = [...(e.clipboardData?.files ?? [])];
+  if (!files.length) return;
+  e.preventDefault();
+  // Onto the queued note that has the focus, else the note being written.
+  const card = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.note.queued');
+  const i = card ? Number(card.dataset.n) - sent.length - 1 : -1;
+  void attachFiles(files, i >= 0 && i < queue.length ? i : null);
+});
 $('show-changes').addEventListener('click', () => {
   showChanges = !showChanges;
   renderChanges();
@@ -669,7 +863,9 @@ async function sendDecision(decision: Decision): Promise<void> {
   sending = true;
   render();
   try {
-    const res = await api<{ notes: (NoteEntry & { type: string })[] }>('POST', '/send', { notes, decision });
+    // Images go by id: the server already has them, and fills in the rest.
+    const body = notes.map((d) => ({ ...d, attachments: d.attachments?.map((a) => a.id) }));
+    const res = await api<{ notes: (NoteEntry & { type: string })[] }>('POST', '/send', { notes: body, decision });
     if (notes.length) {
       queue = [];
       saveQueue();
@@ -793,6 +989,7 @@ async function start(): Promise<void> {
     banner(`Could not load this review: ${(err as Error).message}`, true);
     return;
   }
+  if (session.limits) limits = session.limits;
   document.title = `${session.name} · vivamark`;
   $('file-name').textContent = session.name;
   $('file-name').title = session.file;

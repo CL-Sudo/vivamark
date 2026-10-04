@@ -18,9 +18,10 @@ import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, renderMa
 import type { AnchorState, Doc, Place } from './doc.js';
 import { EventLog } from './events.js';
 import { injectScript } from './html.js';
-import { Notifier, notifyConfig } from './notify.js';
-import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA } from './schema.js';
-import type { AgentNote, AgentStatus, Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
+import { sniffImage } from './image.js';
+import { configPath, Notifier, notifyConfig } from './notify.js';
+import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, IMAGE_LIMITS, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA } from './schema.js';
+import type { AgentNote, AgentStatus, Anchor, Attachment, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
@@ -178,6 +179,50 @@ async function readBody(req: IncomingMessage, limit: number): Promise<unknown> {
   }
 }
 
+/** Reads a raw request body, refusing it (413) once it passes `limit` bytes. */
+async function readRaw(req: IncomingMessage, limit: number, what: string): Promise<Buffer> {
+  const declared = Number(req.headers['content-length']);
+  if (Number.isFinite(declared) && declared > limit) throw new HttpError(413, what);
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > limit) throw new HttpError(413, what);
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+export interface ImageLimits {
+  imageBytes: number;
+  noteBytes: number;
+}
+
+function mb(n: number): string {
+  return `${Math.round((n / (1024 * 1024)) * 10) / 10} MB`;
+}
+
+/**
+ * How large attached images may be: VIVAMARK_MAX_IMAGE_BYTES and
+ * VIVAMARK_MAX_NOTE_IMAGE_BYTES, else "max_image_bytes" and
+ * "max_note_image_bytes" in the config file, else 10 MB and 25 MB.
+ */
+export function imageLimits(env: NodeJS.ProcessEnv = process.env): ImageLimits {
+  let file: { max_image_bytes?: unknown; max_note_image_bytes?: unknown } = {};
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(configPath(env), 'utf8'));
+    if (parsed && typeof parsed === 'object') file = parsed as typeof file;
+  } catch {
+    // No config file, or one the notify reader has already complained about.
+  }
+  const pick = (fromEnv: string | undefined, fromFile: unknown, fallback: number) => {
+    const n = Number(fromEnv) || Number(fromFile);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  };
+  const imageBytes = pick(env.VIVAMARK_MAX_IMAGE_BYTES, file.max_image_bytes, IMAGE_LIMITS.imageBytes);
+  const noteBytes = pick(env.VIVAMARK_MAX_NOTE_IMAGE_BYTES, file.max_note_image_bytes, IMAGE_LIMITS.noteBytes);
+  return { imageBytes, noteBytes: Math.max(noteBytes, imageBytes) };
+}
 
 export class Daemon {
   readonly store: Store;
@@ -194,13 +239,15 @@ export class Daemon {
   private idleSince = Date.now();
   private timers: NodeJS.Timeout[] = [];
   private disconnectGraceMs: number;
+  readonly imageLimits: ImageLimits;
   private stopping = false;
 
-  constructor(store: Store, idleMs: number, opts: { disconnectGraceMs?: number } = {}) {
+  constructor(store: Store, idleMs: number, opts: { disconnectGraceMs?: number; imageLimits?: ImageLimits } = {}) {
     this.store = store;
     this.events = new EventLog(store.dir);
     this.idleMs = idleMs;
     this.disconnectGraceMs = opts.disconnectGraceMs ?? DISCONNECT_GRACE_MS;
+    this.imageLimits = opts.imageLimits ?? { ...IMAGE_LIMITS };
   }
 
   private liveFor(s: Session): Live {
@@ -386,6 +433,13 @@ export class Daemon {
       if (!tokensEqual(m[2], s.artifact_key)) throw new HttpError(404, 'not found');
       return this.serveArtifact(res, s, m[3], url.searchParams.get('vmload') ?? '');
     }
+    if ((m = /^\/api\/s\/(s_[a-z0-9]+)\/attachments\/([0-9a-f]{64})$/.exec(p)) && method === 'GET') {
+      const s = this.session(m[1]);
+      this.requireSessionToken(req, s);
+      const found = this.store.readAttachment(s, m[2]);
+      if (!found) throw new HttpError(404, 'no such attachment');
+      return send(res, 200, found.data, { 'Content-Type': found.attachment.mime, 'Content-Security-Policy': "default-src 'none'" });
+    }
     if ((m = /^\/api\/s\/(s_[a-z0-9]+)(\/[a-z-]+)?$/.exec(p))) {
       const s = this.session(m[1]);
       this.requireSessionToken(req, s);
@@ -398,6 +452,11 @@ export class Daemon {
       if (sub === '/send' && method === 'POST') {
         if (!originAllowed(req, true)) throw new HttpError(403, 'notes are sent from the review page only');
         return this.receiveNotes(req, res, s);
+      }
+      if (sub === '/attachments' && method === 'POST') {
+        // Images come from the reviewer's review page, with the same token and Origin rules as Send.
+        if (!originAllowed(req, true)) throw new HttpError(403, 'images are attached from the review page only');
+        return this.receiveAttachment(req, res, s);
       }
       if (sub === '/replies' && method === 'POST') return this.receiveReply(req, res, s);
       if (sub === '/agent-notes' && method === 'POST') return this.receiveAgentNote(req, res, s);
@@ -450,6 +509,7 @@ export class Daemon {
       agent_notes: this.agentNotesView(s, a),
       replies: s.replies.map((r) => this.replyView(r)),
       agent: this.presence(s),
+      limits: { image_bytes: this.imageLimits.imageBytes, note_image_bytes: this.imageLimits.noteBytes },
     };
   }
 
@@ -678,6 +738,7 @@ export class Daemon {
     const decision = parseDecision(body.decision, notes.length);
     if (!(DECISION_SET as Set<string>).has(decision)) throw new HttpError(400, decision);
     const drafts: DraftNote[] = [];
+    const images = new Map<string, Attachment>();
     const known = new Set(this.noteEntries(s).map((e) => e.note.id));
     const agentNotes = new Map(this.store.agentNotes(s).map((n) => [n.id, n]));
     for (const n of notes) {
@@ -686,22 +747,52 @@ export class Daemon {
       if (d.answers && !known.has(d.answers)) throw new HttpError(400, `note.answers: no note ${d.answers} in this review`);
       const link = d.endorses ?? d.replies_to;
       if (link && !agentNotes.has(link)) throw new HttpError(400, `no agent note ${link} in this review`);
+      let total = 0;
+      for (const id of d.attachments ?? []) {
+        const a = images.get(id) ?? this.store.readAttachment(s, id)?.attachment;
+        if (!a) throw new HttpError(400, `no attached image ${id.slice(0, 12)}… in this review; attach it again`);
+        images.set(id, a);
+        total += a.bytes;
+      }
+      if (total > this.imageLimits.noteBytes) throw new HttpError(413, `the images on one note come to more than ${mb(this.imageLimits.noteBytes)}`);
       drafts.push(d);
     }
     const doc = this.readDoc(s);
     // F2: keep the file as the reviewer saw it, for "what changed since I last sent".
     const snapshot = doc ? this.store.saveSnapshot(s, doc.source) : undefined;
-    const entries = this.store.appendBatch(s, drafts, decision as Decision, snapshot, (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null), (id) => agentNotes.get(id));
+    const entries = this.store.appendBatch(
+      s,
+      drafts,
+      decision as Decision,
+      snapshot,
+      (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null),
+      (id) => agentNotes.get(id),
+      (d) => (d.attachments ?? []).map((id) => images.get(id)!),
+    );
     const seq = { from: entries[0].seq, to: entries[entries.length - 1].seq };
     sendJson(res, 201, { seq, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
-    this.events.append('feedback.sent', s, { decision: decision as Decision, notes: drafts.length, feedback_seq: seq });
+    const attached = drafts.reduce((n, d) => n + (d.attachments?.length ?? 0), 0);
+    this.events.append('feedback.sent', s, { decision: decision as Decision, notes: drafts.length, feedback_seq: seq, attachments: attached });
     for (const d of drafts) if (d.answers) this.events.append('note.status', s, { note: d.answers, status: 'answered', by: 'reviewer' });
     const l = this.liveFor(s);
     for (const w of [...l.waiters]) {
       const ready = s.log.filter((e) => e.seq > w.after);
       if (ready.length) w.done(ready);
     }
+  }
+
+  /**
+   * Keeps one image for a note the reviewer is writing. Nothing reaches the
+   * agent here: an image is delivered only on a note the reviewer sends.
+   */
+  private async receiveAttachment(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
+    const limit = this.imageLimits.imageBytes;
+    const bytes = await readRaw(req, limit, `an image may be at most ${mb(limit)}`);
+    const info = sniffImage(bytes);
+    if (!info) throw new HttpError(415, 'only PNG, JPEG, GIF and WebP images can be attached');
+    const a = this.store.saveAttachment(s, bytes, info);
+    sendJson(res, 201, { id: a.id, mime: a.mime, width: a.width, height: a.height, bytes: a.bytes });
   }
 
   private async feedback(req: IncomingMessage, res: ServerResponse, s: Session, url: URL): Promise<void> {
@@ -1004,7 +1095,7 @@ export async function runDaemon(): Promise<void> {
   const port = envPort !== undefined && /^\d+$/.test(envPort) && Number(envPort) < 65536 ? Number(envPort) : DEFAULT_PORT;
   const idleMs = Number(process.env.VIVAMARK_IDLE_MS) || 30 * 60_000;
   const disconnectGraceMs = Number(process.env.VIVAMARK_DISCONNECT_GRACE_MS) || DISCONNECT_GRACE_MS;
-  const daemon = new Daemon(store, idleMs, { disconnectGraceMs });
+  const daemon = new Daemon(store, idleMs, { disconnectGraceMs, imageLimits: imageLimits() });
   // The notify hook comes from the user's environment or config file only, read once here.
   const notify = notifyConfig();
   if (notify) {

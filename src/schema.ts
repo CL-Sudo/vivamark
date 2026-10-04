@@ -7,7 +7,8 @@
 // `decision` (F1), `target_changed` (F2), `anchor.state` (F3), `note.intent`
 // and `note.severity` (F4), `anchor.lines` (F5), a per-note `status` carried
 // by replies and `answers` on notes (F6), notes from the agent or tools in a
-// log of their own (F7), and `anchor.cell`, `control` and `point` (F8).
+// log of their own (F7), `anchor.cell`, `control` and `point` (F8), and
+// images in `note.attachments`, which was always there and always empty before.
 // Readers must ignore fields they do not know.
 
 export const FEEDBACK_SCHEMA = 'vivamark.feedback/1';
@@ -59,6 +60,22 @@ export interface Anchor {
   lines?: [number, number] | null;
 }
 
+/**
+ * An image the reviewer attached to a note. `path` is an absolute path in the
+ * state directory that the agent can open; the bytes are never inlined.
+ * `id` is the sha256 of the image, so the same image is stored once.
+ */
+export interface Attachment {
+  id: string;
+  path: string;
+  mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  width: number;
+  height: number;
+  bytes: number;
+}
+
+export const ATTACHMENT_ID = /^[0-9a-f]{64}$/;
+
 export interface Note {
   id: string;
   kind: NoteKind;
@@ -79,7 +96,8 @@ export interface Note {
   target_changed?: boolean;
   /** Who made the note. Only `reviewer` notes exist today. */
   source: 'reviewer';
-  attachments: never[];
+  /** Images attached by the reviewer, in the order they were added. Empty when there are none. */
+  attachments: Attachment[];
   at: string;
 }
 
@@ -197,6 +215,8 @@ export interface DraftNote {
   answers?: string;
   endorses?: string;
   replies_to?: string;
+  /** Ids of images uploaded to this review from the review page; the server fills in the rest. */
+  attachments?: string[];
   anchor: Omit<Anchor, 'source_line' | 'lines'> | null;
 }
 
@@ -210,6 +230,13 @@ export const LIMITS = {
   sendBody: 1_000_000,
   reply: 256 * 1024,
   endMessage: 2_000,
+  attachmentsPerNote: 20,
+};
+
+/** Default sizes for attached images; the user can change them (VIVAMARK_MAX_IMAGE_BYTES and friends). */
+export const IMAGE_LIMITS = {
+  imageBytes: 10 * 1024 * 1024,
+  noteBytes: 25 * 1024 * 1024,
 };
 
 export const NOTE_ID = /^n_\d{4,}$/;
@@ -263,7 +290,7 @@ export function parseDraft(input: unknown): DraftNote | string {
   const comment = typeof x.comment === 'string' ? x.comment.trim() : '';
   if (!comment) return 'note.comment is required';
   if (comment.length > LIMITS.comment) return `note.comment is longer than ${LIMITS.comment} characters`;
-  const tags: Pick<DraftNote, 'intent' | 'severity' | 'answers' | 'endorses' | 'replies_to'> = {};
+  const tags: Pick<DraftNote, 'intent' | 'severity' | 'answers' | 'endorses' | 'replies_to' | 'attachments'> = {};
   if (x.intent !== undefined && x.intent !== null) {
     if (!(INTENTS as readonly unknown[]).includes(x.intent)) return `note.intent must be one of ${INTENTS.join(', ')}`;
     tags.intent = x.intent as Intent;
@@ -283,6 +310,13 @@ export function parseDraft(input: unknown): DraftNote | string {
     tags[link] = v;
   }
   if (tags.endorses && tags.replies_to) return 'a note endorses or replies to an agent note, not both';
+  if (x.attachments !== undefined && x.attachments !== null) {
+    const ids = x.attachments;
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string' && ATTACHMENT_ID.test(id))) return 'note.attachments must be a list of attachment ids';
+    const unique = [...new Set(ids as string[])];
+    if (unique.length > LIMITS.attachmentsPerNote) return `a note carries at most ${LIMITS.attachmentsPerNote} images`;
+    if (unique.length) tags.attachments = unique;
+  }
   if (kind === 'page') return { kind, comment, ...tags, anchor: null };
 
   const a = x.anchor;

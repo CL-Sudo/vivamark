@@ -7,6 +7,7 @@
 //   <state>/replies/<id>.jsonl     append-only agent replies          0600
 //   <state>/annotations/<id>.jsonl append-only: resolutions, agent notes 0600
 //   <state>/snapshots/<id>/<sha256>  the file as it was at a Send       0600
+//   <state>/attachments/<id>/<sha256>.<ext>  images attached to notes  0600
 //   <state>/events.jsonl           append-only, metadata-only events  0600 (events.ts)
 //   <state>/daemon.log
 //
@@ -17,8 +18,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MOTIVATION } from './schema.js';
-import type { AgentNote, AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
+import { IMAGE_EXT, sniffImage } from './image.js';
+import type { ImageInfo } from './image.js';
+import { ATTACHMENT_ID, MOTIVATION } from './schema.js';
+import type { AgentNote, Attachment, AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
 
 export function stateDir(): string {
   const explicit = process.env.VIVAMARK_STATE_DIR;
@@ -281,6 +284,7 @@ export class Store {
     snapshot: string | undefined,
     place: (d: DraftNote) => { source_line: number | null; lines: [number, number] | null } | null,
     agentNote: (id: string) => AgentNote | undefined = () => undefined,
+    attachments: (d: DraftNote) => Attachment[] = () => [],
   ): LogEntry[] {
     const at = new Date().toISOString();
     const batch = randomId('b_');
@@ -310,7 +314,7 @@ export class Store {
         motivation: d.intent ? MOTIVATION[d.intent] : 'commenting',
         anchor: d.anchor ? { ...d.anchor, ...placed(d) } : null,
         source: 'reviewer',
-        attachments: [],
+        attachments: attachments(d),
         at,
       };
       return { seq, type: 'note', batch, at, note, decision, ...(snapshot ? { snapshot } : {}) };
@@ -334,6 +338,46 @@ export class Store {
       fs.renameSync(tmp, file);
     }
     return hash;
+  }
+
+  private attachmentsDir(s: Session): string {
+    return path.join(this.dir, 'attachments', s.id);
+  }
+
+  /**
+   * Keeps an image the reviewer attached, named by the sha256 of its bytes, in
+   * the state directory and never next to the reviewed file. `info` is what
+   * sniffImage found in those bytes.
+   */
+  saveAttachment(s: Session, bytes: Buffer, info: ImageInfo): Attachment {
+    const id = createHash('sha256').update(bytes).digest('hex');
+    ensureDir(path.join(this.dir, 'attachments'));
+    ensureDir(this.attachmentsDir(s));
+    const file = path.join(this.attachmentsDir(s), `${id}.${IMAGE_EXT[info.mime]}`);
+    if (!fs.existsSync(file)) {
+      const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+      fs.writeFileSync(tmp, bytes, { mode: 0o600 });
+      fs.renameSync(tmp, file);
+    }
+    return { id, path: file, mime: info.mime, width: info.width, height: info.height, bytes: bytes.length };
+  }
+
+  /** An image attached in this review, checked again from its bytes; null when there is none by that id. */
+  readAttachment(s: Session, id: string): { attachment: Attachment; data: Buffer } | null {
+    if (!ATTACHMENT_ID.test(id)) return null;
+    for (const ext of Object.values(IMAGE_EXT)) {
+      const file = path.join(this.attachmentsDir(s), `${id}.${ext}`);
+      let data: Buffer;
+      try {
+        data = fs.readFileSync(file);
+      } catch {
+        continue;
+      }
+      const info = sniffImage(data);
+      if (!info || IMAGE_EXT[info.mime] !== ext) return null;
+      return { attachment: { id, path: file, mime: info.mime, width: info.width, height: info.height, bytes: data.length }, data };
+    }
+    return null;
   }
 
   readSnapshot(s: Session, hash: string): string | null {

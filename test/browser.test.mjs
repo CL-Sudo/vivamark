@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { FIXTURE, makeWorld, startCli } from './helpers/harness.mjs';
+import { FIXTURE, makePng, makeWorld, startCli } from './helpers/harness.mjs';
 
 let chromium;
 try {
@@ -408,4 +408,73 @@ test('End review on the page ends the review: the agent is told and the page tak
   assert.deepEqual(problems, []);
   await page.close();
   await page2.close();
+});
+
+test('images: attached by file picker, paste or drop, shown as thumbnails, removable, and sent only with the note', { timeout: 90_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'images.html');
+  fs.writeFileSync(file, fs.readFileSync(FIXTURE, 'utf8'));
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { page, offLoopback, problems } = await reviewPage(JSON.parse(opened.stdout).url);
+  await page.frameLocator('#page').locator('#step-2').waitFor();
+
+  const red = makePng(48, 32, [220, 38, 38]);
+  const green = makePng(20, 20, [22, 163, 74]);
+  const blue = makePng(30, 10, [37, 99, 235]);
+
+  // The file picker, onto the note being written.
+  await page.setInputFiles('#image-input', { name: 'red.png', mimeType: 'image/png', buffer: red });
+  await page.waitForSelector('#composer-images .thumb img[src^="data:image/png"]');
+  // A paste into the note.
+  await page.focus('#comment');
+  await page.evaluate((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'pasted.png', { type: 'image/png' }));
+    document.getElementById('comment').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, green.toString('base64'));
+  await page.waitForFunction(() => document.querySelectorAll('#composer-images .thumb').length === 2);
+  // Removed before sending.
+  await page.click('#composer-images .thumb:nth-child(2) .remove-image');
+  assert.equal(await page.locator('#composer-images .thumb').count(), 1);
+  // Not an image, whatever its name says: refused with a message, nothing attached.
+  await page.setInputFiles('#image-input', { name: 'fake.png', mimeType: 'image/png', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') });
+  await page.waitForFunction(() => /Not attached \(fake\.png\): only PNG, JPEG, GIF and WebP/.test(document.getElementById('banner').textContent));
+  assert.equal(await page.locator('#composer-images .thumb').count(), 1);
+
+  await page.fill('#comment', 'The header overlaps the table here, see the screenshot.');
+  await page.click('#add');
+  await page.waitForSelector('.note.queued .thumb img[src^="data:image/png"]');
+  assert.equal(await page.isHidden('#composer-images'), true);
+
+  // A drop onto the queued note adds to it.
+  await page.evaluate((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'blue.png', { type: 'image/png' }));
+    const card = document.querySelector('.note.queued');
+    card.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    card.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, blue.toString('base64'));
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued .thumb').length === 2);
+
+  // Nothing has reached the agent.
+  assert.equal((await world.cli(['wait', file, '--timeout', '800ms'])).code, 5);
+
+  await page.click('#send');
+  await page.waitForSelector('.note:not(.queued) .thumb img[src^="data:image/png"]');
+  const w = await world.cli(['wait', file, '--json']);
+  assert.equal(w.code, 0, w.stderr);
+  const [note] = JSON.parse(w.stdout).notes;
+  assert.deepEqual(note.attachments.map((a) => [a.mime, a.width, a.height, a.bytes]), [
+    ['image/png', 48, 32, red.length],
+    ['image/png', 30, 10, blue.length],
+  ]);
+  assert.deepEqual(fs.readFileSync(note.attachments[0].path), red);
+
+  assert.deepEqual(offLoopback, []);
+  // The browser logs the refused upload itself; that one is expected.
+  assert.deepEqual(problems.filter((p) => !/status of 415/.test(p)), []);
+  await page.close();
 });

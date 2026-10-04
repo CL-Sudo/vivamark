@@ -262,6 +262,10 @@ function describeCell(c: NonNullable<Anchor['cell']>): string {
   return [c.row !== undefined ? `row "${c.row}"` : '', c.column !== undefined ? `column "${c.column}"` : ''].filter(Boolean).join(', ');
 }
 
+function kb(n: number): string {
+  return n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${Math.round((n / (1024 * 1024)) * 10) / 10} MB`;
+}
+
 const DECISION_TEXT: Record<Decision, string> = {
   'request-changes': 'The reviewer requests changes.',
   approve: 'The reviewer approved. No further revision is needed.',
@@ -289,6 +293,11 @@ function renderFeedback(v: FeedbackView, next: string): string {
       .join(', ');
     lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${describeLines(a)}`);
     for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
+    const images = n.attachments ?? [];
+    if (images.length) {
+      lines.push(`    images: ${images.length} attached; open them from these paths:`);
+      for (const img of images) lines.push(`      ${img.path} (${img.mime.slice(6).toUpperCase()}, ${img.width} x ${img.height}, ${kb(img.bytes)})`);
+    }
     if (n.agent_note && n.replies_to) lines.push(`    in reply to ${n.agent_note.source} (${n.agent_note.id}): "${n.agent_note.comment}"`);
     if (a) {
       const st = a as Anchor & { state?: string; current?: { selector: string; source_line: number | null } };
