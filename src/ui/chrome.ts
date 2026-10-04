@@ -13,9 +13,13 @@ interface Anchor {
   suffix?: string;
   source_line?: number | null;
 }
+type Intent = 'change' | 'question' | 'delete' | 'looks-good';
+type Severity = 'blocking' | 'important' | 'nit';
 interface Draft {
   kind: Kind;
   comment: string;
+  intent?: Intent;
+  severity?: Severity;
   anchor: Anchor | null;
 }
 interface Note extends Draft {
@@ -92,6 +96,7 @@ let replies: ReplyView[] = [];
 let decisions: DecisionView[] = [];
 let queue: Draft[] = loadQueue();
 let target: { kind: Kind; anchor: Anchor | null } = { kind: 'page', anchor: null };
+let tags: { intent?: Intent; severity?: Severity } = {};
 let loadNonce = '';
 let lastScroll = { x: 0, y: 0 };
 let sending = false;
@@ -148,6 +153,11 @@ function describe(kind: Kind, a: Anchor | null): string {
 }
 
 const KIND_LABEL: Record<Kind, string> = { element: 'Element', text: 'Text', page: 'Page' };
+const INTENT_LABEL: Record<Intent, string> = { change: 'Change', question: 'Question', delete: 'Delete', 'looks-good': 'Looks good' };
+const SEVERITY_LABEL: Record<Severity, string> = { blocking: 'Blocking', important: 'Important', nit: 'Nit' };
+/** One keystroke on a queued note card sets its intent or severity; the same key again clears it. */
+const INTENT_KEYS: Record<string, Intent> = { c: 'change', q: 'question', d: 'delete', g: 'looks-good' };
+const SEVERITY_KEYS: Record<string, Severity> = { b: 'blocking', i: 'important', n: 'nit' };
 
 // ---- rendering -----------------------------------------------------------------------
 
@@ -167,6 +177,9 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   where.title = where.textContent ?? '';
   head.append(where);
   if (queuedIndex !== null) {
+    card.tabIndex = 0;
+    card.title = 'Keys: C Q D G set the intent, B I N the severity, Delete removes';
+    card.addEventListener('keydown', (e) => onQueuedKey(e, queuedIndex));
     head.append(el('span', 'state', 'Queued'));
     const rm = el('button', 'icon remove', '×');
     rm.type = 'button';
@@ -180,8 +193,41 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   } else {
     head.append(el('span', 'state', 'Sent'));
   }
-  card.append(head, el('p', 'comment', d.comment));
+  const tagRow = el('div', 'note-tags');
+  if (d.intent) tagRow.append(el('span', `pill intent ${d.intent}`, INTENT_LABEL[d.intent]));
+  if (d.severity) tagRow.append(el('span', `pill sev ${d.severity}`, SEVERITY_LABEL[d.severity]));
+  card.append(head, tagRow, el('p', 'comment', d.comment));
   return card;
+}
+
+function onQueuedKey(e: KeyboardEvent, i: number): void {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const d = queue[i];
+  if (!d) return;
+  const key = e.key.toLowerCase();
+  if (INTENT_KEYS[key]) d.intent = d.intent === INTENT_KEYS[key] ? undefined : INTENT_KEYS[key];
+  else if (SEVERITY_KEYS[key]) d.severity = d.severity === SEVERITY_KEYS[key] ? undefined : SEVERITY_KEYS[key];
+  else if (key === 'delete' || key === 'backspace') {
+    queue.splice(i, 1);
+    saveQueue();
+    render();
+    comment.focus();
+    e.preventDefault();
+    return;
+  } else return;
+  e.preventDefault();
+  saveQueue();
+  render();
+  focusQueued(i);
+}
+
+function focusQueued(i: number): void {
+  thread.querySelector<HTMLElement>(`.note.queued[data-n="${sent.length + i + 1}"]`)?.focus();
+}
+
+function renderTags(): void {
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#tags [data-intent]')) b.setAttribute('aria-pressed', String(tags.intent === b.dataset.intent));
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#tags [data-severity]')) b.setAttribute('aria-pressed', String(tags.severity === b.dataset.severity));
 }
 
 function replyCard(r: ReplyView): HTMLElement {
@@ -236,6 +282,7 @@ function render(): void {
   t.dataset.kind = target.kind;
   $('target-text').textContent = describe(target.kind, target.anchor);
   $('target-clear').hidden = target.kind === 'page';
+  renderTags();
   postMarks();
 }
 
@@ -306,12 +353,28 @@ window.addEventListener('message', (e) => {
 function addNote(): void {
   const text = comment.value.trim();
   if (!text) return;
-  queue.push({ kind: target.kind, comment: text, anchor: target.anchor });
+  queue.push({ kind: target.kind, comment: text, ...tags, anchor: target.anchor });
   saveQueue();
   comment.value = '';
   target = { kind: 'page', anchor: null };
+  tags = {};
   render();
+  // The new card takes the focus, so one key can still set its intent or severity.
+  focusQueued(queue.length - 1);
 }
+
+$('tags').addEventListener('click', (e) => {
+  const b = (e.target as Element).closest<HTMLButtonElement>('button.tag');
+  if (!b) return;
+  if (b.dataset.intent) {
+    const v = b.dataset.intent as Intent;
+    tags.intent = tags.intent === v ? undefined : v;
+  } else if (b.dataset.severity) {
+    const v = b.dataset.severity as Severity;
+    tags.severity = tags.severity === v ? undefined : v;
+  }
+  renderTags();
+});
 
 $('composer').addEventListener('submit', (e) => {
   e.preventDefault();

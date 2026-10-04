@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { makeWorld, startCli } from './helpers/harness.mjs';
+import { FIXTURE, makeWorld, startCli } from './helpers/harness.mjs';
 
 let chromium;
 try {
@@ -39,6 +39,36 @@ after(async () => {
 });
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/** A review page with the loopback-only guard and error collection the tests share. */
+async function reviewPage(url) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const offLoopback = [];
+  const problems = [];
+  await page.route('**/*', (route) => {
+    const u = new URL(route.request().url());
+    if (!LOOPBACK.has(u.hostname)) {
+      offLoopback.push(u.href);
+      return route.abort();
+    }
+    return route.continue();
+  });
+  page.on('websocket', (ws) => {
+    if (!LOOPBACK.has(new URL(ws.url()).hostname)) offLoopback.push(ws.url());
+  });
+  page.on('pageerror', (err) => problems.push(`pageerror: ${err.message}`));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') problems.push(`console: ${msg.text()}`);
+  });
+  await page.goto(url);
+  return { page, offLoopback, problems, frame: () => page.frames().find((f) => f.url().includes('/a/')) };
+}
+
+function skipWithoutBrowser(t) {
+  if (browser) return false;
+  t.skip(`Playwright Chromium is not available (${launchError?.message.split('\n')[0] ?? 'playwright-core not installed'}); run: npx playwright install chromium`);
+  return true;
+}
 
 test('element pick and text selection become notes only when Send is clicked', { timeout: 90_000 }, async (t) => {
   if (!browser) {
@@ -158,5 +188,65 @@ test('element pick and text selection become notes only when Send is clicked', {
   assert.deepEqual(problems, [], 'no script errors or CSP violations');
   await page.close();
   assert.equal((await world.cli(['stop'])).code, 0);
+  assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
+});
+
+test('features: intents, targets, decisions, re-anchoring and changes in the review UI', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'features.html');
+  const original = fs.readFileSync(FIXTURE, 'utf8');
+  fs.writeFileSync(file, original);
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { url } = JSON.parse(opened.stdout);
+  const { page, offLoopback, problems, frame } = await reviewPage(url);
+  const doc = page.frameLocator('#page');
+  await doc.locator('#step-2').waitFor();
+
+  const point = async (locator, position) => {
+    await page.click('#point');
+    await locator.click(position ? { position } : undefined);
+    await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'element');
+  };
+
+  // F4: intent and severity chosen in the composer before adding.
+  await point(doc.locator('#step-2'));
+  await page.click('#tags [data-intent="change"]');
+  await page.click('#tags [data-severity="blocking"]');
+  await page.fill('#comment', 'Split this step.');
+  await page.click('#add');
+  // ...and with one keystroke on the queued card, which has the focus after adding.
+  await point(doc.locator('#step-3'));
+  await page.fill('#comment', 'Is browser verification manual?');
+  await page.keyboard.press('Control+Enter');
+  await page.keyboard.press('q');
+  await page.keyboard.press('n');
+  await page.waitForSelector('.note.queued[data-n="2"] .pill.intent.question');
+  assert.equal(await page.locator('.note.queued[data-n="2"] .pill.sev.nit').count(), 1);
+  assert.equal(await page.locator('.note.queued[data-n="1"] .pill.intent.change').count(), 1);
+
+  // F1: with notes queued, Approve becomes Approve with notes and Dismiss waits.
+  assert.equal(await page.textContent('#approve'), 'Approve with notes');
+  assert.equal(await page.isDisabled('#dismiss'), true);
+
+  await page.click('#send');
+  await page.waitForSelector('.note:not(.queued) >> text=Sent');
+  const first = await world.cli(['wait', file, '--json']);
+  assert.equal(first.code, 0, first.stderr);
+  const out1 = JSON.parse(first.stdout);
+  assert.equal(out1.decision, 'request-changes');
+  assert.deepEqual(out1.notes.map((n) => [n.intent, n.severity]), [['change', 'blocking'], ['question', 'nit']]);
+
+  // F1: Approve with nothing queued sends a decision alone; wait exits 6.
+  assert.equal(await page.textContent('#approve'), 'Approve');
+  await page.click('#approve');
+  await page.waitForSelector('.decision.approve');
+  const approved = await world.cli(['wait', file, '--json', '--after', String(out1.seq.to)]);
+  assert.equal(approved.code, 6, approved.stdout);
+  assert.equal(JSON.parse(approved.stdout).decision, 'approve');
+
+  assert.deepEqual(offLoopback, [], 'the browser only talked to loopback');
+  assert.deepEqual(problems, [], 'no script errors or CSP violations');
+  await page.close();
   assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
 });

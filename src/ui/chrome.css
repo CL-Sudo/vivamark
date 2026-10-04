@@ -79,6 +79,23 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 .reply .md code { font: 12px var(--mono); }
 .reply .md a { color: var(--accent-strong); }
 
+.tags { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag { font: 500 12px var(--ui); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--card-line); background: rgba(255, 255, 255, .8); color: var(--fg2); cursor: pointer; }
+.tag:hover { background: #f8fbff; }
+.tag[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); border-color: rgba(14, 165, 233, .45); }
+.tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pill { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; flex: none; }
+.pill.intent { background: var(--chip); color: var(--chip-fg); }
+.pill.intent.question { background: var(--q-soft); color: var(--q); }
+.pill.intent.looks-good { background: var(--ok-soft); color: #047857; }
+.pill.intent.delete { background: rgba(244, 63, 94, .08); color: #be123c; }
+.pill.sev { background: rgba(100, 116, 139, .1); color: #475569; }
+.pill.sev.blocking { background: rgba(244, 63, 94, .1); color: #be123c; }
+.pill.sev.important { background: rgba(245, 158, 11, .12); color: #b45309; }
+.note-tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; }
+.note-tags:empty { display: none; }
+.note.queued:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .composer { display: flex; flex-direction: column; gap: 10px; }
 .target { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
 .target-label { flex: none; }

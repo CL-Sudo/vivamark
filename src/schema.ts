@@ -13,6 +13,24 @@ export const REPLY_SCHEMA = 'vivamark.reply/1';
 
 export type NoteKind = 'element' | 'text' | 'page';
 
+/** What the reviewer wants done (F4). */
+export const INTENTS = ['change', 'question', 'delete', 'looks-good'] as const;
+export type Intent = (typeof INTENTS)[number];
+/** How much it matters (F4). */
+export const SEVERITIES = ['blocking', 'important', 'nit'] as const;
+export type Severity = (typeof SEVERITIES)[number];
+
+/**
+ * The W3C Web Annotation `motivation` for each intent, so a reader that knows
+ * that vocabulary needs no table of ours. A note with no intent is `commenting`.
+ */
+export const MOTIVATION: Record<Intent, string> = {
+  change: 'editing',
+  question: 'questioning',
+  delete: 'editing',
+  'looks-good': 'assessing',
+};
+
 export interface Anchor {
   /** The element's own `id` or `data-vivamark-id`, when it has one. */
   stable_id: string | null;
@@ -34,6 +52,10 @@ export interface Note {
   id: string;
   kind: NoteKind;
   comment: string;
+  intent?: Intent;
+  severity?: Severity;
+  /** W3C Web Annotation motivation, derived from the intent. */
+  motivation: string;
   anchor: Anchor | null;
   /** Who made the note. Only `reviewer` notes exist today. */
   source: 'reviewer';
@@ -96,6 +118,8 @@ export interface Reply {
 export interface DraftNote {
   kind: NoteKind;
   comment: string;
+  intent?: Intent;
+  severity?: Severity;
   anchor: Omit<Anchor, 'source_line'> | null;
 }
 
@@ -128,7 +152,16 @@ export function parseDraft(input: unknown): DraftNote | string {
   const comment = typeof x.comment === 'string' ? x.comment.trim() : '';
   if (!comment) return 'note.comment is required';
   if (comment.length > LIMITS.comment) return `note.comment is longer than ${LIMITS.comment} characters`;
-  if (kind === 'page') return { kind, comment, anchor: null };
+  const tags: Pick<DraftNote, 'intent' | 'severity'> = {};
+  if (x.intent !== undefined && x.intent !== null) {
+    if (!(INTENTS as readonly unknown[]).includes(x.intent)) return `note.intent must be one of ${INTENTS.join(', ')}`;
+    tags.intent = x.intent as Intent;
+  }
+  if (x.severity !== undefined && x.severity !== null) {
+    if (!(SEVERITIES as readonly unknown[]).includes(x.severity)) return `note.severity must be one of ${SEVERITIES.join(', ')}`;
+    tags.severity = x.severity as Severity;
+  }
+  if (kind === 'page') return { kind, comment, ...tags, anchor: null };
 
   const a = x.anchor;
   if (!a || typeof a !== 'object') return `a ${kind} note needs an anchor`;
@@ -148,5 +181,5 @@ export function parseDraft(input: unknown): DraftNote | string {
     anchor.prefix = str(ar.prefix, LIMITS.context) ?? '';
     anchor.suffix = str(ar.suffix, LIMITS.context) ?? '';
   }
-  return { kind, comment, anchor };
+  return { kind, comment, ...tags, anchor };
 }

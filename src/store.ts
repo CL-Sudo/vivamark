@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { MOTIVATION } from './schema.js';
 import type { Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
 
 export function stateDir(): string {
@@ -244,6 +245,9 @@ export class Store {
         id: `n_${String(noteCount).padStart(4, '0')}`,
         kind: d.kind,
         comment: d.comment,
+        ...(d.intent ? { intent: d.intent } : {}),
+        ...(d.severity ? { severity: d.severity } : {}),
+        motivation: d.intent ? MOTIVATION[d.intent] : 'commenting',
         anchor: d.anchor ? { ...d.anchor, source_line: sourceLine(d) } : null,
         source: 'reviewer',
         attachments: [],

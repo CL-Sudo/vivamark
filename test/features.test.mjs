@@ -117,3 +117,31 @@ test('F1: --help documents the decision exit codes', async () => {
   assert.match(h.stdout, /6\s+approved/);
   assert.match(h.stdout, /7\s+dismissed/);
 });
+
+// ---- F4 ---------------------------------------------------------------------------
+
+test('F4: intent and severity travel with each note, with the W3C motivation', async () => {
+  const s = await openPage('f4.html');
+  const r = await send(s, [
+    { ...ELEMENT_NOTE, intent: 'change', severity: 'blocking' },
+    { ...TEXT_NOTE, intent: 'question' },
+    { kind: 'page', comment: 'The structure works.', intent: 'looks-good', severity: 'nit', anchor: null },
+    { kind: 'page', comment: 'Plain note.', anchor: null },
+  ]);
+  assert.equal(r.status, 201, r.text);
+  const w = await waitJson(s);
+  const [a, b, c, d] = w.out.notes;
+  assert.deepEqual([a.intent, a.severity, a.motivation], ['change', 'blocking', 'editing']);
+  assert.deepEqual([b.intent, b.severity, b.motivation], ['question', undefined, 'questioning']);
+  assert.deepEqual([c.intent, c.severity, c.motivation], ['looks-good', 'nit', 'assessing']);
+  assert.deepEqual([d.intent, d.severity, d.motivation], [undefined, undefined, 'commenting']);
+  const keys = Object.keys(a);
+  assert.ok(keys.indexOf('comment') < keys.indexOf('intent') && keys.indexOf('severity') < keys.indexOf('anchor'), 'small fields before the anchor');
+  const text = await world.cli(['wait', s.file]);
+  assert.match(text.stdout, /n_0001 \(change, blocking\) on <li#step-2>/);
+
+  for (const bad of [{ intent: 'shout' }, { severity: 'urgent' }, { intent: 3 }]) {
+    const res = await send(s, [{ kind: 'page', comment: 'x', anchor: null, ...bad }]);
+    assert.equal(res.status, 400, JSON.stringify(bad));
+  }
+});

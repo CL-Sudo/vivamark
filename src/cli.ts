@@ -185,7 +185,8 @@ function renderFeedback(v: FeedbackView, next: string): string {
   lines.push(`decision: ${v.decision ?? 'request-changes'}. ${DECISION_TEXT[v.decision ?? 'request-changes']}`, '');
   for (const n of notes) {
     const a = n.anchor;
-    lines.push(`[${n.seq}] ${n.id} on ${describeTarget(n.kind, a)}${a?.source_line ? ` (line ${a.source_line})` : ''}`);
+    const tags = [n.intent, n.severity].filter(Boolean).join(', ');
+    lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${a?.source_line ? ` (line ${a.source_line})` : ''}`);
     for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
     if (a) {
       if (a.selector) lines.push(`    selector: ${a.selector}`);

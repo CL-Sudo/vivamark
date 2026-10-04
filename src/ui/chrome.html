@@ -32,6 +32,19 @@
           <span class="target-text" id="target-text">the whole page</span>
           <button type="button" class="icon" id="target-clear" title="Clear target" hidden>×</button>
         </div>
+        <div class="tags" id="tags">
+          <div class="seg" role="group" aria-label="Intent">
+            <button type="button" class="tag" data-intent="change" aria-pressed="false" title="Change this (C)">Change</button>
+            <button type="button" class="tag" data-intent="question" aria-pressed="false" title="A question, not an instruction (Q)">Question</button>
+            <button type="button" class="tag" data-intent="delete" aria-pressed="false" title="Remove this (D)">Delete</button>
+            <button type="button" class="tag" data-intent="looks-good" aria-pressed="false" title="Keep this as it is (G)">Looks good</button>
+          </div>
+          <div class="seg" role="group" aria-label="Severity">
+            <button type="button" class="tag" data-severity="blocking" aria-pressed="false" title="Blocking (B)">Blocking</button>
+            <button type="button" class="tag" data-severity="important" aria-pressed="false" title="Important (I)">Important</button>
+            <button type="button" class="tag" data-severity="nit" aria-pressed="false" title="Nit (N)">Nit</button>
+          </div>
+        </div>
         <textarea id="comment" rows="3" placeholder="Add a note…" aria-label="Note"></textarea>
         <div class="actions">
           <button type="button" class="btn ghost" id="point" aria-pressed="false" title="Pick an element on the page">Point</button>
@@ -44,7 +57,7 @@
           <span class="spacer"></span>
           <button type="button" class="btn ok" id="approve" title="Approve: no further revision needed">Approve</button>
         </div>
-        <p class="hint" id="hint">Select text, or press Point and click an element. Notes wait here until you press Send.</p>
+        <p class="hint" id="hint">Select text, or press Point and click an element. Notes wait here until you press Send. On a queued note, one key sets its intent (C Q D G) or severity (B I N).</p>
       </form>
     </aside>
   </div>
