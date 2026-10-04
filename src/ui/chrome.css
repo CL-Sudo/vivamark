@@ -46,7 +46,9 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 .toggle[aria-pressed="true"] { background: rgba(16, 185, 129, .1); color: #047857; border-color: rgba(16, 185, 129, .45); }
 .toggle:disabled { opacity: .45; cursor: default; }
 .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.presence { margin-left: auto; color: var(--muted); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.turn { margin-left: auto; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--q-soft); color: var(--q); white-space: nowrap; }
+.turn[data-turn="agent"] { background: var(--chip); color: var(--chip-fg); }
+.presence { color: var(--muted); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; display: inline-block; transition: background .2s; }
 .presence[data-state="listening"] .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 
@@ -108,6 +110,22 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 .orphans-hint { margin: 0; font-size: 12px; color: var(--muted); }
 .note.orphaned { box-shadow: none; opacity: .85; }
 .note.orphaned .num { background: #94a3b8; }
+.note-reply { margin-top: 8px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--fg2); font-size: 13px; }
+.note-reply.question { background: var(--q-soft); }
+.note-reply.question .reply-head { color: var(--q); }
+.note-reply.addressed .reply-head { color: #047857; }
+.note-reply .md > :first-child { margin-top: 0; }
+.note-reply .md > :last-child { margin-bottom: 0; }
+.note-reply .md p { margin: 0 0 6px; }
+.note-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+.btn.small { font-size: 12px; padding: 4px 12px; background: #fff; color: var(--fg2); }
+.btn.small:hover { background: #f8fbff; }
+.btn.small.answer { color: var(--q); border-color: rgba(139, 92, 246, .35); }
+.state.status-addressed { color: #047857; }
+.state.status-question { color: var(--q); font-weight: 600; }
+.state.status-resolved, .state.status-answered { color: var(--muted); }
+.note[data-status="resolved"] { opacity: .7; box-shadow: none; }
+.target[data-answering="true"] .target-text { background: var(--q-soft); color: var(--q); }
 .composer { display: flex; flex-direction: column; gap: 10px; }
 .target { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
 .target-label { flex: none; }

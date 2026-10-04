@@ -3,10 +3,12 @@
 // reviewer's words come before anything large, so an agent that truncates
 // output still keeps what the person said.
 //
-// Later features add fields here without changing existing ones: a batch
-// `decision` (F1), `anchor.state` (F3), `note.intent` and `note.severity`
-// (F4), and a per-note `status` carried by replies (F6). Readers must ignore
-// fields they do not know.
+// Features add fields here without changing existing ones: a batch
+// `decision` (F1), `target_changed` (F2), `anchor.state` (F3), `note.intent`
+// and `note.severity` (F4), `anchor.lines` (F5), a per-note `status` carried
+// by replies and `answers` on notes (F6), notes from the agent or tools in a
+// log of their own (F7), and `anchor.cell`, `control` and `point` (F8).
+// Readers must ignore fields they do not know.
 
 export const FEEDBACK_SCHEMA = 'vivamark.feedback/1';
 export const REPLY_SCHEMA = 'vivamark.reply/1';
@@ -65,6 +67,8 @@ export interface Note {
   /** W3C Web Annotation motivation, derived from the intent. */
   motivation: string;
   anchor: Anchor | null;
+  /** F6: the reviewer's answer to the agent's question on this note. */
+  answers?: string;
   /** F2, derived when read: the target's text changed since the note was sent. */
   target_changed?: boolean;
   /** Who made the note. Only `reviewer` notes exist today. */
@@ -125,7 +129,34 @@ export interface Reply {
   seq: number;
   at: string;
   text: string;
+  /** F6: the note this reply is about, and what the agent says of it. */
+  note?: string;
+  status?: AgentStatus;
 }
+
+/** What the agent can say about one note (F6). Resolving is the reviewer's call, so it is not here. */
+export const AGENT_STATUSES = ['addressed', 'declined', 'question'] as const;
+export type AgentStatus = (typeof AGENT_STATUSES)[number];
+
+/**
+ * A note's status as both sides see it, derived from the log: `open` until
+ * the agent says something of it, then the agent's word, `answered` once the
+ * reviewer answers a question, and `resolved` when the reviewer closes it.
+ */
+export type NoteStatus = 'open' | AgentStatus | 'answered' | 'resolved';
+
+/** Whose move it is: the agent's while any note waits on it, else the reviewer's. */
+export type Turn = 'agent' | 'reviewer';
+
+/** One line of `annotations/<session>.jsonl`: things that are not feedback, so never reach wait. */
+export interface ResolveEntry {
+  type: 'resolve';
+  at: string;
+  note: string;
+  resolved: boolean;
+}
+
+export type AnnotationEntry = ResolveEntry;
 
 /** What the review UI posts for each queued note. The server assigns ids, times and source lines. */
 export interface DraftNote {
@@ -133,6 +164,7 @@ export interface DraftNote {
   comment: string;
   intent?: Intent;
   severity?: Severity;
+  answers?: string;
   anchor: Omit<Anchor, 'source_line' | 'lines'> | null;
 }
 
@@ -146,6 +178,8 @@ export const LIMITS = {
   sendBody: 1_000_000,
   reply: 256 * 1024,
 };
+
+export const NOTE_ID = /^n_\d{4,}$/;
 
 function str(v: unknown, max: number): string | undefined {
   if (typeof v !== 'string') return undefined;
@@ -196,7 +230,7 @@ export function parseDraft(input: unknown): DraftNote | string {
   const comment = typeof x.comment === 'string' ? x.comment.trim() : '';
   if (!comment) return 'note.comment is required';
   if (comment.length > LIMITS.comment) return `note.comment is longer than ${LIMITS.comment} characters`;
-  const tags: Pick<DraftNote, 'intent' | 'severity'> = {};
+  const tags: Pick<DraftNote, 'intent' | 'severity' | 'answers'> = {};
   if (x.intent !== undefined && x.intent !== null) {
     if (!(INTENTS as readonly unknown[]).includes(x.intent)) return `note.intent must be one of ${INTENTS.join(', ')}`;
     tags.intent = x.intent as Intent;
@@ -204,6 +238,10 @@ export function parseDraft(input: unknown): DraftNote | string {
   if (x.severity !== undefined && x.severity !== null) {
     if (!(SEVERITIES as readonly unknown[]).includes(x.severity)) return `note.severity must be one of ${SEVERITIES.join(', ')}`;
     tags.severity = x.severity as Severity;
+  }
+  if (x.answers !== undefined && x.answers !== null) {
+    if (typeof x.answers !== 'string' || !NOTE_ID.test(x.answers)) return 'note.answers must be a note id';
+    tags.answers = x.answers;
   }
   if (kind === 'page') return { kind, comment, ...tags, anchor: null };
 

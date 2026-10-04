@@ -5,6 +5,7 @@
 //   <state>/sessions/<id>.json     file, labels, token, cursors      0600
 //   <state>/feedback/<id>.jsonl    append-only note log, seq per line 0600
 //   <state>/replies/<id>.jsonl     append-only agent replies          0600
+//   <state>/annotations/<id>.jsonl append-only: resolutions, agent notes 0600
 //   <state>/snapshots/<id>/<sha256>  the file as it was at a Send       0600
 //   <state>/daemon.log
 //
@@ -16,7 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MOTIVATION } from './schema.js';
-import type { Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
+import type { AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
 
 export function stateDir(): string {
   const explicit = process.env.VIVAMARK_STATE_DIR;
@@ -137,6 +138,7 @@ function readJsonl<T>(file: string): T[] {
 export interface Session extends SessionRecord {
   log: LogEntry[];
   replies: Reply[];
+  annotations: AnnotationEntry[];
 }
 
 /** The daemon's view of the state directory. */
@@ -146,7 +148,7 @@ export class Store {
 
   constructor(dir = stateDir()) {
     this.dir = dir;
-    for (const sub of ['', 'sessions', 'feedback', 'replies']) ensureDir(path.join(dir, sub));
+    for (const sub of ['', 'sessions', 'feedback', 'replies', 'annotations']) ensureDir(path.join(dir, sub));
     this.load();
   }
 
@@ -160,6 +162,7 @@ export class Store {
         cursors: rec.cursors ?? {},
         log: readJsonl<LogEntry>(this.feedbackPath(rec.id)),
         replies: readJsonl<Reply>(this.repliesPath(rec.id)),
+        annotations: readJsonl<AnnotationEntry>(this.annotationsPath(rec.id)),
       });
     }
   }
@@ -170,6 +173,10 @@ export class Store {
 
   private repliesPath(id: string): string {
     return path.join(this.dir, 'replies', `${id}.jsonl`);
+  }
+
+  private annotationsPath(id: string): string {
+    return path.join(this.dir, 'annotations', `${id}.jsonl`);
   }
 
   private saveRecord(s: Session): void {
@@ -214,6 +221,7 @@ export class Store {
       cursors: {},
       log: [],
       replies: [],
+      annotations: [],
     };
     this.sessions.set(id, session);
     this.saveRecord(session);
@@ -253,6 +261,7 @@ export class Store {
         comment: d.comment,
         ...(d.intent ? { intent: d.intent } : {}),
         ...(d.severity ? { severity: d.severity } : {}),
+        ...(d.answers ? { answers: d.answers } : {}),
         motivation: d.intent ? MOTIVATION[d.intent] : 'commenting',
         anchor: d.anchor ? { ...d.anchor, ...placed(d) } : null,
         source: 'reviewer',
@@ -291,15 +300,21 @@ export class Store {
     }
   }
 
-  appendReply(s: Session, text: string): Reply {
+  appendReply(s: Session, text: string, about?: { note: string; status: AgentStatus }): Reply {
     const reply: Reply = {
       seq: s.replies.length ? s.replies[s.replies.length - 1].seq + 1 : 1,
       at: new Date().toISOString(),
       text,
+      ...(about ? { note: about.note, status: about.status } : {}),
     };
     fs.appendFileSync(this.repliesPath(s.id), JSON.stringify(reply) + '\n', { mode: 0o600 });
     s.replies.push(reply);
     return reply;
+  }
+
+  appendAnnotation(s: Session, entry: AnnotationEntry): void {
+    fs.appendFileSync(this.annotationsPath(s.id), JSON.stringify(entry) + '\n', { mode: 0o600 });
+    s.annotations.push(entry);
   }
 
   setCursor(s: Session, owner: string, seq: number): void {

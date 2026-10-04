@@ -27,12 +27,15 @@ interface Draft {
   comment: string;
   intent?: Intent;
   severity?: Severity;
+  answers?: string;
   anchor: Anchor | null;
 }
+type NoteStatus = 'open' | 'addressed' | 'declined' | 'question' | 'answered' | 'resolved';
 interface Note extends Draft {
   id: string;
   at: string;
   target_changed?: boolean;
+  status?: NoteStatus;
 }
 interface NoteEntry {
   seq: number;
@@ -51,6 +54,8 @@ interface ReplyView {
   at: string;
   text: string;
   html: string;
+  note?: string;
+  status?: 'addressed' | 'declined' | 'question';
 }
 interface Changes {
   since: string;
@@ -65,6 +70,7 @@ interface SessionView {
   notes: NoteEntry[];
   decisions: DecisionView[];
   changes: Changes | null;
+  turn: 'agent' | 'reviewer';
   replies: ReplyView[];
   agent: 'listening' | 'away';
 }
@@ -109,6 +115,9 @@ let sent: NoteEntry[] = [];
 let replies: ReplyView[] = [];
 let decisions: DecisionView[] = [];
 let changes: Changes | null = null;
+let turn: 'agent' | 'reviewer' = 'reviewer';
+/** The sent note the reviewer is answering (F6), if any. */
+let answering: { id: string; n: number } | null = null;
 let showChanges = false;
 let queue: Draft[] = loadQueue();
 let target: { kind: Kind; anchor: Anchor | null } = { kind: 'page', anchor: null };
@@ -215,7 +224,8 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
     });
     head.append(rm);
   } else {
-    head.append(el('span', 'state', 'Sent'));
+    const status = (d as Note).status ?? 'open';
+    head.append(Object.assign(el('span', `state status-${status}`, STATUS_LABEL[status]), { title: STATUS_TITLE[status] }));
   }
   const tagRow = el('div', 'note-tags');
   if (state === 'moved') tagRow.append(Object.assign(el('span', 'pill flag moved', 'Moved'), { title: `Re-attached at ${d.anchor?.current?.selector ?? 'a new place'}` }));
@@ -225,8 +235,82 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   }
   if (d.intent) tagRow.append(el('span', `pill intent ${d.intent}`, INTENT_LABEL[d.intent]));
   if (d.severity) tagRow.append(el('span', `pill sev ${d.severity}`, SEVERITY_LABEL[d.severity]));
+  if (d.answers) tagRow.append(el('span', 'pill flag', `Answer to ${noteNumber(d.answers) ?? d.answers}`));
   card.append(head, tagRow, el('p', 'comment', d.comment));
+  if (queuedIndex === null) sentExtras(card, n, d as Note);
   return card;
+}
+
+const STATUS_LABEL: Record<NoteStatus, string> = {
+  open: 'Sent',
+  addressed: 'Addressed',
+  declined: 'Declined',
+  question: 'Question',
+  answered: 'Answered',
+  resolved: 'Resolved',
+};
+const STATUS_TITLE: Record<NoteStatus, string> = {
+  open: 'Sent; the agent has not said anything about it yet',
+  addressed: 'The agent says it is done; resolve it if you agree',
+  declined: 'The agent chose not to do it; resolve it, or answer with a new note',
+  question: 'The agent asked you something about this note',
+  answered: 'You answered the agent’s question',
+  resolved: 'You resolved this note',
+};
+
+function noteNumber(id: string): number | null {
+  const i = sent.findIndex((e) => e.note.id === id);
+  return i >= 0 ? i + 1 : null;
+}
+
+/** On a sent note: what the agent said about it, and the reviewer's own actions. */
+function sentExtras(card: HTMLElement, n: number, note: Note): void {
+  const status = note.status ?? 'open';
+  card.dataset.status = status;
+  card.dataset.id = note.id;
+  for (const r of replies.filter((x) => x.note === note.id)) {
+    const box = el('div', `note-reply ${r.status ?? ''}`);
+    box.append(el('div', 'reply-head', `Agent · ${r.status ?? 'reply'}`));
+    if (r.text.trim()) {
+      const body = el('div', 'md');
+      // Rendered on the server from Markdown with raw HTML disabled; the page's CSP blocks scripts as well.
+      body.innerHTML = r.html;
+      box.append(body);
+    }
+    card.append(box);
+  }
+  const actions = el('div', 'note-actions');
+  if (status === 'question') {
+    const answer = el('button', 'btn small answer', 'Answer');
+    answer.type = 'button';
+    answer.addEventListener('click', () => {
+      answering = { id: note.id, n };
+      target = { kind: note.kind, anchor: stripDerived(note.anchor) };
+      render();
+      comment.focus();
+    });
+    actions.append(answer);
+  }
+  const resolve = el('button', 'btn small resolve', status === 'resolved' ? 'Reopen' : 'Resolve');
+  resolve.type = 'button';
+  resolve.title = status === 'resolved' ? 'Open this note again' : 'Close this note: nothing more is needed';
+  resolve.addEventListener('click', async () => {
+    try {
+      await api('POST', '/resolve', { note: note.id, resolved: status !== 'resolved' });
+      await refresh();
+    } catch (err) {
+      banner(`Could not resolve: ${(err as Error).message}`, true, 5000);
+    }
+  });
+  actions.append(resolve);
+  card.append(actions);
+}
+
+/** An anchor as it was sent, without what the server derived (state, lines, current place). */
+function stripDerived(a: Anchor | null): Anchor | null {
+  if (!a) return null;
+  const { state: _s, current, source_line: _l, lines: _ls, ...rest } = a;
+  return current && a.state === 'moved' ? { ...rest, stable_id: current.stable_id, selector: current.selector } : rest;
 }
 
 function onQueuedKey(e: KeyboardEvent, i: number): void {
@@ -300,7 +384,8 @@ function render(): void {
     if (e.note.anchor?.state === 'orphaned') orphans.push(card);
     else items.push({ at: e.at, node: card });
   });
-  replies.forEach((r) => items.push({ at: r.at, node: replyCard(r) }));
+  // A reply about one note is shown on that note's card.
+  replies.filter((r) => !r.note).forEach((r) => items.push({ at: r.at, node: replyCard(r) }));
   // A decision follows the notes it was sent with.
   decisions.forEach((d) => items.push({ at: `${d.at}~`, node: decisionCard(d) }));
   items.sort((a, b) => a.at.localeCompare(b.at));
@@ -324,8 +409,13 @@ function render(): void {
 
   const t = $('target');
   t.dataset.kind = target.kind;
-  $('target-text').textContent = describe(target.kind, target.anchor);
-  $('target-clear').hidden = target.kind === 'page';
+  $('target-text').textContent = answering ? `answer to note ${answering.n}` : describe(target.kind, target.anchor);
+  t.dataset.answering = String(!!answering);
+  $('target-clear').hidden = target.kind === 'page' && !answering;
+  const turnEl = $('turn');
+  turnEl.dataset.turn = turn;
+  turnEl.textContent = turn === 'agent' ? "Agent's turn" : 'Your turn';
+  turnEl.title = turn === 'agent' ? 'Notes are waiting on the agent' : 'Nothing is waiting on the agent';
   renderTags();
   renderChanges();
   postMarks();
@@ -419,11 +509,12 @@ window.addEventListener('message', (e) => {
 function addNote(): void {
   const text = comment.value.trim();
   if (!text) return;
-  queue.push({ kind: target.kind, comment: text, ...tags, anchor: target.anchor });
+  queue.push({ kind: target.kind, comment: text, ...tags, ...(answering ? { answers: answering.id } : {}), anchor: target.anchor });
   saveQueue();
   comment.value = '';
   target = { kind: 'page', anchor: null };
   tags = {};
+  answering = null;
   render();
   // The new card takes the focus, so one key can still set its intent or severity.
   focusQueued(queue.length - 1);
@@ -455,6 +546,7 @@ comment.addEventListener('keydown', (e) => {
 });
 $('target-clear').addEventListener('click', () => {
   target = { kind: 'page', anchor: null };
+  answering = null;
   render();
 });
 pointBtn.addEventListener('click', () => setPicking(pointBtn.getAttribute('aria-pressed') !== 'true'));
@@ -526,9 +618,14 @@ function connect(): void {
       return;
     }
     if (ev.type === 'hello' || ev.type === 'presence') setPresence(ev.agent ?? 'away');
-    else if (ev.type === 'notes') void refresh(); else if (ev.type === 'reply' && ev.reply) {
+    else if (ev.type === 'notes') void refresh();
+    else if (ev.type === 'reply' && ev.reply) {
       mergeReply(ev.reply);
       render();
+      // A reply can change a note's status and whose turn it is.
+      void refresh();
+    } else if (ev.type === 'state') {
+      void refresh();
     } else if (ev.type === 'reload') {
       // The file changed: the server has re-anchored every note against it.
       void refresh();
@@ -556,6 +653,7 @@ async function refresh(): Promise<void> {
     replies = s.replies;
     decisions = s.decisions ?? [];
     changes = s.changes ?? null;
+    turn = s.turn ?? 'reviewer';
     setPresence(s.agent);
     render();
     postChanges();
@@ -582,6 +680,7 @@ async function start(): Promise<void> {
   replies = session.replies;
   decisions = session.decisions ?? [];
   changes = session.changes ?? null;
+  turn = session.turn ?? 'reviewer';
   setPresence(session.agent);
   render();
   loadFrame();

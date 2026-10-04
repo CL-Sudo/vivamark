@@ -337,3 +337,73 @@ test('F2: a snapshot at each Send; after an edit, what changed and which targets
   const after = await view(s);
   assert.deepEqual([after.changes.inserts, after.changes.removals], [[], []]);
 });
+
+// ---- F6 ---------------------------------------------------------------------------
+
+test('F6: per-note status from the agent, answers from the reviewer, and whose turn it is', async () => {
+  const s = await openPage('f6.html');
+  const turn = async () => (await view(s)).turn;
+  const statuses = async () => (await view(s)).notes.map((e) => e.note.status);
+  assert.equal(await turn(), 'reviewer', 'nothing sent yet');
+
+  assert.equal((await send(s, [ELEMENT_NOTE, TEXT_NOTE])).status, 201);
+  let w = await waitJson(s);
+  assert.equal(w.out.turn, 'agent');
+  assert.deepEqual(w.out.notes.map((n) => n.status), ['open', 'open']);
+
+  const done = await world.cli(['reply', s.file, '--note', 'n_0001', '--status', 'addressed', '--json']);
+  assert.equal(done.code, 0, done.stderr);
+  assert.equal(JSON.parse(done.stdout).status, 'addressed');
+  assert.deepEqual(await statuses(), ['addressed', 'open']);
+  assert.equal(await turn(), 'agent', 'one note still waits on the agent');
+
+  const ask = await world.cli(['reply', s.file, '--note', 'n_0002', '--status', 'question', '-m', 'Should a Viewer enrol too?']);
+  assert.equal(ask.code, 0, ask.stderr);
+  assert.match(ask.stdout, /Marked n_0002 question/);
+  assert.deepEqual(await statuses(), ['addressed', 'question']);
+  assert.equal(await turn(), 'reviewer');
+  const v = await view(s);
+  assert.deepEqual(
+    v.replies.map((r) => [r.note, r.status, r.text]),
+    [
+      ['n_0001', 'addressed', ''],
+      ['n_0002', 'question', 'Should a Viewer enrol too?'],
+    ],
+  );
+
+  // The reviewer answers: a new note linked to the question.
+  const answer = { kind: TEXT_NOTE.kind, comment: 'No, Directors and Attestors only.', anchor: TEXT_NOTE.anchor, answers: 'n_0002' };
+  assert.equal((await send(s, [answer])).status, 201);
+  w = await waitJson(s, ['--after', '2']);
+  assert.equal(w.out.notes[0].answers, 'n_0002');
+  assert.equal(w.out.notes[0].motivation, 'commenting');
+  assert.equal(w.out.turn, 'agent');
+  assert.deepEqual(await statuses(), ['addressed', 'answered', 'open']);
+  assert.match((await world.cli(['wait', s.file, '--after', '2'])).stdout, /n_0003 \(answers n_0002\)/);
+
+  // A general reply after the answer hands the turn back.
+  assert.equal((await world.cli(['reply', s.file, '-m', 'Understood, restricted it.'])).code, 0);
+  assert.equal(await turn(), 'reviewer');
+
+  // Only the reviewer resolves, from the review page.
+  const resolve = (origin, body) => api(s.port, 'POST', `/api/s/${s.id}/resolve`, { token: s.token, origin, body });
+  assert.equal((await resolve(false, { note: 'n_0001' })).status, 403, 'not from the CLI');
+  const r = await resolve(true, { note: 'n_0001' });
+  assert.equal(r.status, 201, r.text);
+  assert.equal(r.json.status, 'resolved');
+  assert.deepEqual(await statuses(), ['resolved', 'answered', 'open']);
+  assert.equal((await resolve(true, { note: 'n_0001', resolved: false })).status, 201);
+  assert.deepEqual((await statuses())[0], 'addressed', 'reopened');
+  assert.equal((await resolve(true, { note: 'n_9999' })).status, 400);
+
+  const agentResolve = await world.cli(['reply', s.file, '--note', 'n_0001', '--status', 'resolved']);
+  assert.equal(agentResolve.code, 2);
+  assert.match(agentResolve.stderr, /only the reviewer resolves/);
+  const raw = await api(s.port, 'POST', `/api/s/${s.id}/replies`, { token: s.token, body: { note: 'n_0001', status: 'resolved' } });
+  assert.equal(raw.status, 400, 'the server refuses it too');
+  const unknown = await world.cli(['reply', s.file, '--note', 'n_0042', '--status', 'addressed']);
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.stderr, /no note n_0042/);
+  assert.equal((await world.cli(['reply', s.file, '--note', 'n_0001', '--status', 'question'])).code, 2, 'a question needs its text');
+  assert.equal((await send(s, [{ ...answer, answers: 'n_0077' }])).status, 400, 'answers must name a note of this review');
+});

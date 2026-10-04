@@ -265,6 +265,21 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   assert.deepEqual([pt.width, pt.height], [240, 120]);
   assert.ok(Math.abs(pt.x - 180) <= 1 && Math.abs(pt.y - 30) <= 1, JSON.stringify(pt));
 
+  // F6: the agent asks back on one note; the page shows it, and the reviewer answers it.
+  assert.equal(await page.getAttribute('#turn', 'data-turn'), 'agent');
+  const ask = await world.cli(['reply', file, '--note', 'n_0002', '--status', 'question', '-m', 'Manual, or *scripted*?']);
+  assert.equal(ask.code, 0, ask.stderr);
+  await page.waitForSelector('.note[data-n="2"][data-status="question"] .note-reply.question em:text("scripted")');
+  await page.click('.note[data-n="2"] button.answer');
+  assert.equal(await page.textContent('#target-text'), 'answer to note 2');
+  await page.fill('#comment', 'Scripted, in CI.');
+  await page.click('#add');
+  await page.click('#send');
+  await page.waitForSelector('.note[data-n="2"][data-status="answered"]');
+  const answered = JSON.parse((await world.cli(['wait', file, '--json', '--after', String(out1.seq.to)])).stdout);
+  assert.equal(answered.notes[0].answers, 'n_0002');
+  assert.equal(answered.notes[0].anchor.stable_id, 'step-3', 'the answer points where the question did');
+
   // F3: the agent rewords step 2, deletes step 3 and inserts a paragraph above the risks.
   fs.writeFileSync(
     file,
@@ -275,8 +290,9 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   );
   await doc.locator('p', { hasText: 'Rollback is covered' }).waitFor({ timeout: 10_000 });
   await page.waitForSelector('.orphans .note[data-n="2"]');
-  assert.equal(await page.locator('.orphans .note').count(), 1, 'only the deleted step is listed apart');
-  assert.match(await page.textContent('.orphans-head'), /Target gone · 1/);
+  // The deleted step and the answer that pointed at it are listed apart, and nothing else.
+  assert.deepEqual(await page.locator('.orphans .note').evaluateAll((els) => els.map((e) => e.dataset.n)), ['2', '9']);
+  assert.match(await page.textContent('.orphans-head'), /Target gone · 2/);
   assert.equal(await page.locator('.note[data-n="8"] .pill.flag.moved').count(), 1);
   // The orphan is not drawn on the page; the moved note is drawn where its paragraph is now.
   const layerBadges = () =>
@@ -291,7 +307,7 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   });
   assert.ok(markTop.badge >= markTop.para - 12 && markTop.badge <= markTop.bottom, JSON.stringify(markTop));
   const reanchored = JSON.parse((await world.cli(['wait', file, '--json', '--after', '0'])).stdout);
-  assert.deepEqual(reanchored.orphaned, ['n_0002']);
+  assert.deepEqual(reanchored.orphaned, ['n_0002', 'n_0009']);
   assert.equal(reanchored.notes[7].anchor.state, 'moved');
 
   // F2: what changed since the Send, highlighted only when asked for.

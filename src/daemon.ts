@@ -17,8 +17,8 @@ import type { TextChanges } from './diff.js';
 import { docKind, findQuote, loadDoc, locate, placeAnchor, squash, textOf } from './doc.js';
 import type { AnchorState, Doc, Place } from './doc.js';
 import { injectScript } from './html.js';
-import { DECISIONS, entryDecision, FEEDBACK_SCHEMA, LIMITS, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
-import type { Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
+import { AGENT_STATUSES, DECISIONS, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
+import type { AgentStatus, Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
@@ -352,7 +352,7 @@ export class Daemon {
       if (!tokensEqual(m[2], s.artifact_key)) throw new HttpError(404, 'not found');
       return this.serveArtifact(res, s, m[3], url.searchParams.get('vmload') ?? '');
     }
-    if ((m = /^\/api\/s\/(s_[a-z0-9]+)(\/[a-z]+)?$/.exec(p))) {
+    if ((m = /^\/api\/s\/(s_[a-z0-9]+)(\/[a-z-]+)?$/.exec(p))) {
       const s = this.session(m[1]);
       this.requireSessionToken(req, s);
       const sub = m[2] ?? '';
@@ -363,6 +363,11 @@ export class Daemon {
         return this.receiveNotes(req, res, s);
       }
       if (sub === '/replies' && method === 'POST') return this.receiveReply(req, res, s);
+      if (sub === '/resolve' && method === 'POST') {
+        // Only the reviewer resolves a note (F6): from the review page, never the CLI.
+        if (!originAllowed(req, true)) throw new HttpError(403, 'only the reviewer resolves a note, from the review page');
+        return this.receiveResolve(req, res, s);
+      }
     }
     throw new HttpError(404, 'not found');
   }
@@ -390,6 +395,7 @@ export class Daemon {
 
   private sessionView(s: Session) {
     const a = this.analyze(s);
+    const p = this.progress(s);
     return {
       id: s.id,
       file: s.file,
@@ -397,7 +403,8 @@ export class Daemon {
       status: s.status,
       labels: s.labels,
       artifact_url: `/a/${s.id}/${s.artifact_key}/${encodeURIComponent(path.basename(s.file))}`,
-      notes: this.noteEntries(s).map((e) => ({ ...e, note: this.noteView(e.note, a) })),
+      notes: this.noteEntries(s).map((e) => ({ ...e, note: this.noteView(e.note, a, p.status.get(e.note.id)) })),
+      turn: p.turn,
       decisions: this.decisions(s),
       changes: a.changes,
       replies: s.replies.map((r) => this.replyView(r)),
@@ -417,7 +424,7 @@ export class Daemon {
   }
 
   private replyView(r: Reply) {
-    return { seq: r.seq, at: r.at, text: r.text, html: renderReply(r.text) };
+    return { seq: r.seq, at: r.at, text: r.text, html: renderReply(r.text), ...(r.note ? { note: r.note, status: r.status } : {}) };
   }
 
   // ---- static -------------------------------------------------------------
@@ -486,6 +493,27 @@ export class Daemon {
 
   // ---- feedback -----------------------------------------------------------
 
+  /**
+   * Each note's status and whose turn it is (F6). A note waits on the agent
+   * while it is open and the agent has not replied since it was sent.
+   */
+  private progress(s: Session): { status: Map<string, NoteStatus>; turn: Turn } {
+    const status = new Map<string, NoteStatus>();
+    const notes = this.noteEntries(s);
+    for (const e of notes) status.set(e.note.id, 'open');
+    for (const r of s.replies) if (r.note && r.status && status.has(r.note)) status.set(r.note, r.status);
+    for (const e of notes) {
+      const q = e.note.answers;
+      if (q && status.get(q) === 'question') status.set(q, 'answered');
+    }
+    const resolved = new Map<string, boolean>();
+    for (const a of s.annotations) if (a.type === 'resolve') resolved.set(a.note, a.resolved);
+    for (const [id, r] of resolved) if (r && status.has(id)) status.set(id, 'resolved');
+    const lastGeneralReply = s.replies.filter((r) => !r.note).at(-1)?.at ?? '';
+    const waiting = notes.some((e) => status.get(e.note.id) === 'open' && e.at > lastGeneralReply);
+    return { status, turn: waiting ? 'agent' : 'reviewer' };
+  }
+
   private noteEntries(s: Session): NoteEntry[] {
     return s.log.filter((e): e is NoteEntry => e.type === 'note');
   }
@@ -539,13 +567,14 @@ export class Daemon {
   }
 
   /** A note as readers see it: the logged note, plus where its target is now. */
-  private noteView(n: Note, a: Analysis): Note {
+  private noteView(n: Note, a: Analysis, status?: NoteStatus): Note & { status?: NoteStatus } {
+    const tail = status ? { status } : {};
     const st = n.anchor ? a.notes.get(n.id) : undefined;
-    if (!n.anchor || !st) return n;
+    if (!n.anchor || !st) return { ...n, ...tail };
     const anchor: Anchor & { state: AnchorState; current?: Place } = { ...n.anchor, state: st.state };
     const stale = st.current && (st.state === 'moved' || JSON.stringify(st.current.lines) !== JSON.stringify(n.anchor.lines ?? null));
     if (st.current && stale) anchor.current = st.current;
-    return { ...n, anchor, ...(st.changed !== undefined ? { target_changed: st.changed } : {}) };
+    return { ...n, anchor, ...(st.changed !== undefined ? { target_changed: st.changed } : {}), ...tail };
   }
 
   private orphaned(s: Session, a: Analysis): string[] {
@@ -573,9 +602,11 @@ export class Daemon {
     const decision = parseDecision(body.decision, notes.length);
     if (!(DECISION_SET as Set<string>).has(decision)) throw new HttpError(400, decision);
     const drafts: DraftNote[] = [];
+    const known = new Set(this.noteEntries(s).map((e) => e.note.id));
     for (const n of notes) {
       const d = parseDraft(n);
       if (typeof d === 'string') throw new HttpError(400, d);
+      if (d.answers && !known.has(d.answers)) throw new HttpError(400, `note.answers: no note ${d.answers} in this review`);
       drafts.push(d);
     }
     const doc = this.readDoc(s);
@@ -607,16 +638,18 @@ export class Daemon {
     const hold = Math.min(MAX_HOLD_MS, Math.max(0, Number(url.searchParams.get('hold') ?? 0) || 0));
     const view = (entries: LogEntry[]) => {
       const a = this.analyze(s);
+      const p = this.progress(s);
       return {
         schema: FEEDBACK_SCHEMA,
         session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
         status: 'feedback',
         seq: { from: entries[0].seq, to: entries[entries.length - 1].seq },
-        notes: entries.filter((e): e is NoteEntry => e.type === 'note').map((e) => ({ seq: e.seq, ...this.noteView(e.note, a) })),
+        notes: entries.filter((e): e is NoteEntry => e.type === 'note').map((e) => ({ seq: e.seq, ...this.noteView(e.note, a, p.status.get(e.note.id)) })),
         // The latest Send in the range decides.
         decision: entryDecision(entries[entries.length - 1]),
-        // Every note in the session whose target is gone, not only those in this range.
-        orphaned: this.orphaned(s, a),
+        turn: p.turn,
+        // Every unresolved note in the session whose target is gone, not only those in this range.
+        orphaned: this.orphaned(s, a).filter((id) => p.status.get(id) !== 'resolved'),
       };
     };
     const pending = () => ({
@@ -655,12 +688,34 @@ export class Daemon {
   }
 
   private async receiveReply(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
-    const body = (await readBody(req, LIMITS.reply + 4096)) as { text?: unknown };
-    if (typeof body.text !== 'string' || !body.text.trim()) throw new HttpError(400, 'text is required');
-    if (body.text.length > LIMITS.reply) throw new HttpError(413, 'reply is too long');
-    const reply = this.store.appendReply(s, body.text);
-    sendJson(res, 201, { schema: REPLY_SCHEMA, session: s.id, seq: reply.seq, at: reply.at });
+    const body = (await readBody(req, LIMITS.reply + 4096)) as { text?: unknown; note?: unknown; status?: unknown };
+    const text = body.text === undefined ? '' : body.text;
+    if (typeof text !== 'string') throw new HttpError(400, 'text must be a string');
+    if (text.length > LIMITS.reply) throw new HttpError(413, 'reply is too long');
+    let about: { note: string; status: AgentStatus } | undefined;
+    if (body.note !== undefined || body.status !== undefined) {
+      if (typeof body.note !== 'string' || !NOTE_ID.test(body.note)) throw new HttpError(400, 'note must be a note id such as n_0001');
+      if (!this.noteEntries(s).some((e) => e.note.id === body.note)) throw new HttpError(404, `no note ${body.note} in this review`);
+      if (body.status === 'resolved') throw new HttpError(400, 'only the reviewer resolves a note; say addressed, declined or question');
+      if (!(AGENT_STATUSES as readonly unknown[]).includes(body.status)) throw new HttpError(400, `status must be one of ${AGENT_STATUSES.join(', ')}`);
+      about = { note: body.note, status: body.status as AgentStatus };
+      if (about.status === 'question' && !text.trim()) throw new HttpError(400, 'a question needs its text');
+    } else if (!text.trim()) {
+      throw new HttpError(400, 'text is required');
+    }
+    const reply = this.store.appendReply(s, text, about);
+    sendJson(res, 201, { schema: REPLY_SCHEMA, session: s.id, seq: reply.seq, at: reply.at, ...(about ?? {}) });
     this.broadcast(s, { type: 'reply', reply: this.replyView(reply) });
+  }
+
+  private async receiveResolve(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
+    const body = (await readBody(req, 4096)) as { note?: unknown; resolved?: unknown };
+    if (typeof body.note !== 'string' || !this.noteEntries(s).some((e) => e.note.id === body.note)) throw new HttpError(400, 'note must be a note in this review');
+    const resolved = body.resolved === undefined ? true : body.resolved;
+    if (typeof resolved !== 'boolean') throw new HttpError(400, 'resolved must be true or false');
+    this.store.appendAnnotation(s, { type: 'resolve', at: new Date().toISOString(), note: body.note, resolved });
+    sendJson(res, 201, { note: body.note, status: this.progress(s).status.get(body.note) });
+    this.broadcast(s, { type: 'state' });
   }
 
   // ---- presence and live events --------------------------------------------

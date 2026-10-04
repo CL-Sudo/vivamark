@@ -27,7 +27,12 @@ Usage:
       re-running wait returns the same notes until you pass --after <seq>.
       -m posts a reply first, then waits.
   vivamark reply <file|session> (-m <text> | --file <file|->) [--json]
-      Send a message to the reviewer's page.
+  vivamark reply <file|session> --note <id> --status addressed|declined|question
+                [-m <text>] [--json]
+      Send a message to the reviewer's page. With --note, say what became of one
+      note: addressed, declined, or a question back to the reviewer (needs -m).
+      The reviewer's answer arrives as a new note with "answers": <id>. Only the
+      reviewer resolves a note.
   vivamark stop
       Stop the background review server.
 
@@ -155,13 +160,14 @@ interface FeedbackView {
   seq?: { from: number; to: number };
   notes?: DeliveredNote[];
   decision?: Decision;
+  turn?: 'agent' | 'reviewer';
   orphaned?: string[];
   after?: number;
   last_seq?: number;
 }
 
-async function postReply(port: number, s: SessionRecord, text: string): Promise<{ seq: number; at: string }> {
-  return request(port, 'POST', `/api/s/${s.id}/replies`, { token: s.token, body: { text } });
+async function postReply(port: number, s: SessionRecord, text: string, about?: { note: string; status: string }): Promise<{ seq: number; at: string }> {
+  return request(port, 'POST', `/api/s/${s.id}/replies`, { token: s.token, body: { text, ...about } });
 }
 
 function readReplyFile(p: string): string {
@@ -199,7 +205,10 @@ function renderFeedback(v: FeedbackView, next: string): string {
   lines.push(`decision: ${v.decision ?? 'request-changes'}. ${DECISION_TEXT[v.decision ?? 'request-changes']}`, '');
   for (const n of notes) {
     const a = n.anchor;
-    const tags = [n.intent, n.severity].filter(Boolean).join(', ');
+    const nv = n as DeliveredNote & { status?: string; answers?: string; target_changed?: boolean };
+    const tags = [n.intent, n.severity, nv.status && nv.status !== 'open' ? nv.status : '', nv.answers ? `answers ${nv.answers}` : '', nv.target_changed ? 'target changed' : '']
+      .filter(Boolean)
+      .join(', ');
     lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${describeLines(a)}`);
     for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
     if (a) {
@@ -216,6 +225,7 @@ function renderFeedback(v: FeedbackView, next: string): string {
     lines.push('');
   }
   if (v.orphaned?.length) lines.push(`orphaned (target gone): ${v.orphaned.join(', ')}`);
+  if (v.turn) lines.push(`turn: ${v.turn === 'agent' ? "the agent's (notes are waiting on you)" : "the reviewer's"}`);
   lines.push(`next: ${next}`);
   return lines.join('\n') + '\n';
 }
@@ -273,7 +283,7 @@ async function cmdWait(argv: string[]): Promise<void> {
             ? 'the review is closed; stop, or ask the reviewer to look again later'
             : `carry on with the work${decision === 'approve-with-notes' ? ', following the notes' : ''}; to wait for more: vivamark wait ${quote(s.file)} --after ${to}`;
       if (values.json) {
-        const out = { schema: FEEDBACK_SCHEMA, session: v.session, status: v.status, seq: v.seq, notes: v.notes, next, decision, orphaned: v.orphaned ?? [] };
+        const out = { schema: FEEDBACK_SCHEMA, session: v.session, status: v.status, seq: v.seq, notes: v.notes, next, decision, turn: v.turn, orphaned: v.orphaned ?? [] };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
       } else {
         process.stdout.write(renderFeedback(v, next));
@@ -301,16 +311,28 @@ async function cmdReply(argv: string[]): Promise<void> {
     options: {
       m: { type: 'string', short: 'm' },
       file: { type: 'string' },
+      note: { type: 'string' },
+      status: { type: 'string' },
       json: { type: 'boolean' },
     },
   });
   if (positionals.length !== 1) throw new UsageError('reply takes exactly one file or session id');
   const text = values.m ?? (values.file ? readReplyFile(values.file) : undefined);
-  if (text === undefined || !text.trim()) throw new UsageError('reply needs -m <text> or --file <file>');
+  let about: { note: string; status: string } | undefined;
+  if (values.note !== undefined || values.status !== undefined) {
+    if (!values.note || !values.status) throw new UsageError('--note and --status go together');
+    if (values.status === 'resolved') throw new UsageError('only the reviewer resolves a note; mark it addressed, declined or question');
+    if (!['addressed', 'declined', 'question'].includes(values.status)) throw new UsageError('--status wants addressed, declined or question');
+    if (values.status === 'question' && (text === undefined || !text.trim())) throw new UsageError('--status question needs the question: -m <text>');
+    about = { note: values.note, status: values.status };
+  } else if (text === undefined || !text.trim()) {
+    throw new UsageError('reply needs -m <text> or --file <file>');
+  }
   const s = sessionFor(positionals[0]);
   const info = await ensureDaemon();
-  const r = await postReply(info.port, s, text);
-  if (values.json) process.stdout.write(JSON.stringify({ schema: 'vivamark.reply/1', session: s.id, seq: r.seq, at: r.at }) + '\n');
+  const r = await postReply(info.port, s, text ?? '', about);
+  if (values.json) process.stdout.write(JSON.stringify({ schema: 'vivamark.reply/1', session: s.id, seq: r.seq, at: r.at, ...about }) + '\n');
+  else if (about) process.stdout.write(`Marked ${about.note} ${about.status} on the review page for ${path.basename(s.file)} (reply ${r.seq}).\n`);
   else process.stdout.write(`Reply ${r.seq} delivered to the review page for ${path.basename(s.file)}.\n`);
 }
 
