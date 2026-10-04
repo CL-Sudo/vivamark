@@ -7,6 +7,7 @@
 //   <state>/replies/<id>.jsonl     append-only agent replies          0600
 //   <state>/annotations/<id>.jsonl append-only: resolutions, agent notes 0600
 //   <state>/snapshots/<id>/<sha256>  the file as it was at a Send       0600
+//   <state>/events.jsonl           append-only, metadata-only events  0600 (events.ts)
 //   <state>/daemon.log
 //
 // Directories are 0700. Whole-file writes go through a rename so a reader

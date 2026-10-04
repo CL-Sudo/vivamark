@@ -85,6 +85,21 @@ Exit codes for wait:
   4  disconnected: no review page open for the grace period; nothing consumed
   1  error     130/143 interrupted, safe to re-run
 Durations: 90s, 5m, 1h, or milliseconds.
+
+Notify hook (set only by you, never by a page or a request):
+  VIVAMARK_NOTIFY_CMD=<command>, in the environment of the command that starts
+  the server, or "notify_cmd" in $XDG_CONFIG_HOME/vivamark/config.json
+  (~/.config/vivamark/config.json); the environment wins. The server runs it
+  once per event with the event's JSON on stdin (no note text), without
+  waiting, never retrying, and kills it after 5 s (VIVAMARK_NOTIFY_TIMEOUT_MS
+  or "notify_timeout_ms"). Failures go to daemon.log in the state directory.
+  Read when the server starts: run vivamark stop to apply a change.
+
+Environment:
+  VIVAMARK_STATE_DIR            state directory (default $XDG_STATE_HOME/vivamark
+                                or ~/.local/state/vivamark)
+  VIVAMARK_DISCONNECT_GRACE_MS  how long wait goes on with no review page open
+                                before it returns disconnected (default 10000)
 `;
 
 class UsageError extends Error {}
