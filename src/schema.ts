@@ -12,6 +12,7 @@
 
 export const FEEDBACK_SCHEMA = 'vivamark.feedback/1';
 export const REPLY_SCHEMA = 'vivamark.reply/1';
+export const STATUS_SCHEMA = 'vivamark.status/1';
 
 export type NoteKind = 'element' | 'text' | 'page';
 

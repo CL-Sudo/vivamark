@@ -41,6 +41,12 @@ Usage:
       It never reaches wait unless the reviewer endorses it or replies to it;
       then wait shows the reviewer's note with "endorses" or "replies_to" and
       "agent_note".
+  vivamark status [<file|session>] [--owner <name>] [--json]
+      Where a review stands, at once: open or ended, notes pending after the
+      owner's cursor (default: agent), last seq, last decision, whose turn it
+      is, and whether the reviewer's browser and the agent are there. Never
+      blocks and never moves a cursor, so a supervisor can poll it without
+      taking notes from the agent. Without a file, lists every session.
   vivamark stop
       Stop the background review server.
 
@@ -398,6 +404,67 @@ async function cmdNote(argv: string[]): Promise<void> {
   }
 }
 
+// ---- status -----------------------------------------------------------------------
+
+interface StatusEntry {
+  session: { id: string; file: string; status: string; labels: Record<string, string> };
+  owner: string;
+  cursor: number;
+  pending: number;
+  last_seq: number;
+  decision: Decision | null;
+  turn: 'agent' | 'reviewer';
+  reviewer: 'connected' | 'disconnected';
+  agent: 'listening' | 'away';
+  created: string;
+}
+
+function labelText(labels: Record<string, string>): string {
+  return Object.entries(labels)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ');
+}
+
+function renderStatus(e: StatusEntry): string {
+  const labels = labelText(e.session.labels);
+  return (
+    `${path.basename(e.session.file)} (session ${e.session.id}): ${e.session.status}\n` +
+    `  file: ${e.session.file}\n` +
+    `  pending: ${e.pending} note${e.pending === 1 ? '' : 's'} after seq ${e.cursor} (owner ${e.owner}); last seq ${e.last_seq}` +
+    `${e.decision ? `, last decision ${e.decision}` : ''}\n` +
+    `  turn: ${e.turn === 'agent' ? 'the agent' : 'the reviewer'}; reviewer ${e.reviewer}; agent ${e.agent}\n` +
+    (labels ? `  labels: ${labels}\n` : '')
+  );
+}
+
+async function cmdStatus(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      owner: { type: 'string' },
+      json: { type: 'boolean' },
+    },
+  });
+  if (positionals.length > 1) throw new UsageError('status takes at most one file or session id');
+  const owner = values.owner ?? 'agent';
+  if (!/^[A-Za-z0-9._:-]{1,64}$/.test(owner)) throw new UsageError('--owner wants a short name (letters, digits, . _ : -)');
+  const s = positionals.length ? sessionFor(positionals[0]) : undefined;
+  const info = await ensureDaemon();
+  const params = new URLSearchParams({ owner });
+  if (s) params.set('session', s.id);
+  const r = await request<StatusEntry & { schema: string; sessions?: StatusEntry[] }>(info.port, 'GET', `/api/status?${params}`, { token: info.admin_token });
+  if (values.json) {
+    process.stdout.write(JSON.stringify(r) + '\n');
+  } else if (s) {
+    process.stdout.write(renderStatus(r));
+  } else if (!r.sessions?.length) {
+    process.stdout.write('No review sessions.\n');
+  } else {
+    process.stdout.write(r.sessions.map(renderStatus).join('\n'));
+  }
+}
+
 // ---- stop -------------------------------------------------------------------------
 
 async function cmdStop(): Promise<void> {
@@ -432,6 +499,8 @@ export async function main(argv: string[]): Promise<void> {
         return await cmdReply(rest);
       case 'note':
         return await cmdNote(rest);
+      case 'status':
+        return await cmdStatus(rest);
       case 'stop':
         return await cmdStop();
       case '__daemon': {

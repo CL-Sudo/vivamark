@@ -17,7 +17,7 @@ import type { TextChanges } from './diff.js';
 import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, renderMarkdownPage, squash, textOf } from './doc.js';
 import type { AnchorState, Doc, Place } from './doc.js';
 import { injectScript } from './html.js';
-import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
+import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA } from './schema.js';
 import type { AgentNote, AgentStatus, Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
 import type { Session, ServerInfo } from './store.js';
@@ -77,6 +77,9 @@ const MIME: Record<string, string> = {
 };
 
 const DECISION_SET = new Set<string>(DECISIONS);
+
+/** A reader's name for its cursor (`--owner`). */
+const OWNER = /^[A-Za-z0-9._:-]{1,64}$/;
 
 const SANDBOX = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
 
@@ -334,6 +337,15 @@ export class Daemon {
       this.requireAdmin(req);
       return this.openSession(req, res);
     }
+    if (p === '/api/status' && method === 'GET') {
+      this.requireAdmin(req);
+      const owner = url.searchParams.get('owner') || 'agent';
+      if (!OWNER.test(owner)) throw new HttpError(400, 'bad owner');
+      const id = url.searchParams.get('session');
+      if (id !== null) return sendJson(res, 200, { schema: STATUS_SCHEMA, ...this.statusView(this.session(id), owner) });
+      const sessions = [...this.store.sessions.values()].sort((a, b) => a.created.localeCompare(b.created));
+      return sendJson(res, 200, { schema: STATUS_SCHEMA, sessions: sessions.map((s) => this.statusView(s, owner)) });
+    }
     if (p === '/api/shutdown' && method === 'POST') {
       this.requireAdmin(req);
       sendJson(res, 200, { ok: true });
@@ -411,6 +423,27 @@ export class Daemon {
       agent_notes: this.agentNotesView(s, a),
       replies: s.replies.map((r) => this.replyView(r)),
       agent: this.presence(s),
+    };
+  }
+
+  /**
+   * Where a review stands, for `vivamark status`: what a supervisor polls. It
+   * never blocks and never moves a cursor, so it takes nothing from the agent.
+   */
+  private statusView(s: Session, owner: string) {
+    const cursor = s.cursors[owner] ?? 0;
+    const last = s.log.at(-1);
+    return {
+      session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
+      owner,
+      cursor,
+      pending: this.noteEntries(s).filter((e) => e.seq > cursor).length,
+      last_seq: this.store.lastSeq(s),
+      decision: last ? entryDecision(last) : null,
+      turn: this.progress(s).turn,
+      reviewer: this.live.get(s.id)?.sockets.size ? 'connected' : 'disconnected',
+      agent: this.presence(s),
+      created: s.created,
     };
   }
 
@@ -643,7 +676,7 @@ export class Daemon {
 
   private async feedback(req: IncomingMessage, res: ServerResponse, s: Session, url: URL): Promise<void> {
     const owner = url.searchParams.get('owner') || 'agent';
-    if (!/^[A-Za-z0-9._:-]{1,64}$/.test(owner)) throw new HttpError(400, 'bad owner');
+    if (!OWNER.test(owner)) throw new HttpError(400, 'bad owner');
     const afterParam = url.searchParams.get('after');
     let after: number;
     if (afterParam !== null) {
