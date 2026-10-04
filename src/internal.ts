@@ -7,3 +7,4 @@ export { Daemon } from './daemon.js';
 export { Store } from './store.js';
 export { cssEscape, cssPath, loadDoc, locate, resolveSelector } from './doc.js';
 export { diffText, editScript, tokenize } from './diff.js';
+export { GUIDE_SCHEMA, PAGE_CSS, TOPICS, guideIndex, skillMarkdown } from './guide.js';

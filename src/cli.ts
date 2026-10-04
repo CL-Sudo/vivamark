@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util';
 import { ApiError, ensureDaemon, request, runningDaemon, stopDaemon } from './client.js';
 import { eventsPath, parseEventLines } from './events.js';
 import type { VivamarkEvent } from './events.js';
+import { GUIDE_SCHEMA, TAGLINE, TOPICS, findTopic, guideIndex } from './guide.js';
 import { FEEDBACK_SCHEMA } from './schema.js';
 import type { Anchor, Decision, Note, NoteKind } from './schema.js';
 import { findSession, stateDir } from './store.js';
@@ -16,7 +17,7 @@ import { VERSION } from './version.js';
 
 const EXIT = { ok: 0, error: 1, usage: 2, ended: 3, disconnected: 4, timeout: 5, approved: 6, dismissed: 7 } as const;
 
-const HELP = `vivamark ${VERSION}: point at what you mean on a page; the agent gets each note tied to that spot.
+const HELP = `vivamark ${VERSION}: ${TAGLINE}
 
 Usage:
   vivamark open <file.html> [--label k=v]... [--no-browser] [--json]
@@ -606,6 +607,27 @@ async function cmdEvents(argv: string[]): Promise<void> {
   await new Promise(() => undefined);
 }
 
+// ---- guide ------------------------------------------------------------------------
+
+/** Prints the guide's index or one topic. Text only: no server, no state. */
+function cmdGuide(argv: string[]): void {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { json: { type: 'boolean' } },
+  });
+  if (positionals.length > 1) throw new UsageError('guide takes at most one topic');
+  if (!positionals.length) {
+    if (values.json) process.stdout.write(JSON.stringify({ schema: GUIDE_SCHEMA, topics: TOPICS.map(({ name, summary }) => ({ name, summary })) }) + '\n');
+    else process.stdout.write(guideIndex());
+    return;
+  }
+  const t = findTopic(positionals[0]);
+  if (!t) fail(`no guide topic "${positionals[0]}". Topics: ${TOPICS.map((x) => x.name).join(', ')}`, EXIT.usage);
+  if (values.json) process.stdout.write(JSON.stringify({ schema: GUIDE_SCHEMA, topic: t.name, summary: t.summary, text: t.text }) + '\n');
+  else process.stdout.write(t.text);
+}
+
 // ---- stop -------------------------------------------------------------------------
 
 async function cmdStop(): Promise<void> {
@@ -646,6 +668,8 @@ export async function main(argv: string[]): Promise<void> {
         return await cmdEnd(rest);
       case 'events':
         return await cmdEvents(rest);
+      case 'guide':
+        return cmdGuide(rest);
       case 'stop':
         return await cmdStop();
       case '__daemon': {
