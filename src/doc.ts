@@ -358,7 +358,8 @@ export function placeOf(doc: Doc, el: Element, quote?: { start: number; end: num
     const last = lineOfText(doc, Math.max(quote.start, quote.end - 1));
     if (first !== null) place.lines = [first, last ?? first];
   } else if (el.sourceCodeLocation) {
-    place.lines = [el.sourceCodeLocation.startLine, el.sourceCodeLocation.endLine];
+    const loc = el.sourceCodeLocation;
+    place.lines = [loc.startLine, loc.endLine ?? loc.startLine];
   }
   place.source_line = place.lines ? place.lines[0] : null;
   return place;
@@ -516,7 +517,7 @@ function elementAtLine(doc: Doc, line: number): Element | null {
       const m = v ? /^(\d+)-(\d+)$/.exec(v) : null;
       if (m) range = trimBlank(doc, [Number(m[1]), Number(m[2])]);
     } else if (el.sourceCodeLocation && el !== doc.body) {
-      range = [el.sourceCodeLocation.startLine, el.sourceCodeLocation.endLine];
+      range = [el.sourceCodeLocation.startLine, el.sourceCodeLocation.endLine ?? el.sourceCodeLocation.startLine];
     }
     if (!range || line < range[0] || line > range[1]) continue;
     const span = range[1] - range[0];

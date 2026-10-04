@@ -14,7 +14,7 @@ import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensE
 import { createHash } from 'node:crypto';
 import { diffText } from './diff.js';
 import type { TextChanges } from './diff.js';
-import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, squash, textOf } from './doc.js';
+import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, renderMarkdownPage, squash, textOf } from './doc.js';
 import type { AnchorState, Doc, Place } from './doc.js';
 import { injectScript } from './html.js';
 import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
@@ -474,7 +474,7 @@ export class Daemon {
         throw new HttpError(404, 'the reviewed file is missing');
       }
       // A Markdown file is rendered to a page; the saved file itself is never changed.
-      if (docKind(s.file) === 'markdown') html = loadDoc('markdown', html, path.basename(s.file)).html;
+      if (docKind(s.file) === 'markdown') html = renderMarkdownPage(html, path.basename(s.file));
       const safeLoad = /^[a-z0-9]{1,32}$/.test(load) ? load : '';
       const tag = `<script src="/_vivamark/sdk.js" data-vivamark-load="${safeLoad}"></script>`;
       return send(res, 200, injectScript(html, tag), { ...headers, 'Content-Type': 'text/html; charset=utf-8' });
