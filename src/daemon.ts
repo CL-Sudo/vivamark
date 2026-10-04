@@ -12,8 +12,8 @@ import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensEqual, wsToken } from './guard.js';
 import { injectScript, sourceLine } from './html.js';
-import { FEEDBACK_SCHEMA, LIMITS, parseDraft, REPLY_SCHEMA } from './schema.js';
-import type { DraftNote, NoteEntry, Reply } from './schema.js';
+import { DECISIONS, entryDecision, FEEDBACK_SCHEMA, LIMITS, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
+import type { Decision, DraftNote, LogEntry, NoteEntry, Reply } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
@@ -71,11 +71,13 @@ const MIME: Record<string, string> = {
   '.webm': 'video/webm',
 };
 
+const DECISION_SET = new Set<string>(DECISIONS);
+
 const SANDBOX = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads';
 
 interface Waiter {
   after: number;
-  done: (entries: NoteEntry[] | null) => void;
+  done: (entries: LogEntry[] | null) => void;
 }
 
 interface Live {
@@ -362,10 +364,22 @@ export class Daemon {
       status: s.status,
       labels: s.labels,
       artifact_url: `/a/${s.id}/${s.artifact_key}/${encodeURIComponent(path.basename(s.file))}`,
-      notes: s.log.filter((e) => e.type === 'note'),
+      notes: s.log.filter((e): e is NoteEntry => e.type === 'note'),
+      decisions: this.decisions(s),
       replies: s.replies.map((r) => this.replyView(r)),
       agent: this.presence(s),
     };
+  }
+
+  /** One entry per Send that did more than request changes, for the review page's thread. */
+  private decisions(s: Session) {
+    const out: { batch: string; seq: number; at: string; decision: string }[] = [];
+    for (const e of s.log) {
+      const decision = entryDecision(e);
+      if (decision === 'request-changes' || out.some((d) => d.batch === e.batch)) continue;
+      out.push({ batch: e.batch, seq: e.seq, at: e.at, decision });
+    }
+    return out;
   }
 
   private replyView(r: Reply) {
@@ -437,11 +451,14 @@ export class Daemon {
   // ---- feedback -----------------------------------------------------------
 
   private async receiveNotes(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
-    const body = (await readBody(req, LIMITS.sendBody)) as { notes?: unknown };
-    if (!Array.isArray(body.notes) || body.notes.length === 0) throw new HttpError(400, 'notes must be a non-empty array');
-    if (body.notes.length > LIMITS.notesPerBatch) throw new HttpError(400, 'too many notes in one send');
+    const body = (await readBody(req, LIMITS.sendBody)) as { notes?: unknown; decision?: unknown };
+    const notes = body.notes ?? [];
+    if (!Array.isArray(notes)) throw new HttpError(400, 'notes must be an array');
+    if (notes.length > LIMITS.notesPerBatch) throw new HttpError(400, 'too many notes in one send');
+    const decision = parseDecision(body.decision, notes.length);
+    if (!(DECISION_SET as Set<string>).has(decision)) throw new HttpError(400, decision);
     const drafts: DraftNote[] = [];
-    for (const n of body.notes) {
+    for (const n of notes) {
       const d = parseDraft(n);
       if (typeof d === 'string') throw new HttpError(400, d);
       drafts.push(d);
@@ -452,7 +469,7 @@ export class Daemon {
     } catch {
       // The file is gone: notes keep their anchors, without line numbers.
     }
-    const entries = this.store.appendBatch(s, drafts, (d) => (html && d.anchor ? sourceLine(html, d.anchor) : null));
+    const entries = this.store.appendBatch(s, drafts, decision as Decision, (d) => (html && d.anchor ? sourceLine(html, d.anchor) : null));
     sendJson(res, 201, { seq: { from: entries[0].seq, to: entries[entries.length - 1].seq }, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
     const l = this.liveFor(s);
@@ -476,12 +493,14 @@ export class Daemon {
       after = s.cursors[owner] ?? 0;
     }
     const hold = Math.min(MAX_HOLD_MS, Math.max(0, Number(url.searchParams.get('hold') ?? 0) || 0));
-    const view = (entries: NoteEntry[]) => ({
+    const view = (entries: LogEntry[]) => ({
       schema: FEEDBACK_SCHEMA,
       session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
       status: 'feedback',
       seq: { from: entries[0].seq, to: entries[entries.length - 1].seq },
-      notes: entries.map((e) => ({ seq: e.seq, ...e.note })),
+      notes: entries.filter((e): e is NoteEntry => e.type === 'note').map((e) => ({ seq: e.seq, ...e.note })),
+      // The latest Send in the range decides.
+      decision: entryDecision(entries[entries.length - 1]),
     });
     const pending = () => ({
       schema: FEEDBACK_SCHEMA,

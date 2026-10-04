@@ -27,6 +27,13 @@ interface NoteEntry {
   at: string;
   note: Note;
 }
+type Decision = 'request-changes' | 'approve' | 'approve-with-notes' | 'dismiss';
+interface DecisionView {
+  batch: string;
+  seq: number;
+  at: string;
+  decision: Decision;
+}
 interface ReplyView {
   seq: number;
   at: string;
@@ -39,6 +46,7 @@ interface SessionView {
   name: string;
   artifact_url: string;
   notes: NoteEntry[];
+  decisions: DecisionView[];
   replies: ReplyView[];
   agent: 'listening' | 'away';
 }
@@ -75,10 +83,13 @@ const comment = $<HTMLTextAreaElement>('comment');
 const addBtn = $<HTMLButtonElement>('add');
 const sendBtn = $<HTMLButtonElement>('send');
 const pointBtn = $<HTMLButtonElement>('point');
+const approveBtn = $<HTMLButtonElement>('approve');
+const dismissBtn = $<HTMLButtonElement>('dismiss');
 
 let session: SessionView | null = null;
 let sent: NoteEntry[] = [];
 let replies: ReplyView[] = [];
+let decisions: DecisionView[] = [];
 let queue: Draft[] = loadQueue();
 let target: { kind: Kind; anchor: Anchor | null } = { kind: 'page', anchor: null };
 let loadNonce = '';
@@ -184,10 +195,25 @@ function replyCard(r: ReplyView): HTMLElement {
   return card;
 }
 
+const DECISION_LABEL: Record<Decision, string> = {
+  'request-changes': 'You requested changes',
+  approve: 'You approved',
+  'approve-with-notes': 'You approved with notes',
+  dismiss: 'You dismissed this review',
+};
+
+function decisionCard(d: DecisionView): HTMLElement {
+  const card = el('div', `decision ${d.decision}`, DECISION_LABEL[d.decision]);
+  card.dataset.decision = d.decision;
+  return card;
+}
+
 function render(): void {
   const items: { at: string; node: HTMLElement }[] = [];
   sent.forEach((e, i) => items.push({ at: e.at, node: noteCard(i + 1, e.note, null, e.note.anchor?.source_line) }));
   replies.forEach((r) => items.push({ at: r.at, node: replyCard(r) }));
+  // A decision follows the notes it was sent with.
+  decisions.forEach((d) => items.push({ at: `${d.at}~`, node: decisionCard(d) }));
   items.sort((a, b) => a.at.localeCompare(b.at));
   const nodes = items.map((i) => i.node);
   queue.forEach((d, i) => nodes.push(noteCard(sent.length + i + 1, d, i)));
@@ -199,6 +225,11 @@ function render(): void {
   $('note-count').textContent = String(sent.length + queue.length);
   sendBtn.disabled = sending || queue.length === 0;
   sendBtn.textContent = queue.length ? `Send ${queue.length}` : 'Send';
+  approveBtn.disabled = sending;
+  approveBtn.textContent = queue.length ? 'Approve with notes' : 'Approve';
+  approveBtn.title = queue.length ? 'Approve, and send the queued notes as guidance' : 'Approve: no further revision needed';
+  dismissBtn.disabled = sending || queue.length > 0;
+  dismissBtn.title = queue.length ? 'Send or remove the queued notes first' : 'Close this review without feedback';
   addBtn.disabled = !comment.value.trim();
 
   const t = $('target');
@@ -299,23 +330,41 @@ $('target-clear').addEventListener('click', () => {
 });
 pointBtn.addEventListener('click', () => setPicking(pointBtn.getAttribute('aria-pressed') !== 'true'));
 
-sendBtn.addEventListener('click', async () => {
-  if (!queue.length || sending) return;
+const SENT_TEXT: Record<Decision, string> = {
+  'request-changes': 'Sent {n} to the agent.',
+  approve: 'Approved. The agent has been told.',
+  'approve-with-notes': 'Approved, with {n} for the agent.',
+  dismiss: 'Dismissed. The agent has been told.',
+};
+
+/** The only way anything reaches the agent: one of the reviewer's Send buttons. */
+async function sendDecision(decision: Decision): Promise<void> {
+  if (sending) return;
+  const notes = decision === 'approve' || decision === 'dismiss' ? [] : queue;
+  if ((decision === 'request-changes' || decision === 'approve-with-notes') && !notes.length) return;
   sending = true;
   render();
   try {
-    const res = await api<{ notes: NoteEntry[] }>('POST', '/send', { notes: queue });
-    queue = [];
-    saveQueue();
-    mergeNotes(res.notes);
-    banner(`Sent ${res.notes.length} note${res.notes.length === 1 ? '' : 's'} to the agent.`, false, 2500);
+    const res = await api<{ notes: (NoteEntry & { type: string })[] }>('POST', '/send', { notes, decision });
+    if (notes.length) {
+      queue = [];
+      saveQueue();
+    }
+    mergeNotes(res.notes.filter((e) => e.type === 'note'));
+    const n = notes.length;
+    banner(SENT_TEXT[decision].replace('{n}', `${n} note${n === 1 ? '' : 's'}`), false, 2500);
+    await refresh();
   } catch (err) {
     banner(`Could not send: ${(err as Error).message}`, true, 5000);
   } finally {
     sending = false;
     render();
   }
-});
+}
+
+sendBtn.addEventListener('click', () => void sendDecision('request-changes'));
+approveBtn.addEventListener('click', () => void sendDecision(queue.length ? 'approve-with-notes' : 'approve'));
+dismissBtn.addEventListener('click', () => void sendDecision('dismiss'));
 
 function mergeNotes(entries: NoteEntry[]): void {
   const seen = new Set(sent.map((e) => e.seq));
@@ -343,10 +392,7 @@ function connect(): void {
       return;
     }
     if (ev.type === 'hello' || ev.type === 'presence') setPresence(ev.agent ?? 'away');
-    else if (ev.type === 'notes' && ev.entries) {
-      mergeNotes(ev.entries);
-      render();
-    } else if (ev.type === 'reply' && ev.reply) {
+    else if (ev.type === 'notes') void refresh(); else if (ev.type === 'reply' && ev.reply) {
       mergeReply(ev.reply);
       render();
     } else if (ev.type === 'reload') {
@@ -372,6 +418,7 @@ async function refresh(): Promise<void> {
     sent = [];
     mergeNotes(s.notes);
     replies = s.replies;
+    decisions = s.decisions ?? [];
     setPresence(s.agent);
     render();
   } catch {
@@ -395,6 +442,7 @@ async function start(): Promise<void> {
   $('file-name').title = session.file;
   mergeNotes(session.notes);
   replies = session.replies;
+  decisions = session.decisions ?? [];
   setPresence(session.agent);
   render();
   loadFrame();

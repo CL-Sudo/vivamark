@@ -37,7 +37,12 @@
           <button type="button" class="btn ghost" id="point" aria-pressed="false" title="Pick an element on the page">Point</button>
           <span class="spacer"></span>
           <button type="submit" class="btn ghost" id="add" disabled title="Queue this note (Ctrl+Enter)">Add note</button>
-          <button type="button" class="btn primary" id="send" disabled>Send</button>
+          <button type="button" class="btn primary" id="send" disabled title="Request changes: send the queued notes to the agent">Send</button>
+        </div>
+        <div class="decide">
+          <button type="button" class="btn quiet" id="dismiss" title="Close this review without feedback">Dismiss</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn ok" id="approve" title="Approve: no further revision needed">Approve</button>
         </div>
         <p class="hint" id="hint">Select text, or press Point and click an element. Notes wait here until you press Send.</p>
       </form>

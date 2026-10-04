@@ -7,12 +7,12 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { ApiError, ensureDaemon, request, runningDaemon, stopDaemon } from './client.js';
 import { FEEDBACK_SCHEMA } from './schema.js';
-import type { Anchor, Note, NoteKind } from './schema.js';
+import type { Anchor, Decision, Note, NoteKind } from './schema.js';
 import { findSession } from './store.js';
 import type { SessionRecord } from './store.js';
 import { VERSION } from './version.js';
 
-const EXIT = { ok: 0, error: 1, usage: 2, ended: 3, disconnected: 4, timeout: 5 } as const;
+const EXIT = { ok: 0, error: 1, usage: 2, ended: 3, disconnected: 4, timeout: 5, approved: 6, dismissed: 7 } as const;
 
 const HELP = `vivamark ${VERSION}: point at what you mean on a page; the agent gets each note tied to that spot.
 
@@ -29,7 +29,12 @@ Usage:
   vivamark stop
       Stop the background review server.
 
-Exit codes for wait: 0 notes, 5 timeout, 1 error. 130/143 (interrupted) are safe to re-run.
+Exit codes for wait:
+  0  notes, the reviewer requests changes      6  approved (or approved with notes)
+  7  dismissed: the review closed with nothing 5  timeout
+  1  error     130/143 interrupted, safe to re-run
+  The JSON output's "decision" field says the same: request-changes, approve,
+  approve-with-notes or dismiss.
 Durations: 90s, 5m, 1h, or milliseconds.
 `;
 
@@ -148,6 +153,7 @@ interface FeedbackView {
   status: 'feedback' | 'pending';
   seq?: { from: number; to: number };
   notes?: DeliveredNote[];
+  decision?: Decision;
   after?: number;
   last_seq?: number;
 }
@@ -166,9 +172,17 @@ function describeTarget(kind: NoteKind, a: Anchor | null): string {
   return `<${a.tag || 'element'}${a.stable_id ? `#${a.stable_id}` : ''}>`;
 }
 
+const DECISION_TEXT: Record<Decision, string> = {
+  'request-changes': 'The reviewer requests changes.',
+  approve: 'The reviewer approved. No further revision is needed.',
+  'approve-with-notes': 'The reviewer approved with notes: go ahead, taking the notes as guidance.',
+  dismiss: 'The reviewer dismissed the review without feedback.',
+};
+
 function renderFeedback(v: FeedbackView, next: string): string {
   const notes = v.notes ?? [];
-  const lines = [`${notes.length} note${notes.length === 1 ? '' : 's'} on ${v.session.file} (seq ${v.seq!.from}-${v.seq!.to}, session ${v.session.id})`, ''];
+  const lines = [`${notes.length} note${notes.length === 1 ? '' : 's'} on ${v.session.file} (seq ${v.seq!.from}-${v.seq!.to}, session ${v.session.id})`];
+  lines.push(`decision: ${v.decision ?? 'request-changes'}. ${DECISION_TEXT[v.decision ?? 'request-changes']}`, '');
   for (const n of notes) {
     const a = n.anchor;
     lines.push(`[${n.seq}] ${n.id} on ${describeTarget(n.kind, a)}${a?.source_line ? ` (line ${a.source_line})` : ''}`);
@@ -229,14 +243,20 @@ async function cmdWait(argv: string[]): Promise<void> {
     }
     if (v.status === 'feedback') {
       const to = v.seq!.to;
-      const next = `edit the file (the page reloads), then: vivamark wait ${quote(s.file)} --after ${to} -m "<what you changed>"`;
+      const decision = v.decision ?? 'request-changes';
+      const next =
+        decision === 'request-changes'
+          ? `edit the file (the page reloads), then: vivamark wait ${quote(s.file)} --after ${to} -m "<what you changed>"`
+          : decision === 'dismiss'
+            ? 'the review is closed; stop, or ask the reviewer to look again later'
+            : `carry on with the work${decision === 'approve-with-notes' ? ', following the notes' : ''}; to wait for more: vivamark wait ${quote(s.file)} --after ${to}`;
       if (values.json) {
-        const out = { schema: FEEDBACK_SCHEMA, session: v.session, status: v.status, seq: v.seq, notes: v.notes, next };
+        const out = { schema: FEEDBACK_SCHEMA, session: v.session, status: v.status, seq: v.seq, notes: v.notes, next, decision };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
       } else {
         process.stdout.write(renderFeedback(v, next));
       }
-      process.exit(EXIT.ok);
+      process.exit(decision === 'dismiss' ? EXIT.dismissed : decision === 'request-changes' ? EXIT.ok : EXIT.approved);
     }
     if (Date.now() >= deadline) {
       if (values.json) process.stdout.write(JSON.stringify({ ...v, status: 'timeout' }) + '\n');

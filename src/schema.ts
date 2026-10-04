@@ -41,6 +41,13 @@ export interface Note {
   at: string;
 }
 
+/**
+ * What the reviewer decided when they pressed a Send button (F1). The plain
+ * Send is `request-changes`; the others end the round in a different way.
+ */
+export const DECISIONS = ['request-changes', 'approve', 'approve-with-notes', 'dismiss'] as const;
+export type Decision = (typeof DECISIONS)[number];
+
 /** One line of `feedback/<session>.jsonl`. */
 export interface NoteEntry {
   seq: number;
@@ -48,9 +55,35 @@ export interface NoteEntry {
   batch: string;
   at: string;
   note: Note;
+  /** The batch's decision. Absent in logs written before F1, which means `request-changes`. */
+  decision?: Decision;
 }
 
-export type LogEntry = NoteEntry;
+/** A Send with no notes (approve or dismiss) is logged as one decision entry. */
+export interface DecisionEntry {
+  seq: number;
+  type: 'decision';
+  batch: string;
+  at: string;
+  decision: Decision;
+}
+
+export type LogEntry = NoteEntry | DecisionEntry;
+
+export function entryDecision(e: LogEntry): Decision {
+  return e.decision ?? 'request-changes';
+}
+
+/** Validates a Send's decision against its notes. Returns an error message for bad input. */
+export function parseDecision(v: unknown, noteCount: number): Decision | string {
+  const d = v === undefined || v === null ? 'request-changes' : v;
+  if (typeof d !== 'string' || !(DECISIONS as readonly string[]).includes(d)) return `decision must be one of ${DECISIONS.join(', ')}`;
+  const decision = d as Decision;
+  if ((decision === 'request-changes' || decision === 'approve-with-notes') && noteCount === 0) return 'notes must be a non-empty array';
+  if (decision === 'approve' && noteCount > 0) return 'approve sends no notes; use approve-with-notes';
+  if (decision === 'dismiss' && noteCount > 0) return 'dismiss sends no notes';
+  return decision;
+}
 
 /** One line of `replies/<session>.jsonl`. */
 export interface Reply {

@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
+import type { Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
 
 export function stateDir(): string {
   const explicit = process.env.VIVAMARK_STATE_DIR;
@@ -222,13 +222,22 @@ export class Store {
     return s.log.length ? s.log[s.log.length - 1].seq : 0;
   }
 
-  /** Appends one Send's notes to the log. `sourceLine` maps an anchor to a line of the saved file. */
-  appendBatch(s: Session, drafts: DraftNote[], sourceLine: (d: DraftNote) => number | null): NoteEntry[] {
+  /**
+   * Appends one Send to the log: its notes, each carrying the batch's
+   * decision, or a single decision entry when there are no notes.
+   * `sourceLine` maps an anchor to a line of the saved file.
+   */
+  appendBatch(
+    s: Session,
+    drafts: DraftNote[],
+    decision: Decision,
+    sourceLine: (d: DraftNote) => number | null,
+  ): LogEntry[] {
     const at = new Date().toISOString();
     const batch = randomId('b_');
     let seq = this.lastSeq(s);
     let noteCount = s.log.filter((e) => e.type === 'note').length;
-    const entries: NoteEntry[] = drafts.map((d) => {
+    const entries: LogEntry[] = drafts.map((d): NoteEntry => {
       seq += 1;
       noteCount += 1;
       const note: Note = {
@@ -240,8 +249,9 @@ export class Store {
         attachments: [],
         at,
       };
-      return { seq, type: 'note', batch, at, note };
+      return { seq, type: 'note', batch, at, note, decision };
     });
+    if (!entries.length) entries.push({ seq: seq + 1, type: 'decision', batch, at, decision } satisfies DecisionEntry);
     fs.appendFileSync(this.feedbackPath(s.id), entries.map((e) => JSON.stringify(e) + '\n').join(''), { mode: 0o600 });
     s.log.push(...entries);
     return entries;
