@@ -2,10 +2,13 @@
 // promises the topics make (no external URLs in the page CSS).
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
-import { GUIDE_SCHEMA, PAGE_CSS, TOPICS } from '../dist/internal.js';
-import { runCli } from './helpers/harness.mjs';
+import { GUIDE_SCHEMA, PAGE_CSS, TOPICS, skillMarkdown } from '../dist/internal.js';
+import { ROOT, runCli } from './helpers/harness.mjs';
 
 const NO_STATE = '/nonexistent/vivamark-guide-should-not-be-created';
 const env = { ...process.env, VIVAMARK_STATE_DIR: NO_STATE };
@@ -74,4 +77,33 @@ test('the plan playbook ends on decisions, and decisions are answered by pointin
 
 test('the guide never names a particular orchestrator or harness', () => {
   for (const t of TOPICS) assert.doesNotMatch(t.text, /orchestrator|\borc\b|claude|codex|cursor|copilot/i, t.name);
+});
+
+test('the committed skill stub matches its generator, and the check catches drift', async () => {
+  const stub = path.join(ROOT, 'skills', 'vivamark', 'SKILL.md');
+  assert.equal(fs.readFileSync(stub, 'utf8'), skillMarkdown(), 'regenerate with: npm run skill');
+  const script = path.join(ROOT, 'scripts', 'build-skill.mjs');
+  const ok = spawnSync(process.execPath, [script, '--check'], { encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vivamark-skill-'));
+  try {
+    const copy = path.join(dir, 'SKILL.md');
+    fs.writeFileSync(copy, skillMarkdown().replace('vivamark guide', 'vivamark guide --old'));
+    const drift = spawnSync(process.execPath, [script, '--check', copy], { encoding: 'utf8' });
+    assert.equal(drift.status, 1);
+    assert.match(drift.stderr, /out of date/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the skill stub is an Agent Skill that only points at the guide', () => {
+  const md = skillMarkdown();
+  const m = /^---\nname: vivamark\ndescription: ([^\n]+)\n---\n/.exec(md);
+  assert.ok(m, 'front matter with name and description');
+  assert.ok(m[1].length <= 1024 && !/: /.test(m[1]), 'a short plain YAML description');
+  assert.match(md, /vivamark guide/);
+  for (const t of TOPICS) assert.ok(md.includes(`\`${t.name}\`: ${t.summary}`), t.name);
+  // No rules of its own: none of the guide's instructions are repeated here.
+  assert.doesNotMatch(md, /nohup|--after|data-vivamark-id|prefers-color-scheme|--status/);
 });

@@ -9,13 +9,15 @@
     "vivamark": "dist/cli.js"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "skills/"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "skill": "npm run build && node scripts/build-skill.mjs",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run typecheck && npm run build",
     "test": "node --test --test-concurrency=1 test/*.test.mjs"
