@@ -71,7 +71,7 @@ test('status reports one session at once, and never moves a cursor', async () =>
   assert.equal(empty.out.last_seq, 0);
   assert.equal(empty.out.decision, null);
   assert.equal(empty.out.turn, 'reviewer');
-  assert.equal(empty.out.reviewer, 'disconnected');
+  assert.equal(empty.out.reviewer, 'never-opened');
   assert.ok(empty.ms < 10_000, `status returned in ${empty.ms} ms`);
 
   assert.equal((await sendNotes(s, [ELEMENT_NOTE, TEXT_NOTE])).status, 201);
@@ -214,8 +214,24 @@ test('end: notes sent before the end are still delivered first', async () => {
 
 // ---- disconnected -------------------------------------------------------------------
 
-test('disconnected: with no review page open past the grace, wait returns 4 and consumes nothing', async () => {
+test('disconnected: a page never opened keeps the agent waiting past the grace', async () => {
+  const s = await openPage('never-opened.html');
+  assert.equal((await status([s.file])).out.reviewer, 'never-opened');
+  const waiting = await startWait([s.file, '--json']);
+  await sleep(GRACE_MS * 2.5);
+  assert.equal(waiting.child.exitCode, null, `still waiting: ${waiting.stderr()}`);
+  assert.equal((await sendNotes(s, [ELEMENT_NOTE])).status, 201);
+  const w = await waiting.done;
+  assert.equal(w.code, 0, w.stderr);
+  assert.deepEqual(JSON.parse(w.stdout).seq, { from: 1, to: 1 });
+});
+
+test('disconnected: once a page has connected and gone past the grace, wait returns 4 and consumes nothing', async () => {
   const s = await openPage('gone.html');
+  const ws = await connectBrowser(s);
+  ws.close();
+  await sleep(200);
+  assert.equal((await status([s.file])).out.reviewer, 'disconnected');
   const started = Date.now();
   const r = await world.cli(['wait', s.file, '--json']);
   const took = Date.now() - started;
@@ -225,12 +241,18 @@ test('disconnected: with no review page open past the grace, wait returns 4 and 
   assert.equal(out.session.status, 'open');
   assert.ok(took >= GRACE_MS - 100 && took < GRACE_MS + 8_000, `returned after ${took} ms`);
   assert.deepEqual(world.session(s.id).cursors, {}, 'no cursor moved');
+  assert.ok(world.session(s.id).browser_seen, 'the first connection is remembered');
   const text = await world.cli(['wait', s.file]);
   assert.equal(text.code, 4);
   assert.match(text.stdout, /No review page is open/);
 
+  // It is remembered across a server restart.
+  assert.equal((await world.cli(['stop'])).code, 0);
+  assert.equal((await world.cli(['wait', s.file])).code, 4);
+
   // Nothing consumed: notes sent later all arrive.
-  assert.equal((await sendNotes(s, [ELEMENT_NOTE])).status, 201);
+  const port = world.server().port;
+  assert.equal((await sendNotes({ ...s, port }, [ELEMENT_NOTE])).status, 201);
   const w = await world.cli(['wait', s.file, '--json']);
   assert.equal(w.code, 0);
   assert.deepEqual(JSON.parse(w.stdout).seq, { from: 1, to: 1 });

@@ -468,7 +468,7 @@ export class Daemon {
       last_seq: this.store.lastSeq(s),
       decision: last ? entryDecision(last) : null,
       turn: this.progress(s).turn,
-      reviewer: this.live.get(s.id)?.sockets.size ? 'connected' : 'disconnected',
+      reviewer: this.live.get(s.id)?.sockets.size ? 'connected' : s.browser_seen ? 'disconnected' : 'never-opened',
       agent: this.presence(s),
       created: s.created,
     };
@@ -772,7 +772,7 @@ export class Daemon {
       req.on('close', () => waiter.done(null));
       l.waiters.add(waiter);
       this.schedulePresence(s);
-      this.armDisconnect(l);
+      this.armDisconnect(s, l);
     });
   }
 
@@ -780,14 +780,16 @@ export class Daemon {
    * A wait returns `disconnected` once no review page has been connected for
    * the grace period, counted from when the page went away or the agent began
    * waiting, whichever is later. A page that comes back in time keeps it waiting.
+   * A review whose page has never been opened is not disconnected: the reviewer
+   * may still be pasting the URL, so the wait goes on.
    */
-  private armDisconnect(l: Live): void {
+  private armDisconnect(s: Session, l: Live): void {
     for (const w of l.waiters) {
       clearTimeout(w.disconnectTimer);
-      if (l.sockets.size) continue;
+      if (l.sockets.size || !s.browser_seen) continue;
       const left = this.disconnectGraceMs - (Date.now() - Math.max(l.noBrowserSince, l.listeningSince));
       if (left <= 0) w.done('disconnected');
-      else w.disconnectTimer = setTimeout(() => this.armDisconnect(l), left + 10);
+      else w.disconnectTimer = setTimeout(() => this.armDisconnect(s, l), left + 10);
     }
   }
 
@@ -930,7 +932,7 @@ export class Daemon {
         if (l.sockets.size) return;
         this.unwatch(l);
         l.noBrowserSince = Date.now();
-        this.armDisconnect(l);
+        this.armDisconnect(s, l);
         // A reload closes and reopens the socket at once: only a page gone for a moment is news.
         clearTimeout(l.browserGoneTimer);
         l.browserGoneTimer = setTimeout(() => {
@@ -941,7 +943,8 @@ export class Daemon {
         l.browserGoneTimer.unref();
       });
       this.watch(s, l);
-      this.armDisconnect(l);
+      this.store.markBrowserSeen(s);
+      this.armDisconnect(s, l);
       clearTimeout(l.browserGoneTimer);
       if (!l.browserAnnounced) {
         l.browserAnnounced = true;

@@ -101,11 +101,14 @@ returns status `ended` with **exit code 3**. Notes the reviewer sent before
 the end are still delivered first. Running `open` on the same file later
 starts a fresh review; the ended one is never revived.
 
-If nobody has the review page open, no notes can come, so `wait` does not
-hang: once no page has been connected for a grace period (about 10 seconds,
+If the reviewer closes the review page, no notes can come, so `wait` does not
+hang: once the page has been gone for a grace period (about 10 seconds,
 `VIVAMARK_DISCONNECT_GRACE_MS`), it returns status `disconnected` with **exit
 code 4**. Nothing is consumed. A page that reconnects within the grace (a
 reload, a brief network blip) keeps it waiting. `open` brings the page back.
+This applies only after a page has connected to the review at least once:
+until then `wait` keeps waiting, however long the reviewer takes to open or
+paste the URL.
 
 ## Watching reviews from outside
 
@@ -121,7 +124,8 @@ node dist/cli.js status --owner supervisor   # every session, counted from that 
 
 For each session it gives open or ended, the notes pending after the owner's
 cursor (default `agent`), the last seq, the last decision, whose turn it is,
-whether the reviewer's page is connected, whether the agent is listening, and
+the reviewer's page (`connected`, `disconnected`, or `never-opened` when no
+page has connected yet), whether the agent is listening, and
 the labels from `open --label k=v`. A file or session that has no review exits
 1 and says so.
 
@@ -169,7 +173,7 @@ command that started it), so run `vivamark stop` after changing it.
 | 6 | Approved, or approved with notes |
 | 7 | Dismissed: the round closed with nothing |
 | 3 | Ended: the agent or the reviewer ended the review |
-| 4 | Disconnected: no review page open for the grace period; nothing consumed |
+| 4 | Disconnected: the review page, once opened, has been gone for the grace period; nothing consumed |
 | 5 | Timeout (`--timeout`) |
 | 1 | Error |
 | 130 / 143 | Interrupted; safe to re-run |

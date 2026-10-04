@@ -71,6 +71,8 @@ export interface SessionRecord {
   created: string;
   /** Read cursors on the feedback log, keyed by owner. */
   cursors: Record<string, number>;
+  /** When a review page first connected. Until then a wait never counts as disconnected. */
+  browser_seen?: string;
   /** Set once the session ends; an ended session is never revived. */
   ended?: Ended;
 }
@@ -205,6 +207,7 @@ export class Store {
       artifact_key: s.artifact_key,
       created: s.created,
       cursors: s.cursors,
+      ...(s.browser_seen ? { browser_seen: s.browser_seen } : {}),
       ...(s.ended ? { ended: s.ended } : {}),
     };
     writeJsonAtomic(path.join(this.dir, 'sessions', `${s.id}.json`), rec);
@@ -214,6 +217,13 @@ export class Store {
   byFile(file: string): Session | undefined {
     for (const s of this.sessions.values()) if (s.file === file && s.status === 'open') return s;
     return undefined;
+  }
+
+  /** Records the first time a review page connects; kept across restarts. */
+  markBrowserSeen(s: Session): void {
+    if (s.browser_seen) return;
+    s.browser_seen = new Date().toISOString();
+    this.saveRecord(s);
   }
 
   /** Ends a session for good: a later open of the same file starts a fresh one. */

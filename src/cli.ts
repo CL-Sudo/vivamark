@@ -27,8 +27,9 @@ Usage:
       Block until the reviewer sends notes or a decision, then print them.
       Nothing is consumed: re-running wait returns the same notes until you
       pass --after <seq>. -m posts a reply first, then waits. It also returns
-      when the review ends (exit 3), or when no review page has been open for
-      about 10 seconds (exit 4); notes already sent are delivered first.
+      when the review ends (exit 3), or when the review page, once opened, has
+      been closed for about 10 seconds (exit 4); a page never opened yet keeps
+      it waiting. Notes already sent are delivered first.
   vivamark reply <file|session> (-m <text> | --file <file|->) [--json]
   vivamark reply <file|session> --note <id> --status addressed|declined|question
                 [-m <text>] [--json]
@@ -48,9 +49,10 @@ Usage:
   vivamark status [<file|session>] [--owner <name>] [--json]
       Where a review stands, at once: open or ended, notes pending after the
       owner's cursor (default: agent), last seq, last decision, whose turn it
-      is, and whether the reviewer's browser and the agent are there. Never
-      blocks and never moves a cursor, so a supervisor can poll it without
-      taking notes from the agent. Without a file, lists every session.
+      is, the reviewer's page (connected, disconnected, or never-opened) and
+      whether the agent is listening. Never blocks and never moves a cursor,
+      so a supervisor can poll it without taking notes from the agent.
+      Without a file, lists every session.
   vivamark end <file|session> [-m <text>] [--json]
       End the review as the agent. The page shows it ended (with the message),
       sends are refused, and wait returns ended (exit 3). The reviewer can end
@@ -82,7 +84,8 @@ Exit codes for wait:
   0  notes; the reviewer requests changes     6  approved (or approved with notes)
   7  dismissed: the review closed with nothing 5  timeout
   3  ended: the agent or the reviewer ended the review; nothing more will come
-  4  disconnected: no review page open for the grace period; nothing consumed
+  4  disconnected: the review page, opened before, has been gone for the grace
+     period; nothing consumed. Never before a page has first connected.
   1  error     130/143 interrupted, safe to re-run
 Durations: 90s, 5m, 1h, or milliseconds.
 
@@ -98,8 +101,8 @@ Notify hook (set only by you, never by a page or a request):
 Environment:
   VIVAMARK_STATE_DIR            state directory (default $XDG_STATE_HOME/vivamark
                                 or ~/.local/state/vivamark)
-  VIVAMARK_DISCONNECT_GRACE_MS  how long wait goes on with no review page open
-                                before it returns disconnected (default 10000)
+  VIVAMARK_DISCONNECT_GRACE_MS  how long wait goes on after the review page went
+                                away before it returns disconnected (default 10000)
 `;
 
 class UsageError extends Error {}
@@ -491,7 +494,7 @@ interface StatusEntry {
   last_seq: number;
   decision: Decision | null;
   turn: 'agent' | 'reviewer';
-  reviewer: 'connected' | 'disconnected';
+  reviewer: 'connected' | 'disconnected' | 'never-opened';
   agent: 'listening' | 'away';
   created: string;
 }
