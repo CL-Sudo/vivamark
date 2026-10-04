@@ -18,6 +18,7 @@ import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, renderMa
 import type { AnchorState, Doc, Place } from './doc.js';
 import { EventLog } from './events.js';
 import { injectScript } from './html.js';
+import { Notifier, notifyConfig } from './notify.js';
 import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA } from './schema.js';
 import type { AgentNote, AgentStatus, Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
@@ -1001,6 +1002,15 @@ export async function runDaemon(): Promise<void> {
   const idleMs = Number(process.env.VIVAMARK_IDLE_MS) || 30 * 60_000;
   const disconnectGraceMs = Number(process.env.VIVAMARK_DISCONNECT_GRACE_MS) || DISCONNECT_GRACE_MS;
   const daemon = new Daemon(store, idleMs, { disconnectGraceMs });
+  // The notify hook comes from the user's environment or config file only, read once here.
+  const notify = notifyConfig();
+  if (notify) {
+    const notifier = new Notifier(notify);
+    daemon.events.listener = (e) => notifier.run(e);
+    console.error(`vivamark: notify command from ${notify.from} runs for each event (timeout ${notify.timeoutMs} ms)`);
+  } else {
+    console.error('vivamark: no notify command configured');
+  }
   await daemon.listen(port);
   daemon.writeServerInfo();
   daemon.startTimers();

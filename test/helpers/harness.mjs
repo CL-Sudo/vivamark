@@ -28,6 +28,9 @@ export function makeWorld({ guardEgress = false } = {}) {
   const egressLog = path.join(base, 'egress.jsonl');
   const env = {
     ...process.env,
+    // The user's own notify hook and config file stay out of tests.
+    VIVAMARK_NOTIFY_CMD: '',
+    XDG_CONFIG_HOME: path.join(base, 'config'),
     VIVAMARK_STATE_DIR: stateDir,
     VIVAMARK_PORT: String(randomTestPort()),
     VIVAMARK_NO_BROWSER: '1',
