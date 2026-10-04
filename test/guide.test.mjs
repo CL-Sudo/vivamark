@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { GUIDE_SCHEMA, PAGE_CSS, TOPICS, skillMarkdown } from '../dist/internal.js';
-import { ROOT, runCli } from './helpers/harness.mjs';
+import { ROOT, makeWorld, runCli } from './helpers/harness.mjs';
 
 const NO_STATE = '/nonexistent/vivamark-guide-should-not-be-created';
 const env = { ...process.env, VIVAMARK_STATE_DIR: NO_STATE };
@@ -106,4 +106,28 @@ test('the skill stub is an Agent Skill that only points at the guide', () => {
   for (const t of TOPICS) assert.ok(md.includes(`\`${t.name}\`: ${t.summary}`), t.name);
   // No rules of its own: none of the guide's instructions are repeated here.
   assert.doesNotMatch(md, /nohup|--after|data-vivamark-id|prefers-color-scheme|--status/);
+});
+
+test('--help lists guide', async () => {
+  const h = await runCli(['--help'], env);
+  assert.match(h.stdout, /^  vivamark guide \[<topic>\] \[--json\]$/m);
+});
+
+test('open points at the guide; for a .md file, at the markdown topic', async () => {
+  const world = makeWorld();
+  try {
+    const html = await world.cli(['open', world.page, '--no-browser']);
+    assert.equal(html.code, 0, html.stderr);
+    assert.match(html.stdout, /^next: vivamark wait .*plan\.html$/m, 'next stays the wait command');
+    assert.match(html.stdout, /^guide: .*vivamark guide$/m);
+    const md = path.join(world.pageDir, 'notes.md');
+    fs.writeFileSync(md, '# Notes\n\nA short draft.\n');
+    const text = await world.cli(['open', md, '--no-browser']);
+    assert.match(text.stdout, /^guide: .*structured HTML page is often better: vivamark guide markdown$/m);
+    const json = JSON.parse((await world.cli(['open', md, '--no-browser', '--json'])).stdout);
+    assert.match(json.guide, /vivamark guide markdown$/);
+    assert.match(json.next, /^vivamark wait /);
+  } finally {
+    await world.cleanup();
+  }
 });

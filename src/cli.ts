@@ -67,6 +67,10 @@ Usage:
       agent-note.added, session.ended, browser.connected, browser.disconnected.
       Events never contain note text, quotes, replies or messages; read those
       with wait. Reads the log only; needs no server and no browser.
+  vivamark guide [<topic>] [--json]
+      How to run a review and write a page worth reviewing: the workflow, the
+      page design (ready CSS), stable ids, and playbooks for a plan, report,
+      comparison, explainer or diff. Without a topic, lists the topics.
   vivamark stop
       Stop the background review server.
 
@@ -194,16 +198,20 @@ async function cmdOpen(argv: string[]): Promise<void> {
   const session = sessionFor(res.id);
   const url = `http://127.0.0.1:${info.port}/s/${res.id}#t=${session.token}`;
   const next = `vivamark wait ${quote(res.file)}`;
+  const guide = /\.(md|markdown)$/i.test(res.file)
+    ? 'for decisions, tables or a diff a structured HTML page is often better: vivamark guide markdown'
+    : 'how to write a page worth reviewing: vivamark guide';
   if (!values['no-browser'] && process.env.VIVAMARK_NO_BROWSER !== '1') openBrowser(url);
   if (values.json) {
     process.stdout.write(
-      JSON.stringify({ schema: 'vivamark.open/1', session: { id: res.id, file: res.file, status: 'open', labels: res.labels }, url, created: res.created, next }) + '\n',
+      JSON.stringify({ schema: 'vivamark.open/1', session: { id: res.id, file: res.file, status: 'open', labels: res.labels }, url, created: res.created, next, guide }) + '\n',
     );
   } else {
     process.stdout.write(
       `${res.created ? 'Opened' : 'Resumed'} ${path.basename(res.file)} for review (session ${res.id}).\n` +
         `URL: ${url}\n` +
-        `next: ${next}\n`,
+        `next: ${next}\n` +
+        `guide: ${guide}\n`,
     );
   }
 }
