@@ -47,12 +47,13 @@ test('open creates a session, prints a tokened URL, and resumes on a second open
   assert.equal(mode(`${world.stateDir}/server.json`), 0o600);
 });
 
-test('open refuses Markdown and missing files', async () => {
-  const md = `${world.pageDir}/plan.md`;
-  fs.writeFileSync(md, '# plan\n');
-  const r = await world.cli(['open', md, '--no-browser']);
+test('open refuses unsupported and missing files', async () => {
+  // Markdown opens since F5 (see features.test.mjs); other formats do not.
+  const txt = `${world.pageDir}/plan.txt`;
+  fs.writeFileSync(txt, 'plan\n');
+  const r = await world.cli(['open', txt, '--no-browser']);
   assert.equal(r.code, 1);
-  assert.match(r.stderr, /Markdown/);
+  assert.match(r.stderr, /\.html, \.htm, \.md/);
   const missing = await world.cli(['open', `${world.pageDir}/nope.html`, '--no-browser']);
   assert.equal(missing.code, 1);
 });

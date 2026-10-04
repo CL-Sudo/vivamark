@@ -11,7 +11,8 @@ import MarkdownIt from 'markdown-it';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensEqual, wsToken } from './guard.js';
-import { injectScript, sourceLine } from './html.js';
+import { docKind, loadDoc, placeAnchor } from './doc.js';
+import { injectScript } from './html.js';
 import { DECISIONS, entryDecision, FEEDBACK_SCHEMA, LIMITS, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
 import type { Decision, DraftNote, LogEntry, NoteEntry, Reply } from './schema.js';
 import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
@@ -128,9 +129,6 @@ async function readBody(req: IncomingMessage, limit: number): Promise<unknown> {
   }
 }
 
-function isHtmlFile(file: string): boolean {
-  return /\.html?$/i.test(file);
-}
 
 export class Daemon {
   readonly store: Store;
@@ -345,7 +343,7 @@ export class Daemon {
       throw new HttpError(400, `no such file: ${body.file}`);
     }
     if (!fs.statSync(file).isFile()) throw new HttpError(400, `not a file: ${file}`);
-    if (!isHtmlFile(file)) throw new HttpError(400, 'only .html and .htm files can be opened for now');
+    if (!docKind(file)) throw new HttpError(400, 'only .html, .htm, .md and .markdown files can be opened');
     const labels: Record<string, string> = {};
     if (body.labels && typeof body.labels === 'object') {
       for (const [k, v] of Object.entries(body.labels as Record<string, unknown>)) {
@@ -430,6 +428,8 @@ export class Daemon {
       } catch {
         throw new HttpError(404, 'the reviewed file is missing');
       }
+      // A Markdown file is rendered to a page; the saved file itself is never changed.
+      if (docKind(s.file) === 'markdown') html = loadDoc('markdown', html, path.basename(s.file)).html;
       const safeLoad = /^[a-z0-9]{1,32}$/.test(load) ? load : '';
       const tag = `<script src="/_vivamark/sdk.js" data-vivamark-load="${safeLoad}"></script>`;
       return send(res, 200, injectScript(html, tag), { ...headers, 'Content-Type': 'text/html; charset=utf-8' });
@@ -450,6 +450,17 @@ export class Daemon {
 
   // ---- feedback -----------------------------------------------------------
 
+  /** The reviewed file, parsed; null when it is gone (notes then keep their anchors, without lines). */
+  private readDoc(s: Session) {
+    let source: string;
+    try {
+      source = fs.readFileSync(s.file, 'utf8');
+    } catch {
+      return null;
+    }
+    return loadDoc(docKind(s.file) ?? 'html', source, path.basename(s.file));
+  }
+
   private async receiveNotes(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
     const body = (await readBody(req, LIMITS.sendBody)) as { notes?: unknown; decision?: unknown };
     const notes = body.notes ?? [];
@@ -463,13 +474,8 @@ export class Daemon {
       if (typeof d === 'string') throw new HttpError(400, d);
       drafts.push(d);
     }
-    let html = '';
-    try {
-      html = fs.readFileSync(s.file, 'utf8');
-    } catch {
-      // The file is gone: notes keep their anchors, without line numbers.
-    }
-    const entries = this.store.appendBatch(s, drafts, decision as Decision, (d) => (html && d.anchor ? sourceLine(html, d.anchor) : null));
+    const doc = this.readDoc(s);
+    const entries = this.store.appendBatch(s, drafts, decision as Decision, (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null));
     sendJson(res, 201, { seq: { from: entries[0].seq, to: entries[entries.length - 1].seq }, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
     const l = this.liveFor(s);

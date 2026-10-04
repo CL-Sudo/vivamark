@@ -52,6 +52,8 @@ export interface Anchor {
   point?: { x: number; y: number; width: number; height: number };
   /** 1-based line in the saved file, or null when it cannot be mapped. */
   source_line: number | null;
+  /** F5: the first and last line of the target in the saved file (a Markdown block, or an HTML element or quote). */
+  lines?: [number, number] | null;
 }
 
 export interface Note {
@@ -126,7 +128,7 @@ export interface DraftNote {
   comment: string;
   intent?: Intent;
   severity?: Severity;
-  anchor: Omit<Anchor, 'source_line'> | null;
+  anchor: Omit<Anchor, 'source_line' | 'lines'> | null;
 }
 
 export const LIMITS = {
@@ -203,7 +205,7 @@ export function parseDraft(input: unknown): DraftNote | string {
   const a = x.anchor;
   if (!a || typeof a !== 'object') return `a ${kind} note needs an anchor`;
   const ar = a as Record<string, unknown>;
-  const anchor: Omit<Anchor, 'source_line'> = {
+  const anchor: Omit<Anchor, 'source_line' | 'lines'> = {
     stable_id: nullableStr(ar.stable_id, LIMITS.context),
     selector: nullableStr(ar.selector, LIMITS.selector),
   };

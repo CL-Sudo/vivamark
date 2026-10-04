@@ -183,3 +183,67 @@ test('F8: cell, control and point names are kept, checked and shown to the agent
   const nan = { ...pointNote, anchor: { ...pointNote.anchor, point: { x: 'a' } } };
   assert.equal((await send(s, [nan])).status, 400);
 });
+
+// ---- F5 ---------------------------------------------------------------------------
+
+const PLAN_MD = [
+  '# Rollout plan', //                     1
+  '',
+  'Ship the **enrolment** screen', //      3
+  'behind a feature flag.', //             4
+  '',
+  '- Step one: scaffold', //               6
+  '- Step two: save handler', //           7
+  '',
+  '<script>alert(1)</script>', //          9
+  '',
+  '```sh', //                              11
+  'npm test',
+  '```', //                                13
+  '',
+].join('\n');
+
+test('F5: a Markdown file is rendered without raw HTML, and the file is never written', async () => {
+  const s = await openPage('plan.md', PLAN_MD);
+  assert.equal(s.out.session.file, fs.realpathSync(s.file));
+  const v = await view(s);
+  const page = await api(s.port, 'GET', v.artifact_url);
+  assert.equal(page.status, 200);
+  assert.match(page.headers['content-type'], /text\/html/);
+  assert.match(page.headers['content-security-policy'], /^sandbox allow-scripts/);
+  assert.match(page.text, /<h1 data-vivamark-lines="1-1">Rollout plan<\/h1>/);
+  assert.match(page.text, /<strong>enrolment<\/strong>/);
+  assert.match(page.text, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(page.text, /<script>alert/);
+  assert.equal(page.text.match(/<script src="\/_vivamark\/sdk\.js"/g).length, 1, 'only the one script tag');
+  assert.equal(fs.readFileSync(s.file, 'utf8'), PLAN_MD);
+});
+
+test('F5: every note on a Markdown page carries lines: [first, last] from the source map', async () => {
+  const s = await openPage('lines.md', PLAN_MD);
+  const r = await send(s, [
+    { kind: 'element', comment: 'Paragraph.', anchor: { stable_id: null, selector: 'body > p:nth-of-type(1)', tag: 'p', text: 'Ship the enrolment screen behind a feature flag.' } },
+    { kind: 'element', comment: 'Item.', anchor: { stable_id: null, selector: 'body > ul:nth-of-type(1) > li:nth-of-type(2)', tag: 'li', text: 'Step two: save handler' } },
+    { kind: 'text', comment: 'Which flag?', anchor: { stable_id: null, selector: 'body > p:nth-of-type(1)', quote: 'feature flag', prefix: 'behind a ', suffix: '.' } },
+    { kind: 'element', comment: 'Code.', anchor: { stable_id: null, selector: 'body > pre:nth-of-type(1) > code:nth-of-type(1)', tag: 'code', text: 'npm test' } },
+    { kind: 'element', comment: 'List.', anchor: { stable_id: null, selector: 'body > ul:nth-of-type(1)', tag: 'ul', text: 'Step one' } },
+  ]);
+  assert.equal(r.status, 201, r.text);
+  const w = await waitJson(s);
+  const lines = w.out.notes.map((n) => n.anchor.lines);
+  assert.deepEqual(lines, [[3, 4], [7, 7], [4, 4], [11, 13], [6, 7]]);
+  assert.deepEqual(w.out.notes.map((n) => n.anchor.source_line), [3, 7, 4, 11, 6]);
+  const text = await world.cli(['wait', s.file]);
+  assert.match(text.stdout, /n_0001 on <p> \(lines 3-4\)/);
+  assert.match(text.stdout, /n_0002 on <li> \(line 7\)/);
+});
+
+test('F5: HTML notes carry lines too', async () => {
+  const s = await openPage('f5.html');
+  assert.equal((await send(s, [ELEMENT_NOTE, TEXT_NOTE])).status, 201);
+  const w = await waitJson(s);
+  const html = fs.readFileSync(s.file, 'utf8');
+  const lineOf = (needle) => html.slice(0, html.indexOf(needle)).split('\n').length;
+  assert.deepEqual(w.out.notes[0].anchor.lines, [lineOf('id="step-2"'), lineOf('id="step-2"')]);
+  assert.deepEqual(w.out.notes[1].anchor.lines, [lineOf('Director or Attestor'), lineOf('Director or Attestor')]);
+});

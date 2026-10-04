@@ -226,18 +226,22 @@ export class Store {
   /**
    * Appends one Send to the log: its notes, each carrying the batch's
    * decision, or a single decision entry when there are no notes.
-   * `sourceLine` maps an anchor to a line of the saved file.
+   * `place` maps an anchor to lines of the saved file.
    */
   appendBatch(
     s: Session,
     drafts: DraftNote[],
     decision: Decision,
-    sourceLine: (d: DraftNote) => number | null,
+    place: (d: DraftNote) => { source_line: number | null; lines: [number, number] | null } | null,
   ): LogEntry[] {
     const at = new Date().toISOString();
     const batch = randomId('b_');
     let seq = this.lastSeq(s);
     let noteCount = s.log.filter((e) => e.type === 'note').length;
+    const placed = (d: DraftNote) => {
+      const p = place(d);
+      return { source_line: p?.source_line ?? null, lines: p?.lines ?? null };
+    };
     const entries: LogEntry[] = drafts.map((d): NoteEntry => {
       seq += 1;
       noteCount += 1;
@@ -248,7 +252,7 @@ export class Store {
         ...(d.intent ? { intent: d.intent } : {}),
         ...(d.severity ? { severity: d.severity } : {}),
         motivation: d.intent ? MOTIVATION[d.intent] : 'commenting',
-        anchor: d.anchor ? { ...d.anchor, source_line: sourceLine(d) } : null,
+        anchor: d.anchor ? { ...d.anchor, ...placed(d) } : null,
         source: 'reviewer',
         attachments: [],
         at,

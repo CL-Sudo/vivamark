@@ -18,7 +18,9 @@ const HELP = `vivamark ${VERSION}: point at what you mean on a page; the agent g
 
 Usage:
   vivamark open <file.html> [--label k=v]... [--no-browser] [--json]
-      Start (or resume) a review of a saved HTML file and open it in the browser.
+      Start (or resume) a review of a saved HTML or Markdown (.md) file and open
+      it in the browser. Markdown is rendered with raw HTML shown as text; each note
+      carries the source lines it points at.
   vivamark wait <file|session> [--after <seq>] [--timeout <dur>] [--owner <name>]
                 [-m <text> | --reply-file <file>] [--json]
       Block until the reviewer sends notes, then print them. Nothing is consumed:
@@ -109,8 +111,7 @@ async function cmdOpen(argv: string[]): Promise<void> {
   if (positionals.length !== 1) throw new UsageError('open takes exactly one file');
   const file = path.resolve(positionals[0]);
   if (!fs.existsSync(file)) fail(`no such file: ${file}`);
-  if (/\.(md|markdown)$/i.test(file)) fail('Markdown files are not supported yet; open an .html file');
-  if (!/\.html?$/i.test(file)) fail('vivamark opens .html and .htm files');
+  if (!/\.(html?|md|markdown)$/i.test(file)) fail('vivamark opens .html, .htm, .md and .markdown files');
   const labels: Record<string, string> = {};
   for (const l of values.label ?? []) {
     const i = l.indexOf('=');
@@ -175,6 +176,11 @@ function describeTarget(kind: NoteKind, a: Anchor | null): string {
   return el;
 }
 
+function describeLines(a: Anchor | null): string {
+  if (a?.lines && a.lines[1] > a.lines[0]) return ` (lines ${a.lines[0]}-${a.lines[1]})`;
+  return a?.source_line ? ` (line ${a.source_line})` : '';
+}
+
 function describeCell(c: NonNullable<Anchor['cell']>): string {
   return [c.row !== undefined ? `row "${c.row}"` : '', c.column !== undefined ? `column "${c.column}"` : ''].filter(Boolean).join(', ');
 }
@@ -193,7 +199,7 @@ function renderFeedback(v: FeedbackView, next: string): string {
   for (const n of notes) {
     const a = n.anchor;
     const tags = [n.intent, n.severity].filter(Boolean).join(', ');
-    lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${a?.source_line ? ` (line ${a.source_line})` : ''}`);
+    lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${describeLines(a)}`);
     for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
     if (a) {
       if (a.selector) lines.push(`    selector: ${a.selector}`);
