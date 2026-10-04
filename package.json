@@ -1,0 +1,11 @@
+{
+  "name": "vivamark",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Make an agent's page alive: point at what you mean on an HTML or Markdown page, and the agent gets your note tied to exactly that spot.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
+}
