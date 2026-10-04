@@ -65,8 +65,8 @@ Usage:
       line: seq, at, type, session, file, labels and a few details. Types:
       session.opened, feedback.sent, reply.posted, note.status,
       agent-note.added, session.ended, browser.connected, browser.disconnected.
-      Events never contain note text, quotes, replies or messages; read those
-      with wait. Reads the log only; needs no server and no browser.
+      Events never contain note text, quotes, replies, messages or images
+      (feedback.sent counts them as attachments); read those with wait. Reads the log only; needs no server and no browser.
   vivamark guide [<topic>] [--json]
       How to run a review and write a page worth reviewing: the workflow, the
       page design (ready CSS), stable ids, and playbooks for a plan, report,
@@ -83,7 +83,12 @@ What wait returns (--json; the text form says the same):
                addressed, declined, question, answered, resolved), anchor with
                lines [first, last], state (anchored, moved, orphaned) and
                current place when it moved, cell {row, column}, control
-               {role, name} or point {x, y, width, height}, target_changed.
+               {role, name} or point {x, y, width, height}, target_changed,
+               attachments: images the reviewer attached, each {id, path, mime,
+               width, height, bytes}; path is a local PNG, JPEG, GIF or WebP
+               file to open (the text form lists them). A choice clicked on a
+               control marked data-vivamark-suggest arrives as a note like any
+               other, once the reviewer sends it (vivamark guide decisions).
 
 Exit codes for wait:
   0  notes; the reviewer requests changes     6  approved (or approved with notes)
@@ -108,6 +113,11 @@ Environment:
                                 or ~/.local/state/vivamark)
   VIVAMARK_DISCONNECT_GRACE_MS  how long wait goes on after the review page went
                                 away before it returns disconnected (default 10000)
+  VIVAMARK_MAX_IMAGE_BYTES      largest image the reviewer can attach (default
+                                10 MB; or "max_image_bytes" in config.json)
+  VIVAMARK_MAX_NOTE_IMAGE_BYTES largest total of images on one note (default
+                                25 MB; or "max_note_image_bytes" in config.json)
+                                Both are read when the server starts.
 `;
 
 class UsageError extends Error {}

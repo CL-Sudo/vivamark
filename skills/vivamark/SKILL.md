@@ -24,7 +24,7 @@ and read the topics you need (`vivamark guide <topic>`):
 - `workflow`: the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected
 - `design`: the Smooth glass look: a ready CSS block, light and dark, and layout rules
 - `ids`: stable ids on everything worth a note, so notes survive edits
-- `decisions`: show choices as options to point at; how the reviewer answers
+- `decisions`: ask for choices in a "Your input" card with real controls; open questions to point at
 - `plan`: playbook: a plan to approve before building, ending on decisions
 - `report`: playbook: results, findings with evidence, what was not done
 - `comparison`: playbook: options side by side, criteria as rows

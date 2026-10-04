@@ -84,6 +84,12 @@ a { color: var(--accent-strong); }
 .options { list-style: none; padding: 0; display: grid; gap: var(--s2); }
 .option { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px var(--s3); margin: 0; }
 .option.recommended { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.your-input { position: relative; border: 2px solid var(--q); border-radius: var(--r); background: var(--q-soft); padding: var(--s4) 20px var(--s3); margin: var(--s5) 0 var(--s4); box-shadow: var(--shadow); }
+.your-input::before { content: "Your input"; position: absolute; top: -12px; left: var(--s3); padding: 2px 10px; border-radius: 999px; background: var(--q); color: var(--bg); font: 600 12px/20px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
+.your-input > h3:first-child, .your-input > h2:first-child { margin-top: 0; }
+label.option { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+label.option input { margin: .35em 0 0; flex: none; accent-color: var(--q); }
+label.option:has(input:checked) { border-color: var(--q); box-shadow: 0 0 0 3px var(--q-soft); }
 .scroll { overflow-x: auto; margin: 0 0 var(--s3); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
 th, td { text-align: left; vertical-align: top; padding: var(--s2) 12px; border-bottom: 1px solid var(--line); }
@@ -138,6 +144,15 @@ What wait returns (exit code, then what to do)
   1  error                    read stderr
 Use --json to read the notes as data: each has id, comment, intent, severity,
 anchor (stable_id, selector, quote, lines) and state (anchored, moved, orphaned).
+A choice the reviewer clicked on the page (see: vivamark guide decisions)
+arrives as an ordinary note with the control's label as its comment.
+
+Images
+  The reviewer can attach screenshots and other images to a note. Each note's
+  attachments lists them as {id, path, mime, width, height, bytes}; path is a
+  local file (PNG, JPEG, GIF or WebP) you can open to look at it. The text form
+  says how many images a note has and where they are. Look at them before you
+  act on the note: the screenshot is often the point.
 
 Waiting inside an agent harness
   wait can block for minutes or hours: the reviewer is a person.
@@ -184,7 +199,10 @@ Classes
   .card     a frosted panel; .grid lays cards out in columns that wrap
   .pill     a status chip; .ok .warn .bad .q for done, at risk, blocked, open
   .callout  an aside; .callout.warn for a warning
-  .options  a list of .option blocks to choose from; .recommended marks yours
+  .your-input  a card that asks the reviewer for something: every decision.
+            Unmistakable on purpose, labelled "Your input" (see: decisions)
+  .options  a list of .option blocks to choose from; .recommended marks yours.
+            label.option holds a radio or checkbox and its text
   .scroll   a box that scrolls sideways (wide tables)
   table.diff with tr.add, tr.del, tr.hunk and td.ln (see: vivamark guide diff)
 
@@ -228,42 +246,69 @@ id or data-vivamark-id
 
 Controls and charts
   Buttons, inputs and selects are named by their label, so give each a visible
-  label or aria-label. A note on a point of an SVG chart records where in the
+  label or aria-label. A decision's radio or checkbox carries the option's id
+  itself (<input id="decision-storage-sqlite">): that id comes back as stable_id. A note on a point of an SVG chart records where in the
   chart it was; give each series (<polyline id="series-errors">) an id.
 `;
 
-const DECISIONS = `decisions: let the reviewer choose
+const DECISIONS = `decisions: ask the reviewer to choose, with real controls
 
-A page that needs the reviewer to decide something shows each decision as a
-question with its options laid out as blocks to point at:
+Put every decision in its own .your-input card, so the reviewer sees at once
+that this part needs them. Show the options as real radio buttons (checkboxes
+when several can be picked, a <select> for a long list), each marked
+data-vivamark-suggest:
 
-  <section id="decision-storage">
+  <section id="decision-storage" class="your-input">
     <h3>Where should drafts be stored?</h3>
-    <ul class="options">
-      <li class="option recommended" id="decision-storage-sqlite">
-        <strong>SQLite</strong> (recommended): one file, transactions. Cost: a native module.</li>
-      <li class="option" id="decision-storage-json">
-        <strong>JSON files</strong>: no dependency. Cost: no atomic multi-file writes.</li>
-    </ul>
+    <div class="options" role="radiogroup" aria-label="Where should drafts be stored?">
+      <label class="option recommended">
+        <input type="radio" name="decision-storage" id="decision-storage-sqlite"
+               data-vivamark-suggest="looks-good">
+        <span><strong>SQLite</strong> (recommended): one file, transactions. Cost: a native module.</span>
+      </label>
+      <label class="option">
+        <input type="radio" name="decision-storage" id="decision-storage-json"
+               data-vivamark-suggest="looks-good">
+        <span><strong>JSON files</strong>: no dependency. Cost: no atomic multi-file writes.</span>
+      </label>
+    </div>
   </section>
 
-How the reviewer answers (tell them in one line on the page if it helps)
-  - Press Point, click the option, choose the intent Looks good, type a word
-    ("This one") and add the note: that option is chosen. Wait returns it with
-    intent "looks-good" and stable_id "decision-storage-sqlite".
-  - Change or Question on an option: "yes, but ..." or "what about ...".
-  - A note on the decision's section rather than an option: none of these.
-  - Approve with no note on a decision: your recommendation stands. Say so on
-    the page ("Approving accepts the recommended options").
+How the reviewer answers
+  - They click an option. The review page queues a note for them, marked
+    "From the page": intent from the attribute (looks-good here), the option's
+    label as the text, its id as stable_id. Another choice in the same group
+    replaces it; unticking a checkbox withdraws it.
+  - Nothing is sent by the click. The reviewer sees the note, can edit or
+    remove it, and sends it with their other notes. Only a real click counts:
+    a script on your page cannot answer for them.
+  - Wait returns it as an ordinary note: comment "SQLite (recommended): ...",
+    intent "looks-good", anchor.stable_id "decision-storage-sqlite",
+    anchor.control {role: "radio", name: ...}.
+  - Approve with nothing chosen: your recommendation stands. Say so on the
+    page ("Approving accepts the recommended options").
+
+The attribute
+  data-vivamark-suggest="<intent>" on an <input type="radio">, an
+  <input type="checkbox">, or an <option> (or on the <select>, for all its
+  options). The intent is change, question, delete or looks-good; looks-good
+  means "this one". An option without the attribute withdraws the suggestion.
+  Text fields are not supported: free text goes in the reviewer's own note.
+
+Free-form questions: the fallback
+  When the answer is not one of a few options ("what should the limit be?"),
+  put the question in a .your-input card with an id and no controls. The
+  reviewer presses Point, clicks it and writes a note. They can also point at
+  any option to say "yes, but ...", with Change or Question.
 
 Rules
-  - One question per decision, two to four options, each with its cost.
+  - One question per card, two to four options, each with its cost.
   - Mark at most one option .recommended, and say why in the option itself.
-  - Give every option an id built from the decision's id, so the answer is
-    readable from stable_id alone.
-  - Do not use radio buttons or checkboxes as the way to answer. Clicking a
-    control on the page sends nothing to you; only a note the reviewer sends
-    does. A form on the page is at best a visual.
+  - Give every control an id built from the decision's id, and a <label>, so
+    the answer is readable from stable_id and the text alone.
+  - Never pre-select an option: a choice the reviewer did not make is not an
+    answer. Make the recommendation visible instead.
+  - The controls do nothing on the page itself and need no script of yours.
 `;
 
 const PLAN = `plan: a plan for the reviewer to approve before you build
@@ -282,9 +327,10 @@ Sections, in this order
   6. Risks: each with likelihood, impact and what you will do about it, one id
      per risk (risk-partial-rows).
   7. Open questions: what you do not know yet, one id each (q-owner).
-  8. Decisions for the reviewer: each as a question with options to point at
-     (see: vivamark guide decisions). Always the last section, so the page
-     ends on what you need from the reviewer.
+  8. Decisions for the reviewer: each in its own .your-input card, the
+     options as radio buttons marked data-vivamark-suggest, an open question
+     as a card to point at (see: vivamark guide decisions). Always the last
+     section, so the page ends on what you need from the reviewer.
 
 What to make pointable
   Every step, risk, open question, decision and option; tables by row.
@@ -437,7 +483,7 @@ export const TOPICS: readonly GuideTopic[] = [
   { name: 'workflow', summary: 'the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected', text: WORKFLOW },
   { name: 'design', summary: 'the Smooth glass look: a ready CSS block, light and dark, and layout rules', text: DESIGN },
   { name: 'ids', summary: 'stable ids on everything worth a note, so notes survive edits', text: IDS },
-  { name: 'decisions', summary: 'show choices as options to point at; how the reviewer answers', text: DECISIONS },
+  { name: 'decisions', summary: 'ask for choices in a "Your input" card with real controls; open questions to point at', text: DECISIONS },
   { name: 'plan', summary: 'playbook: a plan to approve before building, ending on decisions', text: PLAN },
   { name: 'report', summary: 'playbook: results, findings with evidence, what was not done', text: REPORT },
   { name: 'comparison', summary: 'playbook: options side by side, criteria as rows', text: COMPARISON },

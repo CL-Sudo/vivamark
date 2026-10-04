@@ -10,7 +10,8 @@ page updates in place, and the conversation carries on until you approve.
 > HTML or Markdown file), with the first-version features F1–F8: decisions,
 > "what changed", notes that re-attach after edits, intent and severity,
 > Markdown with line ranges, per-note replies with whose turn it is, notes
-> from the agent, and named table cells, controls and chart points. A
+> from the agent, and named table cells, controls and chart points. Notes can carry images, and a
+> page can ask for a decision with real controls the reviewer clicks. A
 > supervisor can follow reviews with `status`, the event log and a notify
 > hook, and either side can `end` a review. `vivamark guide` teaches any
 > agent to write pages worth reviewing. See
@@ -43,12 +44,24 @@ paragraph, a table cell (named by its row and column), one of the options in
 by its label). Type a note, pick an intent (Change, Question,
 Delete, Looks good) and a severity if you like, and press **Add note**. On a
 queued note, one key does the same: C Q D G for the intent, B I N for the
-severity. Then decide:
+severity. To show what you mean, attach an image: paste a screenshot (Ctrl+V)
+into the note, drop an image on the note or on a queued note, or press
+**Image**. Each shows as a thumbnail you can remove before sending. Then
+decide:
 
 - **Send** requests changes. `wait` prints each note with what it points at
-  (an id or selector, the quoted text, the lines in the file) and exits 0.
+  (an id or selector, the quoted text, the lines in the file) and any images
+  (as local paths the agent can open), and exits 0.
 - **Approve** (or **Approve with notes**, when notes are queued) exits 6.
 - **Dismiss** closes the round with nothing and exits 7.
+
+Only real PNG, JPEG, GIF and WebP images are accepted, checked by their
+content: about 10 MB each and 25 MB per note (`VIVAMARK_MAX_IMAGE_BYTES`,
+`VIVAMARK_MAX_NOTE_IMAGE_BYTES`, or `max_image_bytes` and
+`max_note_image_bytes` in the config file). They are kept in the state
+directory under `attachments/<session>/`, named by their hash, and never next
+to the reviewed file. In `wait --json` each note's `attachments` lists
+`{id, path, mime, width, height, bytes}`; the image itself is never inlined.
 
 Answer on the page, as a whole or note by note:
 
@@ -104,8 +117,15 @@ node dist/cli.js guide ids --json # the same, as data
 ```
 
 [`examples/plan.html`](examples/plan.html) follows the `plan` playbook and the
-`design` CSS. A reviewer answers a decision by pointing at an option and
-choosing **Looks good**; clicking a control on the page sends nothing.
+`design` CSS. Each decision sits in a "Your input" card with real radio
+buttons marked `data-vivamark-suggest="looks-good"`. Clicking one queues a
+note, marked "From the page", with the option's label and id: one per group,
+replaced when the choice changes. Nothing is sent by the click; the reviewer
+sends it with the rest, and can edit or remove it first. Only a real click
+counts, not an event a page script fakes. A free-form question is a card to
+point at instead.
+
+![A queued note with an attached screenshot, and a decision answered by clicking a radio button, queued "From the page"](docs/screenshots/attach-answer.png)
 
 For agents that load Agent Skills,
 [`skills/vivamark/SKILL.md`](skills/vivamark/SKILL.md) says what vivamark is
@@ -159,10 +179,10 @@ the labels from `open --label k=v`. A file or session that has no review exits
 Every review is also recorded in `events.jsonl` in the state directory
 (`~/.local/state/vivamark` by default): append-only, one JSON object per line,
 each with `seq`, `at`, `type`, `session`, `file` and `labels`. The types are
-`session.opened`, `feedback.sent`, `reply.posted`, `note.status`,
+`session.opened`, `feedback.sent` (with a count of `attachments`), `reply.posted`, `note.status`,
 `agent-note.added`, `session.ended`, `browser.connected` and
 `browser.disconnected`. **Events carry metadata only:** ids, counts, decisions
-and statuses, never a note, quote, reply or message. Read the words with
+and statuses, never a note, quote, reply, message, image or image path. Read the words with
 `wait`.
 
 ```sh
@@ -215,8 +235,9 @@ command that started it), so run `vivamark stop` after changing it.
   No telemetry, ever. Nothing is published to third-party hosts.
 - **Your file stays yours.** Serving a page adds one script tag; the saved file
   opens the same without vivamark.
-- **Only you can send.** Scripts on the agent's page can suggest notes; only a
-  deliberate click from you reaches the agent.
+- **Only you can send.** Scripts on the agent's page can suggest notes, and a
+  control on it can queue your choice; only a deliberate click on Send
+  reaches the agent.
 
 ## Prior art
 

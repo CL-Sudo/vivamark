@@ -66,17 +66,34 @@ test('the workflow topic covers waiting, ended, disconnected and per-note replie
   assert.match(w, /--after <seq>/);
 });
 
-test('the plan playbook ends on decisions, and decisions are answered by pointing', () => {
+test('the plan playbook ends on decisions, and decisions are answered with real controls in a Your input card', () => {
   const plan = TOPICS.find((t) => t.name === 'plan').text;
   const order = ['Risks', 'Open questions', 'Decisions for the reviewer'].map((h) => plan.indexOf(h));
   assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], 'risks, then questions, then decisions');
+  assert.match(plan, /\.your-input card/);
+  assert.match(plan, /data-vivamark-suggest/);
   const d = TOPICS.find((t) => t.name === 'decisions').text;
-  assert.match(d, /Looks good/);
+  // Controls first; pointing is the fallback for free-form questions.
+  const controls = d.indexOf('data-vivamark-suggest');
+  const fallback = d.indexOf('Free-form questions: the fallback');
+  assert.ok(controls > 0 && fallback > controls, 'controls lead, pointing follows');
+  assert.match(d, /class="your-input"/);
+  assert.match(d, /type="radio"/);
   assert.match(d, /"looks-good"/);
+  assert.match(d, /Nothing is sent by the click/);
+  assert.match(d, /Press Point, clicks it and writes a note|presses Point, clicks it and writes a note/);
+  assert.match(PAGE_CSS, /\.your-input::before \{ content: "Your input";/);
+});
+
+test('the workflow topic says where images arrive in wait output', () => {
+  const w = TOPICS.find((t) => t.name === 'workflow').text;
+  assert.match(w, /attachments lists them as \{id, path, mime, width, height, bytes\}/);
+  assert.match(w, /path is a\s+local file/);
 });
 
 test('the guide never names a particular orchestrator or harness', () => {
-  for (const t of TOPICS) assert.doesNotMatch(t.text, /orchestrator|\borc\b|claude|codex|cursor|copilot/i, t.name);
+  // cursor, but not the CSS property `cursor:` in the design CSS.
+  for (const t of TOPICS) assert.doesNotMatch(t.text, /orchestrator|\borc\b|claude|codex|cursor(?!\s*:)|copilot/i, t.name);
 });
 
 test('the committed skill stub matches its generator, and the check catches drift', async () => {
@@ -141,9 +158,12 @@ test('examples/plan.html follows the plan playbook and carries the design CSS', 
   assert.ok(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), 'steps, testing, risks, open questions, then decisions last');
   for (const li of html.match(/<li\b[^>]*>/g)) assert.match(li, /\bid="[a-z0-9-]+"/, `every list item has an id: ${li}`);
   for (const tr of html.match(/<tbody>[\s\S]*?<\/tbody>/)[0].match(/<tr\b[^>]*>/g)) assert.match(tr, /\bid="/, 'every body row has an id');
-  const options = html.match(/<li class="option[^"]*" id="decision-[a-z-]+"/g) ?? [];
-  assert.ok(options.length >= 4, 'decisions shown as options to point at');
-  assert.doesNotMatch(html, /type="radio"|type="checkbox"/, 'decisions are answered by pointing, not by controls');
+  // Decisions: each in a Your input card, answered with marked radio buttons.
+  const cards = html.match(/<section id="decision-[a-z-]+" class="your-input">/g) ?? [];
+  assert.ok(cards.length >= 2, 'decisions in Your input cards');
+  const radios = html.match(/<input type="radio" name="decision-[a-z-]+" id="decision-[a-z-]+"[^>]*data-vivamark-suggest="looks-good">/g) ?? [];
+  assert.ok(radios.length >= 4, 'options as radio buttons marked data-vivamark-suggest');
+  assert.doesNotMatch(html, /<input[^>]*\bchecked\b/, 'nothing pre-selected');
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(new Set(ids).size, ids.length, 'ids are unique');
 });
