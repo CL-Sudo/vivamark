@@ -365,8 +365,10 @@
       const accent = m.agent ? 'rgba(139,92,246,.7)' : m.queued ? 'rgba(14,165,233,.55)' : '#0ea5e9';
       const line = m.agent ? 'dotted' : m.queued ? 'dashed' : 'solid';
       if (m.kind === 'element') {
-        const el = resolveElement(m.anchor);
-        if (!el) continue;
+        const found = resolveElement(m.anchor);
+        if (!found) continue;
+        // A radio or checkbox is drawn around its label, so the mark does not cover the text.
+        const el = found instanceof HTMLInputElement && (found.type === 'radio' || found.type === 'checkbox') ? (found.labels?.[0] ?? found) : found;
         const r = el.getBoundingClientRect();
         l.appendChild(box(r, `outline:2px ${line} ${accent};outline-offset:2px;border-radius:8px;background:${m.agent ? 'rgba(139,92,246,.05)' : 'rgba(14,165,233,.06)'};`));
         l.appendChild(badge(m.n, r.right + 8, r.top + r.height / 2 - 11, m.queued, m.agent));
