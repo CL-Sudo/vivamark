@@ -32,6 +32,7 @@ interface Draft {
 interface Note extends Draft {
   id: string;
   at: string;
+  target_changed?: boolean;
 }
 interface NoteEntry {
   seq: number;
@@ -51,6 +52,11 @@ interface ReplyView {
   text: string;
   html: string;
 }
+interface Changes {
+  since: string;
+  inserts: { at: number; text: string }[];
+  removals: { at: number; text: string }[];
+}
 interface SessionView {
   id: string;
   file: string;
@@ -58,6 +64,7 @@ interface SessionView {
   artifact_url: string;
   notes: NoteEntry[];
   decisions: DecisionView[];
+  changes: Changes | null;
   replies: ReplyView[];
   agent: 'listening' | 'away';
 }
@@ -101,6 +108,8 @@ let session: SessionView | null = null;
 let sent: NoteEntry[] = [];
 let replies: ReplyView[] = [];
 let decisions: DecisionView[] = [];
+let changes: Changes | null = null;
+let showChanges = false;
 let queue: Draft[] = loadQueue();
 let target: { kind: Kind; anchor: Anchor | null } = { kind: 'page', anchor: null };
 let tags: { intent?: Intent; severity?: Severity } = {};
@@ -211,6 +220,9 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   const tagRow = el('div', 'note-tags');
   if (state === 'moved') tagRow.append(Object.assign(el('span', 'pill flag moved', 'Moved'), { title: `Re-attached at ${d.anchor?.current?.selector ?? 'a new place'}` }));
   if (state === 'orphaned') card.classList.add('orphaned');
+  if ((d as Partial<Note>).target_changed && state !== 'orphaned') {
+    tagRow.append(Object.assign(el('span', 'pill flag changed', 'Changed'), { title: 'What this note points at has changed since you sent it' }));
+  }
   if (d.intent) tagRow.append(el('span', `pill intent ${d.intent}`, INTENT_LABEL[d.intent]));
   if (d.severity) tagRow.append(el('span', `pill sev ${d.severity}`, SEVERITY_LABEL[d.severity]));
   card.append(head, tagRow, el('p', 'comment', d.comment));
@@ -315,7 +327,22 @@ function render(): void {
   $('target-text').textContent = describe(target.kind, target.anchor);
   $('target-clear').hidden = target.kind === 'page';
   renderTags();
+  renderChanges();
   postMarks();
+}
+
+function renderChanges(): void {
+  const btn = $<HTMLButtonElement>('show-changes');
+  const n = changes ? changes.inserts.length + changes.removals.length : 0;
+  btn.disabled = n === 0;
+  if (!n) showChanges = false;
+  btn.setAttribute('aria-pressed', String(showChanges));
+  btn.textContent = n ? `Show changes · ${n}` : 'Show changes';
+  btn.title = n && changes ? `What changed since you last sent, at ${new Date(changes.since).toLocaleTimeString()}` : 'Nothing has changed since you last sent';
+}
+
+function postChanges(): void {
+  toFrame({ type: 'changes', show: showChanges, inserts: changes?.inserts ?? [], removals: changes?.removals ?? [] });
 }
 
 function setPresence(state: 'listening' | 'away'): void {
@@ -367,6 +394,7 @@ window.addEventListener('message', (e) => {
       toFrame({ type: 'restore', ...lastScroll });
       setPicking(pointBtn.getAttribute('aria-pressed') === 'true');
       postMarks();
+      postChanges();
       break;
     case 'pick':
       if ((d.kind === 'element' || d.kind === 'text') && d.anchor) {
@@ -430,6 +458,11 @@ $('target-clear').addEventListener('click', () => {
   render();
 });
 pointBtn.addEventListener('click', () => setPicking(pointBtn.getAttribute('aria-pressed') !== 'true'));
+$('show-changes').addEventListener('click', () => {
+  showChanges = !showChanges;
+  renderChanges();
+  postChanges();
+});
 
 const SENT_TEXT: Record<Decision, string> = {
   'request-changes': 'Sent {n} to the agent.',
@@ -522,8 +555,10 @@ async function refresh(): Promise<void> {
     mergeNotes(s.notes);
     replies = s.replies;
     decisions = s.decisions ?? [];
+    changes = s.changes ?? null;
     setPresence(s.agent);
     render();
+    postChanges();
   } catch {
     // The server is restarting; the socket loop retries.
   }
@@ -546,6 +581,7 @@ async function start(): Promise<void> {
   mergeNotes(session.notes);
   replies = session.replies;
   decisions = session.decisions ?? [];
+  changes = session.changes ?? null;
   setPresence(session.agent);
   render();
   loadFrame();

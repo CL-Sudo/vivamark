@@ -302,6 +302,49 @@
     return b;
   }
 
+  type Change = { at: number; text: string };
+  let changes: { show: boolean; inserts: Change[]; removals: Change[] } = { show: false, inserts: [], removals: [] };
+
+  /** The body's text nodes and the joined text, as the server computes it. */
+  function bodyText(): { nodes: Text[]; full: string } {
+    const nodes: Text[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
+    return { nodes, full: nodes.map((n) => n.data).join('') };
+  }
+
+  /** Inserted text highlighted; removed text shown struck through where it was. Nothing in the page is changed. */
+  function drawChanges(l: HTMLElement): void {
+    if (!changes.show || !document.body) return;
+    const { nodes, full } = bodyText();
+    for (const c of changes.inserts) {
+      // A page script may have changed the text since: only draw what still lines up.
+      if (full.slice(c.at, c.at + c.text.length) !== c.text) continue;
+      const r = rangeAt(nodes, c.at, c.at + c.text.length);
+      if (!r) continue;
+      for (const rect of r.getClientRects()) {
+        const d = box(rect, 'background:rgba(16,185,129,.2);border-bottom:2px solid rgba(16,185,129,.7);border-radius:2px;');
+        d.dataset.vivamarkChange = 'insert';
+        l.appendChild(d);
+      }
+    }
+    for (const c of changes.removals) {
+      if (c.at > full.length) continue;
+      const r = rangeAt(nodes, c.at, c.at);
+      const rect = r?.getBoundingClientRect();
+      if (!rect) continue;
+      const text = c.text.replace(/\s+/g, ' ').trim();
+      const chip = document.createElement('div');
+      chip.dataset.vivamarkChange = 'removal';
+      chip.textContent = text.length > 60 ? text.slice(0, 59) + '…' : text;
+      chip.style.cssText =
+        `position:absolute;left:${rect.left + scrollX}px;top:${rect.top + scrollY - 20}px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+        'padding:1px 6px;border-radius:6px;font:12px/18px Inter,ui-sans-serif,system-ui,sans-serif;color:#be123c;background:rgba(255,241,242,.95);' +
+        'border:1px solid rgba(244,63,94,.35);text-decoration:line-through;box-shadow:0 2px 6px rgba(14,60,120,.1);';
+      l.appendChild(chip);
+    }
+  }
+
   let marks: Mark[] = [];
   let hoverEl: Element | null = null;
   let picking = false;
@@ -309,6 +352,7 @@
   function draw(): void {
     const l = layer();
     l.replaceChildren();
+    drawChanges(l);
     for (const m of marks) {
       if (!m.anchor) continue;
       const accent = m.queued ? 'rgba(14,165,233,.55)' : '#0ea5e9';
@@ -436,6 +480,11 @@
       redraw();
     } else if (d.type === 'marks') {
       marks = Array.isArray(d.marks) ? (d.marks as Mark[]) : [];
+      redraw();
+    } else if (d.type === 'changes') {
+      const list = (v: unknown): Change[] =>
+        Array.isArray(v) ? v.filter((c): c is Change => !!c && typeof c.at === 'number' && typeof c.text === 'string') : [];
+      changes = { show: !!d.show, inserts: list(d.inserts), removals: list(d.removals) };
       redraw();
     } else if (d.type === 'restore') {
       window.scrollTo(Number(d.x) || 0, Number(d.y) || 0);

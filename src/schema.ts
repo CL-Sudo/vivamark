@@ -65,6 +65,8 @@ export interface Note {
   /** W3C Web Annotation motivation, derived from the intent. */
   motivation: string;
   anchor: Anchor | null;
+  /** F2, derived when read: the target's text changed since the note was sent. */
+  target_changed?: boolean;
   /** Who made the note. Only `reviewer` notes exist today. */
   source: 'reviewer';
   attachments: never[];
@@ -87,6 +89,8 @@ export interface NoteEntry {
   note: Note;
   /** The batch's decision. Absent in logs written before F1, which means `request-changes`. */
   decision?: Decision;
+  /** F2: the file as it was at this Send, by the sha256 of its snapshot. */
+  snapshot?: string;
 }
 
 /** A Send with no notes (approve or dismiss) is logged as one decision entry. */
@@ -96,6 +100,7 @@ export interface DecisionEntry {
   batch: string;
   at: string;
   decision: Decision;
+  snapshot?: string;
 }
 
 export type LogEntry = NoteEntry | DecisionEntry;

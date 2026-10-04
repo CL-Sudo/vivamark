@@ -294,6 +294,21 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   assert.deepEqual(reanchored.orphaned, ['n_0002']);
   assert.equal(reanchored.notes[7].anchor.state, 'moved');
 
+  // F2: what changed since the Send, highlighted only when asked for.
+  await page.waitForFunction(() => !document.getElementById('show-changes').disabled);
+  assert.match(await page.textContent('#show-changes'), /^Show changes · \d+$/);
+  assert.equal(await page.locator('.note[data-n="1"] .pill.flag.changed').count(), 1, 'the reworded step is marked as changed');
+  assert.equal(await page.locator('.note[data-n="8"] .pill.flag.changed').count(), 0, 'the moved paragraph did not change');
+  assert.equal(await frame().locator('[data-vivamark-change]').count(), 0);
+  await page.click('#show-changes');
+  const changeMarks = (kind) => frame().locator(`[data-vivamark-change="${kind}"]`);
+  await changeMarks('removal').first().waitFor();
+  const removed = await changeMarks('removal').allTextContents();
+  assert.ok(removed.some((t) => t.includes('save handler')), removed.join(' | '));
+  assert.ok((await changeMarks('insert').count()) > 0, 'the inserted paragraph is highlighted');
+  await page.click('#show-changes');
+  await frame().waitForFunction(() => !document.querySelector('[data-vivamark-change]'));
+
   // F1: Approve with nothing queued sends a decision alone; wait exits 6.
   assert.equal(await page.textContent('#approve'), 'Approve');
   await page.click('#approve');
@@ -301,6 +316,20 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   const approved = await world.cli(['wait', file, '--json', '--after', String(out1.seq.to)]);
   assert.equal(approved.code, 6, approved.stdout);
   assert.equal(JSON.parse(approved.stdout).decision, 'approve');
+  // The approval took a new snapshot: nothing has changed since.
+  await page.waitForFunction(() => document.getElementById('show-changes').disabled);
+
+  // F2 again: a follow-up edit after the approval shows against the approved version.
+  const approvedHtml = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, approvedHtml.replace('Nothing is written to the database.', 'Nothing is written to the database before approval.'));
+  await page.waitForFunction(() => !document.getElementById('show-changes').disabled, null, { timeout: 10_000 });
+  await page.click('#show-changes');
+  await frame().locator('[data-vivamark-change="insert"]').first().waitFor();
+  assert.deepEqual(await frame().locator('[data-vivamark-change="insert"]').allTextContents(), ['']);
+  if (process.env.VIVAMARK_SCREENSHOT_DIR) {
+    fs.mkdirSync(process.env.VIVAMARK_SCREENSHOT_DIR, { recursive: true });
+    await page.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, 'review-features.png') });
+  }
 
   assert.deepEqual(offLoopback, [], 'the browser only talked to loopback');
   assert.deepEqual(problems, [], 'no script errors or CSP violations');

@@ -12,7 +12,9 @@ import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensEqual, wsToken } from './guard.js';
 import { createHash } from 'node:crypto';
-import { docKind, loadDoc, locate, placeAnchor } from './doc.js';
+import { diffText } from './diff.js';
+import type { TextChanges } from './diff.js';
+import { docKind, findQuote, loadDoc, locate, placeAnchor, squash, textOf } from './doc.js';
 import type { AnchorState, Doc, Place } from './doc.js';
 import { injectScript } from './html.js';
 import { DECISIONS, entryDecision, FEEDBACK_SCHEMA, LIMITS, parseDecision, parseDraft, REPLY_SCHEMA } from './schema.js';
@@ -97,12 +99,27 @@ interface Live {
 interface NoteState {
   state: AnchorState;
   current: Place | null;
+  /** F2: the target's text differs from what it was when the note was sent. */
+  changed?: boolean;
 }
 
 /** The derived state of a session for one version of the file and the log. */
 interface Analysis {
   key: string;
   notes: Map<string, NoteState>;
+  /** F2: what changed in the page's text since the latest Send, or null before any Send or without a snapshot. */
+  changes: (TextChanges & { since: string; batch: string }) | null;
+}
+
+/** A note's target as text, for telling whether it changed: an element's text, or a quote with some context. */
+function targetText(doc: Doc, anchor: Anchor, el: ReturnType<typeof locate>['el']): string | null {
+  if (!el) return null;
+  if (anchor.quote === undefined) return squash(textOf(doc, el));
+  const r = doc.ranges.get(el);
+  const at = r ? findQuote(doc, anchor, r[0], r[1]) : -1;
+  if (at < 0) return null;
+  const ctx = 40;
+  return squash(doc.text.slice(Math.max(0, at - ctx), at + anchor.quote.length + ctx));
 }
 
 class HttpError extends Error {
@@ -152,6 +169,8 @@ export class Daemon {
   private wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, handleProtocols: () => 'vivamark.v1' });
   private live = new Map<string, Live>();
   private analyses = new Map<string, Analysis>();
+  /** Parsed snapshots by session and hash; a few per session are enough. */
+  private snapshotDocs = new Map<string, Doc | null>();
   private idleMs: number;
   private idleSince = Date.now();
   private timers: NodeJS.Timeout[] = [];
@@ -380,6 +399,7 @@ export class Daemon {
       artifact_url: `/a/${s.id}/${s.artifact_key}/${encodeURIComponent(path.basename(s.file))}`,
       notes: this.noteEntries(s).map((e) => ({ ...e, note: this.noteView(e.note, a) })),
       decisions: this.decisions(s),
+      changes: a.changes,
       replies: s.replies.map((r) => this.replyView(r)),
       agent: this.presence(s),
     };
@@ -490,11 +510,32 @@ export class Daemon {
       const anchor = e.note.anchor;
       if (!anchor) continue;
       const found = doc ? locate(doc, anchor) : null;
-      notes.set(e.note.id, { state: found?.state ?? 'orphaned', current: found?.place ?? null });
+      const st: NoteState = { state: found?.state ?? 'orphaned', current: found?.place ?? null };
+      const then = e.snapshot ? this.snapshotDoc(s, e.snapshot) : null;
+      if (then && doc) {
+        const before = targetText(then, anchor, locate(then, anchor).el);
+        const now = found ? targetText(doc, anchor, found.el) : null;
+        st.changed = before !== null && before !== now;
+      }
+      notes.set(e.note.id, st);
     }
-    const analysis: Analysis = { key, notes };
+    let changes: Analysis['changes'] = null;
+    const last = [...s.log].reverse().find((e) => e.snapshot);
+    const before = last?.snapshot ? this.snapshotDoc(s, last.snapshot) : null;
+    if (last && before && doc) changes = { since: last.at, batch: last.batch, ...diffText(before.text, doc.text) };
+    const analysis: Analysis = { key, notes, changes };
     this.analyses.set(s.id, analysis);
     return analysis;
+  }
+
+  private snapshotDoc(s: Session, hash: string): Doc | null {
+    const key = `${s.id}:${hash}`;
+    if (this.snapshotDocs.has(key)) return this.snapshotDocs.get(key)!;
+    const source = this.store.readSnapshot(s, hash);
+    const doc = source === null ? null : loadDoc(docKind(s.file) ?? 'html', source, path.basename(s.file));
+    if (this.snapshotDocs.size > 32) this.snapshotDocs.delete(this.snapshotDocs.keys().next().value!);
+    this.snapshotDocs.set(key, doc);
+    return doc;
   }
 
   /** A note as readers see it: the logged note, plus where its target is now. */
@@ -504,7 +545,7 @@ export class Daemon {
     const anchor: Anchor & { state: AnchorState; current?: Place } = { ...n.anchor, state: st.state };
     const stale = st.current && (st.state === 'moved' || JSON.stringify(st.current.lines) !== JSON.stringify(n.anchor.lines ?? null));
     if (st.current && stale) anchor.current = st.current;
-    return { ...n, anchor };
+    return { ...n, anchor, ...(st.changed !== undefined ? { target_changed: st.changed } : {}) };
   }
 
   private orphaned(s: Session, a: Analysis): string[] {
@@ -538,7 +579,9 @@ export class Daemon {
       drafts.push(d);
     }
     const doc = this.readDoc(s);
-    const entries = this.store.appendBatch(s, drafts, decision as Decision, (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null));
+    // F2: keep the file as the reviewer saw it, for "what changed since I last sent".
+    const snapshot = doc ? this.store.saveSnapshot(s, doc.source) : undefined;
+    const entries = this.store.appendBatch(s, drafts, decision as Decision, snapshot, (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null));
     sendJson(res, 201, { seq: { from: entries[0].seq, to: entries[entries.length - 1].seq }, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
     const l = this.liveFor(s);

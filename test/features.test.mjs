@@ -304,3 +304,36 @@ test('F3: after an edit each note is anchored, moved or orphaned, in wait output
   const v = await view(s);
   assert.deepEqual(v.notes.map((e) => e.note.anchor?.state ?? null), ['anchored', 'orphaned', 'moved', 'anchored', null]);
 });
+
+// ---- F2 ---------------------------------------------------------------------------
+
+test('F2: a snapshot at each Send; after an edit, what changed and which targets changed', async () => {
+  const s = await openPage('f2.html');
+  assert.equal((await send(s, [ELEMENT_NOTE, RISKS_NOTE, TEXT_NOTE])).status, 201);
+  const snapDir = path.join(world.stateDir, 'snapshots', s.id);
+  const snaps = fs.readdirSync(snapDir);
+  assert.equal(snaps.length, 1);
+  assert.equal(fs.statSync(path.join(snapDir, snaps[0])).mode & 0o777, 0o600);
+  assert.equal(fs.readFileSync(path.join(snapDir, snaps[0]), 'utf8'), fs.readFileSync(s.file, 'utf8'), 'the file as it was at Send');
+
+  const unchanged = await view(s);
+  assert.deepEqual([unchanged.changes.inserts, unchanged.changes.removals], [[], []]);
+  assert.deepEqual(unchanged.notes.map((e) => e.note.target_changed), [false, false, false]);
+
+  fs.writeFileSync(s.file, agentEdit(fs.readFileSync(s.file, 'utf8')));
+  const v = await view(s);
+  assert.ok(v.changes.removals.some((r) => r.text.includes('save handler')), JSON.stringify(v.changes));
+  assert.ok(v.changes.removals.some((r) => r.text.includes('Deploy and rollback SQL')));
+  assert.ok(v.changes.inserts.some((i) => i.text.includes('Rollback is covered in step 4.')));
+  assert.equal(v.changes.batch, unchanged.notes[0].batch);
+  // The step the agent reworded is marked; the moved paragraph and the untouched quote are not.
+  assert.deepEqual(v.notes.map((e) => e.note.target_changed), [true, false, false]);
+  const w = await waitJson(s);
+  assert.deepEqual(w.out.notes.map((n) => n.target_changed), [true, false, false]);
+
+  // A second Send takes a new snapshot; changes are now counted from it.
+  assert.equal((await send(s, [], 'approve')).status, 201);
+  assert.equal(fs.readdirSync(snapDir).length, 2);
+  const after = await view(s);
+  assert.deepEqual([after.changes.inserts, after.changes.removals], [[], []]);
+});

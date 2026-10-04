@@ -5,12 +5,13 @@
 //   <state>/sessions/<id>.json     file, labels, token, cursors      0600
 //   <state>/feedback/<id>.jsonl    append-only note log, seq per line 0600
 //   <state>/replies/<id>.jsonl     append-only agent replies          0600
+//   <state>/snapshots/<id>/<sha256>  the file as it was at a Send       0600
 //   <state>/daemon.log
 //
 // Directories are 0700. Whole-file writes go through a rename so a reader
 // never sees half a file.
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -232,6 +233,7 @@ export class Store {
     s: Session,
     drafts: DraftNote[],
     decision: Decision,
+    snapshot: string | undefined,
     place: (d: DraftNote) => { source_line: number | null; lines: [number, number] | null } | null,
   ): LogEntry[] {
     const at = new Date().toISOString();
@@ -257,12 +259,36 @@ export class Store {
         attachments: [],
         at,
       };
-      return { seq, type: 'note', batch, at, note, decision };
+      return { seq, type: 'note', batch, at, note, decision, ...(snapshot ? { snapshot } : {}) };
     });
-    if (!entries.length) entries.push({ seq: seq + 1, type: 'decision', batch, at, decision } satisfies DecisionEntry);
+    if (!entries.length) entries.push({ seq: seq + 1, type: 'decision', batch, at, decision, ...(snapshot ? { snapshot } : {}) } satisfies DecisionEntry);
     fs.appendFileSync(this.feedbackPath(s.id), entries.map((e) => JSON.stringify(e) + '\n').join(''), { mode: 0o600 });
     s.log.push(...entries);
     return entries;
+  }
+
+  /** Keeps the file as it is at a Send (F2). Snapshots are named by content, so a file sent twice unchanged is stored once. */
+  saveSnapshot(s: Session, source: string): string {
+    const hash = createHash('sha256').update(source).digest('hex');
+    const dir = path.join(this.dir, 'snapshots', s.id);
+    ensureDir(path.join(this.dir, 'snapshots'));
+    ensureDir(dir);
+    const file = path.join(dir, hash);
+    if (!fs.existsSync(file)) {
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, source, { mode: 0o600 });
+      fs.renameSync(tmp, file);
+    }
+    return hash;
+  }
+
+  readSnapshot(s: Session, hash: string): string | null {
+    if (!/^[0-9a-f]{64}$/.test(hash)) return null;
+    try {
+      return fs.readFileSync(path.join(this.dir, 'snapshots', s.id, hash), 'utf8');
+    } catch {
+      return null;
+    }
   }
 
   appendReply(s: Session, text: string): Reply {
