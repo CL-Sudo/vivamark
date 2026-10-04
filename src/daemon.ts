@@ -16,6 +16,7 @@ import { diffText } from './diff.js';
 import type { TextChanges } from './diff.js';
 import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, renderMarkdownPage, squash, textOf } from './doc.js';
 import type { AnchorState, Doc, Place } from './doc.js';
+import { EventLog } from './events.js';
 import { injectScript } from './html.js';
 import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA } from './schema.js';
 import type { AgentNote, AgentStatus, Anchor, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
@@ -102,6 +103,9 @@ interface Live {
   noBrowserSince: number;
   /** Since when the agent has been waiting without a break longer than the presence grace. */
   listeningSince: number;
+  /** Whether the event log last said a review page is connected, and the pending "disconnected". */
+  browserAnnounced: boolean;
+  browserGoneTimer?: NodeJS.Timeout;
   watcher?: fs.FSWatcher;
   reloadTimer?: NodeJS.Timeout;
   presenceTimer?: NodeJS.Timeout;
@@ -176,6 +180,7 @@ async function readBody(req: IncomingMessage, limit: number): Promise<unknown> {
 
 export class Daemon {
   readonly store: Store;
+  readonly events: EventLog;
   readonly adminToken = randomToken();
   port = 0;
   private servers: http.Server[] = [];
@@ -188,9 +193,11 @@ export class Daemon {
   private idleSince = Date.now();
   private timers: NodeJS.Timeout[] = [];
   private disconnectGraceMs: number;
+  private stopping = false;
 
   constructor(store: Store, idleMs: number, opts: { disconnectGraceMs?: number } = {}) {
     this.store = store;
+    this.events = new EventLog(store.dir);
     this.idleMs = idleMs;
     this.disconnectGraceMs = opts.disconnectGraceMs ?? DISCONNECT_GRACE_MS;
   }
@@ -199,7 +206,7 @@ export class Daemon {
     let l = this.live.get(s.id);
     if (!l) {
       const now = Date.now();
-      l = { sockets: new Set(), waiters: new Set(), lastWaiterGone: 0, noBrowserSince: now, listeningSince: now };
+      l = { sockets: new Set(), waiters: new Set(), lastWaiterGone: 0, noBrowserSince: now, listeningSince: now, browserAnnounced: false };
       this.live.set(s.id, l);
     }
     return l;
@@ -296,6 +303,7 @@ export class Daemon {
   }
 
   async shutdown(reason: string): Promise<void> {
+    this.stopping = true;
     console.error(`vivamark daemon stopping (${reason})`);
     for (const t of this.timers) clearInterval(t);
     for (const l of this.live.values()) {
@@ -420,6 +428,7 @@ export class Daemon {
     }
     const { session, created } = this.store.openSession(file, labels);
     sendJson(res, created ? 201 : 200, { id: session.id, file: session.file, created, labels: session.labels });
+    if (created) this.events.append('session.opened', session, {});
   }
 
   private sessionView(s: Session) {
@@ -682,8 +691,11 @@ export class Daemon {
     // F2: keep the file as the reviewer saw it, for "what changed since I last sent".
     const snapshot = doc ? this.store.saveSnapshot(s, doc.source) : undefined;
     const entries = this.store.appendBatch(s, drafts, decision as Decision, snapshot, (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null), (id) => agentNotes.get(id));
-    sendJson(res, 201, { seq: { from: entries[0].seq, to: entries[entries.length - 1].seq }, notes: entries });
+    const seq = { from: entries[0].seq, to: entries[entries.length - 1].seq };
+    sendJson(res, 201, { seq, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
+    this.events.append('feedback.sent', s, { decision: decision as Decision, notes: drafts.length, feedback_seq: seq });
+    for (const d of drafts) if (d.answers) this.events.append('note.status', s, { note: d.answers, status: 'answered', by: 'reviewer' });
     const l = this.liveFor(s);
     for (const w of [...l.waiters]) {
       const ready = s.log.filter((e) => e.seq > w.after);
@@ -791,6 +803,7 @@ export class Daemon {
     sendJson(res, 200, { session: s.id, status: s.status, ended, already });
     if (already) return;
     this.broadcast(s, { type: 'ended', ended });
+    this.events.append('session.ended', s, { by, has_message: !!ended.message });
     const l = this.live.get(s.id);
     if (l) for (const w of [...l.waiters]) w.done('ended');
   }
@@ -814,6 +827,8 @@ export class Daemon {
     const reply = this.store.appendReply(s, text, about);
     sendJson(res, 201, { schema: REPLY_SCHEMA, session: s.id, seq: reply.seq, at: reply.at, ...(about ?? {}) });
     this.broadcast(s, { type: 'reply', reply: this.replyView(reply) });
+    this.events.append('reply.posted', s, { reply_seq: reply.seq, ...(about ? { note: about.note, status: about.status } : {}) });
+    if (about) this.events.append('note.status', s, { note: about.note, status: about.status, by: 'agent' });
   }
 
   /**
@@ -843,6 +858,7 @@ export class Daemon {
     const note = this.store.appendAgentNote(s, { kind, comment: body.text.trim(), anchor, source });
     sendJson(res, 201, { note });
     this.broadcast(s, { type: 'state' });
+    this.events.append('agent-note.added', s, { note: note.id, source: note.source, kind: note.kind });
   }
 
   private async receiveResolve(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
@@ -851,8 +867,10 @@ export class Daemon {
     const resolved = body.resolved === undefined ? true : body.resolved;
     if (typeof resolved !== 'boolean') throw new HttpError(400, 'resolved must be true or false');
     this.store.appendAnnotation(s, { type: 'resolve', at: new Date().toISOString(), note: body.note, resolved });
-    sendJson(res, 201, { note: body.note, status: this.progress(s).status.get(body.note) });
+    const status = this.progress(s).status.get(body.note) ?? 'open';
+    sendJson(res, 201, { note: body.note, status });
     this.broadcast(s, { type: 'state' });
+    this.events.append('note.status', s, { note: body.note, status, by: 'reviewer' });
   }
 
   // ---- presence and live events --------------------------------------------
@@ -912,9 +930,22 @@ export class Daemon {
         this.unwatch(l);
         l.noBrowserSince = Date.now();
         this.armDisconnect(l);
+        // A reload closes and reopens the socket at once: only a page gone for a moment is news.
+        clearTimeout(l.browserGoneTimer);
+        l.browserGoneTimer = setTimeout(() => {
+          if (l.sockets.size || !l.browserAnnounced || this.stopping) return;
+          l.browserAnnounced = false;
+          this.events.append('browser.disconnected', s, {});
+        }, Math.min(PRESENCE_GRACE_MS, this.disconnectGraceMs));
+        l.browserGoneTimer.unref();
       });
       this.watch(s, l);
       this.armDisconnect(l);
+      clearTimeout(l.browserGoneTimer);
+      if (!l.browserAnnounced) {
+        l.browserAnnounced = true;
+        this.events.append('browser.connected', s, {});
+      }
       ws.send(JSON.stringify({ type: 'hello', agent: this.presence(s), version: VERSION }));
     });
   }

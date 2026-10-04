@@ -6,9 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { ApiError, ensureDaemon, request, runningDaemon, stopDaemon } from './client.js';
+import { eventsPath, parseEventLines } from './events.js';
+import type { VivamarkEvent } from './events.js';
 import { FEEDBACK_SCHEMA } from './schema.js';
 import type { Anchor, Decision, Note, NoteKind } from './schema.js';
-import { findSession } from './store.js';
+import { findSession, stateDir } from './store.js';
 import type { Ended, SessionRecord } from './store.js';
 import { VERSION } from './version.js';
 
@@ -54,6 +56,14 @@ Usage:
       sends are refused, and wait returns ended (exit 3). The reviewer can end
       it too, with End review on the page. A later open of the same file
       starts a fresh review.
+  vivamark events [--after <seq>] [--follow] [--json]
+      Print the event log (events.jsonl in the state directory) after a seq;
+      with --follow, keep printing new events until interrupted. One event per
+      line: seq, at, type, session, file, labels and a few details. Types:
+      session.opened, feedback.sent, reply.posted, note.status,
+      agent-note.added, session.ended, browser.connected, browser.disconnected.
+      Events never contain note text, quotes, replies or messages; read those
+      with wait. Reads the log only; needs no server and no browser.
   vivamark stop
       Stop the background review server.
 
@@ -517,6 +527,67 @@ async function cmdStatus(argv: string[]): Promise<void> {
   }
 }
 
+// ---- events -----------------------------------------------------------------------
+
+const EVENT_CORE = new Set(['seq', 'at', 'type', 'session', 'file', 'labels']);
+
+function renderEvent(e: VivamarkEvent): string {
+  const details = Object.entries(e)
+    .filter(([k]) => !EVENT_CORE.has(k))
+    .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+  const labels = labelText(e.labels ?? {});
+  return [`[${e.seq}]`, e.at, e.type, e.session, path.basename(e.file ?? ''), ...details, ...(labels ? [`labels: ${labels}`] : [])].join('  ') + '\n';
+}
+
+/** Prints the event log after a seq. Reads the file only: no server, no browser. */
+async function cmdEvents(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      after: { type: 'string' },
+      follow: { type: 'boolean', short: 'f' },
+      json: { type: 'boolean' },
+    },
+  });
+  if (positionals.length) throw new UsageError('events takes no file; it prints every review\'s events');
+  if (values.after !== undefined && !/^\d+$/.test(values.after)) throw new UsageError('--after wants a sequence number');
+  const after = Number(values.after ?? 0);
+  const file = eventsPath(stateDir());
+  let offset = 0;
+  let rest = '';
+  const drain = () => {
+    let fd: number;
+    try {
+      fd = fs.openSync(file, 'r');
+    } catch {
+      return; // No log yet: nothing has happened.
+    }
+    try {
+      const size = fs.fstatSync(fd).size;
+      if (size < offset) offset = 0; // Replaced or truncated: start over.
+      if (size === offset) return;
+      const buf = Buffer.alloc(size - offset);
+      fs.readSync(fd, buf, 0, buf.length, offset);
+      offset = size;
+      const parsed = parseEventLines(rest + buf.toString('utf8'));
+      rest = parsed.rest;
+      const out = parsed.events
+        .filter((e) => e.seq > after)
+        .map((e) => (values.json ? JSON.stringify(e) + '\n' : renderEvent(e)))
+        .join('');
+      if (out) process.stdout.write(out);
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+  drain();
+  if (!values.follow) return;
+  // Polling, not fs.watch: it behaves the same on every platform and file system.
+  setInterval(drain, 250);
+  await new Promise(() => undefined);
+}
+
 // ---- stop -------------------------------------------------------------------------
 
 async function cmdStop(): Promise<void> {
@@ -555,6 +626,8 @@ export async function main(argv: string[]): Promise<void> {
         return await cmdStatus(rest);
       case 'end':
         return await cmdEnd(rest);
+      case 'events':
+        return await cmdEvents(rest);
       case 'stop':
         return await cmdStop();
       case '__daemon': {
