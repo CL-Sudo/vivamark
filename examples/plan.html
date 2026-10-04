@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Request Certificate screen: plan</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; color: #33415c; max-width: 44rem; margin: 40px 56px; }
+  h1 { color: #0b1324; font-size: 30px; line-height: 1.2; margin: 0 0 12px; }
+  h2 { color: #0b1324; font-size: 19px; margin: 26px 0 10px; }
+  .eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #0ea5e9; }
+  ol { padding-left: 22px; }
+  li { padding: 4px 8px; }
+</style>
+</head>
+<body>
+  <div class="eyebrow">Implementation plan</div>
+  <h1 id="title">Request Certificate screen</h1>
+  <p id="summary">A Setup screen where a Director or Attestor enrols their own certificate. Nothing is written to the database.</p>
+  <h2>Phases</h2>
+  <ol id="plan">
+    <li id="step-1">Enrolment class and unit tests, autoload refresh.</li>
+    <li id="step-2">Applet scaffold, save handler and container page.</li>
+    <li id="step-3">Deploy and rollback SQL, browser verification.</li>
+  </ol>
+  <h2>Risks</h2>
+  <p>The save handler touches the certificate store; a failed enrolment must leave no partial rows.</p>
+</body>
+</html>

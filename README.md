@@ -6,9 +6,43 @@ mean: a paragraph, a table cell, a line of a diff. You say what you want, and
 the agent receives each note tied to exactly that spot. It edits the file, the
 page updates in place, and the conversation carries on until you approve.
 
-> **Status: design stage.** Nothing is built yet. See
+> **Status: early.** The core loop works: `open`, `wait` and `reply` on an HTML
+> file. The first-version features F1–F8 are not built yet. See
 > [`docs/DECISIONS.md`](docs/DECISIONS.md) for what has been decided and
 > [`docs/research/`](docs/research/) for how we got there.
+
+## Try it
+
+You need Node 20 or newer. From a clone of this repository:
+
+```sh
+npm ci
+npm run build
+node dist/cli.js open examples/plan.html
+```
+
+Your browser opens the review page. If it does not, open the URL that the
+command printed. In a second terminal, play the agent:
+
+```sh
+node dist/cli.js wait examples/plan.html
+```
+
+On the page, select some text, or press **Point** and click an element. Type a
+note and press **Add note**, then **Send**. `wait` prints each note with what it
+points at (an id or selector, the quoted text, and the line in the file) and
+exits. Answer on the page:
+
+```sh
+node dist/cli.js reply examples/plan.html -m "Split step 2 as asked."
+```
+
+Edit `examples/plan.html` and the page reloads in place. Running `wait` again
+returns the same notes; `wait examples/plan.html --after <seq>` waits for newer
+ones. `node dist/cli.js --help` lists every option; `node dist/cli.js stop` stops
+the background server.
+
+![The review page](docs/screenshots/review-ui.png)
 
 ## What it will be
 

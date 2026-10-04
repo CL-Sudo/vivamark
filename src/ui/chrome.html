@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>vivamark</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/_vivamark/chrome.css">
+<script src="/_vivamark/chrome.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>vivamark</div>
+    <div class="file"><span id="file-name">…</span><span class="chip" id="reload-chip" hidden>updated</span></div>
+    <div class="presence" id="presence" data-state="away"><span class="dot" aria-hidden="true"></span><span id="presence-text">Agent away</span></div>
+  </header>
+  <div class="body">
+    <main class="stage">
+      <iframe id="page" title="Page under review"
+        sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+        referrerpolicy="no-referrer"></iframe>
+      <div class="banner" id="banner" hidden></div>
+    </main>
+    <aside class="side" aria-label="Notes">
+      <div class="side-title">Notes <span class="count" id="note-count">0</span></div>
+      <div class="thread" id="thread" aria-live="polite"></div>
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="target" id="target">
+          <span class="target-label">On</span>
+          <span class="target-text" id="target-text">the whole page</span>
+          <button type="button" class="icon" id="target-clear" title="Clear target" hidden>×</button>
+        </div>
+        <textarea id="comment" rows="3" placeholder="Add a note…" aria-label="Note"></textarea>
+        <div class="actions">
+          <button type="button" class="btn ghost" id="point" aria-pressed="false" title="Pick an element on the page">Point</button>
+          <span class="spacer"></span>
+          <button type="submit" class="btn ghost" id="add" disabled title="Queue this note (Ctrl+Enter)">Add note</button>
+          <button type="button" class="btn primary" id="send" disabled>Send</button>
+        </div>
+        <p class="hint" id="hint">Select text, or press Point and click an element. Notes wait here until you press Send.</p>
+      </form>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

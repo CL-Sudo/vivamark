@@ -5,7 +5,31 @@
   "description": "Make an agent's page alive: point at what you mean on an HTML or Markdown page, and the agent gets your note tied to exactly that spot.",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "vivamark": "dist/cli.js"
+  },
+  "files": [
+    "dist/"
+  ],
   "engines": {
     "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "pretest": "npm run typecheck && npm run build",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "dependencies": {
+    "markdown-it": "15.0.2",
+    "parse5": "8.0.1",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.62.0",
+    "typescript": "5.9.3"
   }
 }

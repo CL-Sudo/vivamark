@@ -1,0 +1,324 @@
+// The agent's only interface. stdout carries the result; progress and
+// heartbeats go to stderr, so an agent can read stdout as the answer.
+
+import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { parseArgs } from 'node:util';
+import { ApiError, ensureDaemon, request, runningDaemon, stopDaemon } from './client.js';
+import { FEEDBACK_SCHEMA } from './schema.js';
+import type { Anchor, Note, NoteKind } from './schema.js';
+import { findSession } from './store.js';
+import type { SessionRecord } from './store.js';
+import { VERSION } from './version.js';
+
+const EXIT = { ok: 0, error: 1, usage: 2, ended: 3, disconnected: 4, timeout: 5 } as const;
+
+const HELP = `vivamark ${VERSION}: point at what you mean on a page; the agent gets each note tied to that spot.
+
+Usage:
+  vivamark open <file.html> [--label k=v]... [--no-browser] [--json]
+      Start (or resume) a review of a saved HTML file and open it in the browser.
+  vivamark wait <file|session> [--after <seq>] [--timeout <dur>] [--owner <name>]
+                [-m <text> | --reply-file <file>] [--json]
+      Block until the reviewer sends notes, then print them. Nothing is consumed:
+      re-running wait returns the same notes until you pass --after <seq>.
+      -m posts a reply first, then waits.
+  vivamark reply <file|session> (-m <text> | --file <file|->) [--json]
+      Send a message to the reviewer's page.
+  vivamark stop
+      Stop the background review server.
+
+Exit codes for wait: 0 notes, 5 timeout, 1 error. 130/143 (interrupted) are safe to re-run.
+Durations: 90s, 5m, 1h, or milliseconds.
+`;
+
+class UsageError extends Error {}
+
+function fail(message: string, code: number = EXIT.error): never {
+  process.stderr.write(`vivamark: ${message}\n`);
+  process.exit(code);
+}
+
+function parseDuration(s: string): number {
+  const m = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/.exec(s.trim());
+  if (!m) throw new UsageError(`bad duration: ${s}`);
+  const n = Number(m[1]);
+  const unit = m[2] ?? 'ms';
+  return Math.round(n * { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 }[unit]!);
+}
+
+function sessionFor(ref: string): SessionRecord {
+  const s = findSession(ref);
+  if (!s) fail(`no review session for ${ref}; start one with: vivamark open ${ref}`);
+  return s;
+}
+
+function quote(s: string): string {
+  return /^[A-Za-z0-9_./:@%+=-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+function isWsl(): boolean {
+  try {
+    return /microsoft/i.test(fs.readFileSync('/proc/version', 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+function has(cmd: string): boolean {
+  return spawnSync('sh', ['-c', `command -v ${cmd}`], { stdio: 'ignore' }).status === 0;
+}
+
+/** Opens the URL in the person's browser. A local process only; the URL is always printed as well. */
+function openBrowser(url: string): void {
+  let cmd: string;
+  let args: string[];
+  if (process.platform === 'darwin') [cmd, args] = ['open', [url]];
+  else if (process.platform === 'win32') [cmd, args] = ['explorer.exe', [url]];
+  else if (isWsl()) {
+    if (has('wslview')) [cmd, args] = ['wslview', [url]];
+    else [cmd, args] = ['powershell.exe', ['-NoProfile', '-Command', `Start-Process '${url}'`]];
+  } else [cmd, args] = ['xdg-open', [url]];
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+    child.on('error', () => process.stderr.write(`vivamark: could not start ${cmd}; open the URL yourself.\n`));
+    child.unref();
+  } catch {
+    process.stderr.write(`vivamark: could not start ${cmd}; open the URL yourself.\n`);
+  }
+}
+
+// ---- open -------------------------------------------------------------------
+
+async function cmdOpen(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      label: { type: 'string', multiple: true },
+      'no-browser': { type: 'boolean' },
+      json: { type: 'boolean' },
+    },
+  });
+  if (positionals.length !== 1) throw new UsageError('open takes exactly one file');
+  const file = path.resolve(positionals[0]);
+  if (!fs.existsSync(file)) fail(`no such file: ${file}`);
+  if (/\.(md|markdown)$/i.test(file)) fail('Markdown files are not supported yet; open an .html file');
+  if (!/\.html?$/i.test(file)) fail('vivamark opens .html and .htm files');
+  const labels: Record<string, string> = {};
+  for (const l of values.label ?? []) {
+    const i = l.indexOf('=');
+    if (i <= 0) throw new UsageError(`--label wants k=v, got ${l}`);
+    labels[l.slice(0, i)] = l.slice(i + 1);
+  }
+  const info = await ensureDaemon();
+  const res = await request<{ id: string; file: string; created: boolean; labels: Record<string, string> }>(
+    info.port,
+    'POST',
+    '/api/sessions',
+    { token: info.admin_token, body: { file: fs.realpathSync(file), labels } },
+  );
+  const session = sessionFor(res.id);
+  const url = `http://127.0.0.1:${info.port}/s/${res.id}#t=${session.token}`;
+  const next = `vivamark wait ${quote(res.file)}`;
+  if (!values['no-browser'] && process.env.VIVAMARK_NO_BROWSER !== '1') openBrowser(url);
+  if (values.json) {
+    process.stdout.write(
+      JSON.stringify({ schema: 'vivamark.open/1', session: { id: res.id, file: res.file, status: 'open', labels: res.labels }, url, created: res.created, next }) + '\n',
+    );
+  } else {
+    process.stdout.write(
+      `${res.created ? 'Opened' : 'Resumed'} ${path.basename(res.file)} for review (session ${res.id}).\n` +
+        `URL: ${url}\n` +
+        `next: ${next}\n`,
+    );
+  }
+}
+
+// ---- wait ---------------------------------------------------------------------
+
+interface DeliveredNote extends Note {
+  seq: number;
+}
+
+interface FeedbackView {
+  schema: string;
+  session: { id: string; file: string; status: string; labels: Record<string, string> };
+  status: 'feedback' | 'pending';
+  seq?: { from: number; to: number };
+  notes?: DeliveredNote[];
+  after?: number;
+  last_seq?: number;
+}
+
+async function postReply(port: number, s: SessionRecord, text: string): Promise<{ seq: number; at: string }> {
+  return request(port, 'POST', `/api/s/${s.id}/replies`, { token: s.token, body: { text } });
+}
+
+function readReplyFile(p: string): string {
+  return p === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(path.resolve(p), 'utf8');
+}
+
+function describeTarget(kind: NoteKind, a: Anchor | null): string {
+  if (kind === 'page' || !a) return 'the whole page';
+  if (kind === 'text') return `text "${a.quote}"`;
+  return `<${a.tag || 'element'}${a.stable_id ? `#${a.stable_id}` : ''}>`;
+}
+
+function renderFeedback(v: FeedbackView, next: string): string {
+  const notes = v.notes ?? [];
+  const lines = [`${notes.length} note${notes.length === 1 ? '' : 's'} on ${v.session.file} (seq ${v.seq!.from}-${v.seq!.to}, session ${v.session.id})`, ''];
+  for (const n of notes) {
+    const a = n.anchor;
+    lines.push(`[${n.seq}] ${n.id} on ${describeTarget(n.kind, a)}${a?.source_line ? ` (line ${a.source_line})` : ''}`);
+    for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
+    if (a) {
+      if (a.selector) lines.push(`    selector: ${a.selector}`);
+      if (n.kind === 'element' && a.text) lines.push(`    text: "${a.text}"`);
+      if (n.kind === 'text') lines.push(`    context: "…${a.prefix ?? ''}[${a.quote}]${a.suffix ?? ''}…"`);
+    }
+    lines.push('');
+  }
+  lines.push(`next: ${next}`);
+  return lines.join('\n') + '\n';
+}
+
+async function cmdWait(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      after: { type: 'string' },
+      timeout: { type: 'string' },
+      owner: { type: 'string' },
+      m: { type: 'string', short: 'm' },
+      'reply-file': { type: 'string' },
+      json: { type: 'boolean' },
+    },
+  });
+  if (positionals.length !== 1) throw new UsageError('wait takes exactly one file or session id');
+  if (values.after !== undefined && !/^\d+$/.test(values.after)) throw new UsageError('--after wants a sequence number');
+  const timeoutMs = values.timeout ? parseDuration(values.timeout) : 0;
+  const owner = values.owner ?? 'agent';
+  const s = sessionFor(positionals[0]);
+  let info = await ensureDaemon();
+
+  const replyText = values.m ?? (values['reply-file'] ? readReplyFile(values['reply-file']) : undefined);
+  if (replyText !== undefined) await postReply(info.port, s, replyText);
+
+  const deadline = timeoutMs ? Date.now() + timeoutMs : Infinity;
+  process.stderr.write(`Waiting for the reviewer to send notes on ${s.file}. Interrupting is safe; nothing is consumed.\n`);
+  let lastBeat = Date.now();
+  let failures = 0;
+  for (;;) {
+    const hold = Math.max(0, Math.min(20_000, deadline - Date.now()));
+    const params = new URLSearchParams({ owner, hold: String(hold) });
+    if (values.after !== undefined) params.set('after', values.after);
+    let v: FeedbackView;
+    try {
+      v = await request<FeedbackView>(info.port, 'GET', `/api/s/${s.id}/feedback?${params}`, { token: s.token, timeoutMs: hold + 10_000 });
+      failures = 0;
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      // The daemon went away (stopped or restarted): the log is on disk, so start it again and carry on.
+      if (++failures > 5) throw err;
+      await new Promise((r) => setTimeout(r, 300));
+      info = await ensureDaemon();
+      continue;
+    }
+    if (v.status === 'feedback') {
+      const to = v.seq!.to;
+      const next = `edit the file (the page reloads), then: vivamark wait ${quote(s.file)} --after ${to} -m "<what you changed>"`;
+      if (values.json) {
+        const out = { schema: FEEDBACK_SCHEMA, session: v.session, status: v.status, seq: v.seq, notes: v.notes, next };
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+      } else {
+        process.stdout.write(renderFeedback(v, next));
+      }
+      process.exit(EXIT.ok);
+    }
+    if (Date.now() >= deadline) {
+      if (values.json) process.stdout.write(JSON.stringify({ ...v, status: 'timeout' }) + '\n');
+      else process.stdout.write(`No notes yet on ${s.file} (timed out; last seq ${v.last_seq}).\n`);
+      process.exit(EXIT.timeout);
+    }
+    if (Date.now() - lastBeat > 60_000) {
+      process.stderr.write('Still waiting for the reviewer…\n');
+      lastBeat = Date.now();
+    }
+  }
+}
+
+// ---- reply ----------------------------------------------------------------------
+
+async function cmdReply(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      m: { type: 'string', short: 'm' },
+      file: { type: 'string' },
+      json: { type: 'boolean' },
+    },
+  });
+  if (positionals.length !== 1) throw new UsageError('reply takes exactly one file or session id');
+  const text = values.m ?? (values.file ? readReplyFile(values.file) : undefined);
+  if (text === undefined || !text.trim()) throw new UsageError('reply needs -m <text> or --file <file>');
+  const s = sessionFor(positionals[0]);
+  const info = await ensureDaemon();
+  const r = await postReply(info.port, s, text);
+  if (values.json) process.stdout.write(JSON.stringify({ schema: 'vivamark.reply/1', session: s.id, seq: r.seq, at: r.at }) + '\n');
+  else process.stdout.write(`Reply ${r.seq} delivered to the review page for ${path.basename(s.file)}.\n`);
+}
+
+// ---- stop -------------------------------------------------------------------------
+
+async function cmdStop(): Promise<void> {
+  const info = await runningDaemon();
+  if (!info) {
+    process.stdout.write('The review server is not running.\n');
+    return;
+  }
+  await stopDaemon(info);
+  process.stdout.write('Stopped the review server.\n');
+}
+
+// ---- main ---------------------------------------------------------------------------
+
+export async function main(argv: string[]): Promise<void> {
+  const [cmd, ...rest] = argv;
+  if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
+    process.stdout.write(`${VERSION}\n`);
+    return;
+  }
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
+    process.stdout.write(HELP);
+    return;
+  }
+  try {
+    switch (cmd) {
+      case 'open':
+        return await cmdOpen(rest);
+      case 'wait':
+        return await cmdWait(rest);
+      case 'reply':
+        return await cmdReply(rest);
+      case 'stop':
+        return await cmdStop();
+      case '__daemon': {
+        const { runDaemon } = await import('./daemon.js');
+        return await runDaemon();
+      }
+      default:
+        throw new UsageError(`unknown command: ${cmd}`);
+    }
+  } catch (err) {
+    if (err instanceof UsageError || (err as { code?: string }).code?.startsWith('ERR_PARSE_ARGS')) {
+      fail(`${(err as Error).message}\nRun vivamark --help for usage.`, EXIT.usage);
+    }
+    fail(err instanceof Error ? err.message : String(err));
+  }
+}
+
+void main(process.argv.slice(2));
