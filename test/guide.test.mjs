@@ -43,7 +43,11 @@ test('an unknown topic exits non-zero and lists the valid ones', async () => {
 });
 
 test('topics stay compact: a few screens at most', () => {
-  for (const t of TOPICS) assert.ok(t.text.split('\n').length <= 130, `${t.name} has ${t.text.split('\n').length} lines`);
+  // The design topic carries the CSS verbatim; only its prose counts here.
+  for (const t of TOPICS) {
+    const lines = t.text.replace(PAGE_CSS, '').split('\n').length;
+    assert.ok(lines <= 130, `${t.name} has ${lines} lines`);
+  }
 });
 
 test('the design CSS fetches nothing and covers light, dark and a page background', () => {
@@ -54,6 +58,33 @@ test('the design CSS fetches nothing and covers light, dark and a page backgroun
   assert.match(PAGE_CSS, /\.scroll \{ overflow-x: auto;/);
   const design = TOPICS.find((t) => t.name === 'design').text;
   assert.ok(design.includes(PAGE_CSS), 'the design topic carries the CSS verbatim');
+});
+
+test('the design CSS has the classes report visuals need, colours from tokens only', () => {
+  for (const sel of ['.viz {', '.viz svg {', '.viz-caption {', '.legend {', '.legend span::before', 'table.matrix th', 'table.matrix th.vertical', '.pill.nd {', '.card.ok {', '.card.bad {', '.viz svg .bar.ok', '.viz svg .bar.bad', '.viz svg .dot', '.viz svg .range', '.viz svg .box', '.viz svg .edge', 'p code, li code']) {
+    assert.ok(PAGE_CSS.includes(sel), `CSS has ${sel}`);
+  }
+  // The visual rules take colours from the tokens, so dark mode needs no rules of its own.
+  const visual = PAGE_CSS.slice(PAGE_CSS.indexOf('/* Visuals'), PAGE_CSS.indexOf('@media (max-width'));
+  assert.doesNotMatch(visual, /#[0-9a-f]{3,8}\b|rgba?\(/i, 'no literal colours in the visual classes');
+  const design = TOPICS.find((t) => t.name === 'design').text;
+  for (const cls of ['.viz ', '.viz-caption', '.legend', 'table.matrix', '.pill.nd', '.card.ok']) assert.ok(design.includes(cls), `design lists ${cls}`);
+});
+
+test('the report playbook is visual by default, keeps the full text, and names its visuals and rules', () => {
+  const r = TOPICS.find((t) => t.name === 'report').text;
+  assert.match(r, /A report is visual by default/);
+  assert.match(r, /Keep the full text/);
+  assert.match(r, /Nothing is summarised away/);
+  for (const kind of [/At a glance: two cards/, /a flow: boxes and arrows in inline SVG/, /<title>/, /a bar chart/, /a dot or range chart/, /log scale/, /a capability grid: table\.matrix/, /\.pill\.ok yes, \.pill\.warn partly, \.pill\.bad\s+no, \.pill\.nd n\/d/, /what "partly" and\s+"n\/d" cover/, /grouped cards/]) {
+    assert.match(r, kind);
+  }
+  for (const rule of [/Author's summary of/, /as your reading/, /stays\s+on the page/, /Add no claim/, /Never colour alone/, /light and dark/, /Phone width/, /page never sideways/, /no chart library, no script, no external image or font/]) {
+    assert.match(r, rule);
+  }
+  assert.doesNotMatch(r, /https?:|cdn|d3\b|chart\.js|vega|mermaid/i, 'no library or CDN recommended');
+  const order = ['At a glance', 'Findings:', 'What changed', 'What was not done', 'Next steps or decisions'].map((h) => r.indexOf(h));
+  assert.ok(order.every((i, k) => i > 0 && (k === 0 || i > order[k - 1])), 'glance, findings, changes, not done, decisions last');
 });
 
 test('the workflow topic covers waiting, ended, disconnected and per-note replies', () => {
@@ -147,6 +178,49 @@ test('open points at the guide; for a .md file, at the markdown topic', async ()
   } finally {
     await world.cleanup();
   }
+});
+
+test('examples/report.html follows the report playbook: every visual kind, captioned, over the full text', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'examples', 'report.html'), 'utf8');
+  assert.ok(html.includes(PAGE_CSS), 'the design CSS, verbatim');
+  assert.doesNotMatch(html, /\b(src|href)=["']?(https?:)?\/\//i, 'no external URLs');
+  assert.doesNotMatch(html, /https?:\/\/|<script|<link |<img /i, 'no URLs, scripts, stylesheets or images');
+  assert.doesNotMatch(html.replace(PAGE_CSS, ''), /\bfill="#|stroke="#|style="(?!--c: var\(--[a-z-]+\)")/, 'colours only through classes and tokens');
+  const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique');
+  for (const li of html.match(/<li\b[^>]*>/g)) assert.match(li, /\bid="[a-z0-9-]+"/, `every list item has an id: ${li}`);
+  for (const body of html.match(/<tbody>[\s\S]*?<\/tbody>/g)) for (const tr of body.match(/<tr\b[^>]*>/g)) assert.match(tr, /\bid="/, 'every body row has an id');
+  // Each visual kind is there.
+  assert.match(html, /<div class="card ok" id="glance-[a-z-]+">[\s\S]*?<div class="card bad" id="glance-[a-z-]+">/, 'at a glance pair');
+  for (const id of ['viz-flow', 'viz-runs', 'viz-step-times', 'viz-options']) assert.ok(ids.includes(id), id);
+  assert.match(html, /<marker /, 'the flow has arrows');
+  assert.match(html, /class="bar ok"[\s\S]*class="bar bad"/, 'bars in two statuses');
+  assert.match(html, /class="legend"/);
+  assert.match(html, /class="range"[\s\S]*class="dot"/, 'a range chart');
+  assert.match(html, /log scale/);
+  assert.match(html, /<table class="matrix"/);
+  for (const w of ['yes', 'partly', 'no', 'n/d']) assert.ok(html.includes(`">${w}</span>`), `grid pill ${w}`);
+  for (const cell of html.match(/<table class="matrix"[\s\S]*?<\/table>/)[0].match(/<td><span[^>]*>[^<]*<\/span><\/td>/g)) {
+    assert.match(cell, /<span class="pill (ok">yes|warn">partly|bad">no|nd">n\/d)<\/span>/, `grid cells are word pills: ${cell}`);
+  }
+  assert.match(html, /<strong>partly<\/strong> means[\s\S]*<strong>n\/d<\/strong> means/, 'the grid caption explains partly and n/d');
+  assert.match(html, /id="ideas-cheap"[\s\S]*id="ideas-medium"[\s\S]*id="ideas-costly"/, 'ideas grouped by cost');
+  // Every visual: an author's summary of a named section that stays on the page, above it.
+  const vizzes = [...html.matchAll(/<(figure|div) class="viz card" id="(viz-[a-z-]+)">([\s\S]*?)<\/\1>/g)];
+  assert.equal(vizzes.length, 4);
+  for (const [, , id, body] of vizzes) {
+    const cap = /class="viz-caption">Author's summary of <a href="#([a-z-]+)">/.exec(body);
+    assert.ok(cap, `${id} is captioned as the author's summary of a section`);
+    assert.ok(ids.includes(cap[1]), `${id} names a section on the page: #${cap[1]}`);
+    assert.ok(html.indexOf(`id="${cap[1]}"`) > html.indexOf(`id="${id}"`), `${id} sits above the section it summarises`);
+  }
+  for (const svg of html.match(/<svg\b[^>]*>/g)) assert.match(svg, /role="img" aria-label="[^"]{20,}"/, 'each SVG says what it shows');
+  for (const g of html.match(/<g id="[^"]+">(?!<title>)/g) ?? []) assert.fail(`an SVG part without a <title>: ${g}`);
+  // Ends on decisions, in Your input cards with marked radio buttons, nothing pre-selected.
+  assert.ok(html.lastIndexOf('class="your-input"') > html.indexOf('id="sources"'), 'decisions last');
+  const radios = html.match(/<input type="radio" name="decision-[a-z-]+" id="decision-[a-z-]+" data-vivamark-suggest="looks-good">/g) ?? [];
+  assert.ok(radios.length >= 4);
+  assert.doesNotMatch(html, /<input[^>]*\bchecked\b/);
 });
 
 test('examples/plan.html follows the plan playbook and carries the design CSS', () => {

@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build cache trial: report</title>
+<style>
+/* vivamark "Smooth glass" page style (vivamark guide design). Fetches nothing. */
+:root {
+  color-scheme: light dark;
+  --bg: #f7fbff;
+  --bg-tint: linear-gradient(135deg, #f6faff, #ffffff 45%, #f3f8ff);
+  --panel: rgba(255, 255, 255, .85);
+  --fg: #0b1324;
+  --fg2: #33415c;
+  --muted: #7083a3;
+  --line: rgba(15, 40, 90, .08);
+  --accent: #0ea5e9;
+  --accent-strong: #0369a1;
+  --accent-soft: rgba(14, 165, 233, .08);
+  --ok: #047857; --ok-soft: rgba(16, 185, 129, .1);
+  --warn: #b45309; --warn-soft: rgba(245, 158, 11, .12);
+  --bad: #be123c; --bad-soft: rgba(244, 63, 94, .08);
+  --q: #6d28d9; --q-soft: rgba(139, 92, 246, .1);
+  --shadow: 0 8px 30px rgba(14, 60, 120, .06);
+  --r: 16px; --r-sm: 10px;
+  --s1: 4px; --s2: 8px; --s3: 16px; --s4: 24px; --s5: 40px;
+  --ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --measure: 46rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1220;
+    --bg-tint: linear-gradient(135deg, #0b1220, #0f172a 45%, #0b1626);
+    --panel: rgba(30, 41, 59, .7);
+    --fg: #e6edf7; --fg2: #c1cce0; --muted: #8a9bb8;
+    --line: rgba(148, 180, 230, .14);
+    --accent: #38bdf8; --accent-strong: #7dd3fc; --accent-soft: rgba(56, 189, 248, .12);
+    --ok: #34d399; --ok-soft: rgba(52, 211, 153, .12);
+    --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .12);
+    --bad: #fb7185; --bad-soft: rgba(251, 113, 133, .12);
+    --q: #c4b5fd; --q-soft: rgba(167, 139, 250, .14);
+    --shadow: 0 8px 30px rgba(0, 0, 0, .3);
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; min-height: 100vh; background: var(--bg-tint); color: var(--fg2); font: 16px/1.6 var(--ui); -webkit-font-smoothing: antialiased; }
+main { max-width: var(--measure); margin: 0 auto; padding: var(--s5) var(--s3); }
+h1, h2, h3 { color: var(--fg); line-height: 1.25; }
+h1 { font-size: 30px; margin: 0 0 var(--s2); }
+h2 { font-size: 20px; margin: var(--s5) 0 var(--s2); }
+h3 { font-size: 16px; margin: var(--s4) 0 var(--s2); }
+p, ul, ol { margin: 0 0 var(--s3); }
+li { margin: var(--s1) 0; }
+a { color: var(--accent-strong); }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 var(--s1); }
+.lede { font-size: 18px; }
+.meta { font-size: 13px; color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: var(--s3) 20px; box-shadow: var(--shadow); margin: 0 0 var(--s3); }
+.grid { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.q { background: var(--q-soft); color: var(--q); }
+.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: var(--r-sm); padding: var(--s2) var(--s3); margin: 0 0 var(--s3); }
+.callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.options { list-style: none; padding: 0; display: grid; gap: var(--s2); }
+.option { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px var(--s3); margin: 0; }
+.option.recommended { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.your-input { position: relative; border: 2px solid var(--q); border-radius: var(--r); background: var(--q-soft); padding: var(--s4) 20px var(--s3); margin: var(--s5) 0 var(--s4); box-shadow: var(--shadow); }
+.your-input::before { content: "Your input"; position: absolute; top: -12px; left: var(--s3); padding: 2px 10px; border-radius: 999px; background: var(--q); color: var(--bg); font: 600 12px/20px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
+.your-input > h3:first-child, .your-input > h2:first-child { margin-top: 0; }
+label.option { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+label.option input { margin: .35em 0 0; flex: none; accent-color: var(--q); }
+label.option:has(input:checked) { border-color: var(--q); box-shadow: 0 0 0 3px var(--q-soft); }
+.scroll { overflow-x: auto; margin: 0 0 var(--s3); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: var(--s2) 12px; border-bottom: 1px solid var(--line); }
+th { color: var(--fg); font-weight: 600; white-space: nowrap; }
+tr:last-child > td { border-bottom: 0; }
+code { font: .9em var(--mono); background: var(--accent-soft); border-radius: 6px; padding: 1px 5px; }
+pre { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px var(--s3); font: 13px/1.5 var(--mono); }
+pre code { background: none; padding: 0; }
+table.diff td { font: 13px/1.5 var(--mono); white-space: pre; padding: 0 12px; border: 0; }
+table.diff .ln { color: var(--muted); text-align: right; user-select: none; width: 1%; }
+table.diff tr.add td { background: var(--ok-soft); }
+table.diff tr.del td { background: var(--bad-soft); }
+table.diff tr.hunk td { color: var(--muted); padding-top: var(--s2); }
+img, svg { max-width: 100%; height: auto; }
+p code, li code, p a, li a { overflow-wrap: anywhere; }
+.card.ok { border-top: 3px solid var(--ok); }
+.card.warn { border-top: 3px solid var(--warn); }
+.card.bad { border-top: 3px solid var(--bad); }
+.card > h3:first-child { margin-top: 0; }
+.pill.nd { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+/* Visuals (vivamark guide report): inline SVG drawn with the tokens, so light and dark both work. */
+.viz { overflow-x: auto; }
+.viz svg { display: block; width: 100%; min-width: 30rem; max-width: none; height: auto; }
+.viz svg text { fill: var(--fg2); font: 12px var(--ui); }
+.viz svg text.muted { fill: var(--muted); }
+.viz svg text.strong { fill: var(--fg); font-weight: 600; }
+.viz svg .box { fill: var(--panel); stroke: var(--muted); stroke-width: 1; }
+.viz svg .box.accent { fill: var(--accent-soft); stroke: var(--accent); }
+.viz svg .box.q { fill: var(--q-soft); stroke: var(--q); }
+.viz svg .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.viz svg .arrow { fill: var(--muted); }
+.viz svg .gridline { stroke: var(--line); stroke-width: 1; }
+.viz svg .refline { stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 4 3; }
+.viz svg .bar { fill: var(--accent); }
+.viz svg .bar.ok { fill: var(--ok); }
+.viz svg .bar.warn { fill: var(--warn); }
+.viz svg .bar.bad { fill: var(--bad); }
+.viz svg .range { fill: var(--accent-soft); stroke: var(--accent); }
+.viz svg .dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.viz svg g[id]:hover .box, .viz svg g[id]:hover .bar { stroke: var(--fg); stroke-width: 2; }
+.viz-caption { font-size: 13px; color: var(--muted); margin: var(--s2) 0 0; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); font-size: 13px; margin: 0 0 var(--s2); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c, var(--accent)); }
+table.matrix th, table.matrix td { text-align: center; white-space: nowrap; padding: 6px; }
+table.matrix th:first-child, table.matrix td:first-child { text-align: left; white-space: normal; min-width: 10rem; }
+table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; }
+@media (max-width: 600px) {
+  body { font-size: 15px; }
+  main { padding: var(--s4) var(--s3); }
+  h1 { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Report</p>
+  <h1 id="title">Build cache trial</h1>
+  <p class="lede" id="summary">With a shared cache, the pipeline's median run fell from 9.0 to 4.3 minutes over 10 runs. Two runs failed because the cache key ignored the lockfile; a one-line key fix should stop that.</p>
+  <p class="meta" id="report-meta">Made-up example for <code>vivamark guide report</code>. Project: example-app. Trial: 10 runs of the main pipeline with a shared bucket cache, compared with the 10 runs before it.</p>
+
+  <section id="at-a-glance">
+    <h2>At a glance</h2>
+    <div class="grid">
+      <div class="card ok" id="glance-worked">
+        <h3>What worked</h3>
+        <ul>
+          <li id="glance-median">Median run 4.3 min, down from 9.0.</li>
+          <li id="glance-hits">6 of 10 runs restored a good cache and finished in 3.8 to 4.4 min.</li>
+          <li id="glance-test">No test changed its result because of the cache.</li>
+        </ul>
+      </div>
+      <div class="card bad" id="glance-failed">
+        <h3>What did not</h3>
+        <ul>
+          <li id="glance-stale">2 runs failed on a stale cache (run-04, run-09).</li>
+          <li id="glance-cold">2 cold runs were slower than no cache: 11.2 and 10.6 min.</li>
+          <li id="glance-offline">Offline runs were not tested.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="viz-caption" id="glance-caption">Author's summary of <a href="#findings">Findings</a> and <a href="#not-done">Not done</a>.</p>
+  </section>
+
+  <section id="pipeline">
+    <h2>How the pipeline runs</h2>
+    <figure class="viz card" id="viz-flow">
+<svg viewBox="0 0 640 180" role="img" aria-label="The pipeline in six steps: checkout, restore cache, install dependencies, build, test, save cache. Restore and save are new in the trial.">
+<defs><marker id="viz-arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrow" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+<g id="viz-flow-checkout"><title>Checkout: Unchanged by the cache.</title><rect class="box" x="10" y="10" width="180" height="58" rx="10"/><text class="strong" x="22" y="34">1 · Checkout</text><text class="muted" x="22" y="54">4–6 s</text></g>
+<path class="edge" marker-end="url(#viz-arrowhead)" d="M192,39 H226"/>
+<g id="viz-flow-restore"><title>Restore cache: 3 s on a miss, up to 41 s on a full hit.</title><rect class="box accent" x="230" y="10" width="180" height="58" rx="10"/><text class="strong" x="242" y="34">2 · Restore cache</text><text class="muted" x="242" y="54">new in the trial</text></g>
+<path class="edge" marker-end="url(#viz-arrowhead)" d="M412,39 H446"/>
+<g id="viz-flow-install"><title>Install deps: 12 s on a hit, 3.1 min on a miss.</title><rect class="box" x="450" y="10" width="180" height="58" rx="10"/><text class="strong" x="462" y="34">3 · Install deps</text><text class="muted" x="462" y="54">12 s–3.1 min</text></g>
+<g id="viz-flow-build"><title>Build: Gains least on a stale hit: a failed build still runs most of the way.</title><rect class="box" x="10" y="112" width="180" height="58" rx="10"/><text class="strong" x="22" y="136">4 · Build</text><text class="muted" x="22" y="156">55 s–5.2 min</text></g>
+<path class="edge" marker-end="url(#viz-arrowhead)" d="M192,141 H226"/>
+<g id="viz-flow-test"><title>Test: Unchanged by the cache.</title><rect class="box" x="230" y="112" width="180" height="58" rx="10"/><text class="strong" x="242" y="136">5 · Test</text><text class="muted" x="242" y="156">1.9–2.6 min</text></g>
+<path class="edge" marker-end="url(#viz-arrowhead)" d="M412,141 H446"/>
+<g id="viz-flow-save"><title>Save cache: Runs on every passed run; 35 s after a cold run.</title><rect class="box accent" x="450" y="112" width="180" height="58" rx="10"/><text class="strong" x="462" y="136">6 · Save cache</text><text class="muted" x="462" y="156">new; passed runs only</text></g>
+<path class="edge" marker-end="url(#viz-arrowhead)" d="M540,70 V90 H100 V108"/>
+</svg>
+      <figcaption class="viz-caption">Author's summary of <a href="#pipeline-steps">the steps below</a>. Highlighted: the two steps the trial added. Hover a box for its timing.</figcaption>
+    </figure>
+    <ol id="pipeline-steps">
+      <li id="pipeline-checkout"><strong>Checkout.</strong> Unchanged by the cache.</li>
+      <li id="pipeline-restore"><strong>Restore cache.</strong> 3 s on a miss, up to 41 s on a full hit.</li>
+      <li id="pipeline-install"><strong>Install dependencies.</strong> 12 s on a hit, 3.1 min on a miss.</li>
+      <li id="pipeline-build"><strong>Build.</strong> Gains least on a stale hit: a failed build still runs most of the way.</li>
+      <li id="pipeline-test"><strong>Test.</strong> Unchanged by the cache.</li>
+      <li id="pipeline-save"><strong>Save cache.</strong> Runs on every passed run; 35 s after a cold run.</li>
+    </ol>
+  </section>
+
+  <section id="findings">
+    <h2>Findings</h2>
+    <ol>
+      <li id="finding-speed"><strong>The cache halves a typical run.</strong> Median 4.3 min over the 10 trial runs, against 9.0 min over the 10 runs before it. On a good hit, installing dependencies drops from 3.1 min to 12 s and the build from 5.2 min to about 1 min. Sure: the same pipeline and runner type throughout.</li>
+      <li id="finding-stale"><strong>A stale cache broke two runs.</strong> The cache key was the branch name only, so after a dependency update run-04 and run-09 restored the old packages and the build failed. Evidence: both logs show the old version installed (<code>logs/run-04.txt</code>, line 212). Sure: reproduced once by hand.</li>
+      <li id="finding-cold"><strong>A cold run costs more than no cache.</strong> run-01 and run-07 took 11.2 and 10.6 min: a full install and build, plus about 35 s to save the cache and a few seconds on the failed restore. Fairly sure: two runs only.</li>
+      <li id="finding-steps"><strong>Checkout and test do not change.</strong> Their times stay within a few seconds whether the cache hits or not, so the gain is all in install and build.</li>
+    </ol>
+
+    <h3 id="runs-title">Runs</h3>
+    <figure class="viz card" id="viz-runs">
+      <div class="legend"><span style="--c: var(--ok)">passed</span><span style="--c: var(--bad)">failed</span></div>
+<svg viewBox="0 0 640 264" role="img" aria-label="Minutes per run for the 10 runs with the cache: from 3.8 to 11.2 minutes; 8 passed and 2 failed. The dashed line is the 9.0 minute median without the cache.">
+<line class="gridline" x1="72" y1="10" x2="72" y2="230"/><text class="muted" x="72" y="244" text-anchor="middle">0</text>
+<line class="gridline" x1="152" y1="10" x2="152" y2="230"/><text class="muted" x="152" y="244" text-anchor="middle">2</text>
+<line class="gridline" x1="232" y1="10" x2="232" y2="230"/><text class="muted" x="232" y="244" text-anchor="middle">4</text>
+<line class="gridline" x1="312" y1="10" x2="312" y2="230"/><text class="muted" x="312" y="244" text-anchor="middle">6</text>
+<line class="gridline" x1="392" y1="10" x2="392" y2="230"/><text class="muted" x="392" y="244" text-anchor="middle">8</text>
+<line class="gridline" x1="472" y1="10" x2="472" y2="230"/><text class="muted" x="472" y="244" text-anchor="middle">10</text>
+<line class="gridline" x1="552" y1="10" x2="552" y2="230"/><text class="muted" x="552" y="244" text-anchor="middle">12</text>
+<g id="viz-runs-baseline"><title>No cache: median 9.0 min over the 10 runs before the trial</title><line class="refline" x1="432" y1="6" x2="432" y2="230"/></g>
+<g id="viz-run-01"><title>run-01: 11.2 min, passed (cold: first run, empty cache)</title><text x="64" y="25" text-anchor="end">run-01</text><rect class="bar ok" x="72" y="13" width="448" height="16" rx="4"/><text class="muted" x="526" y="25">11.2 min · passed</text></g>
+<g id="viz-run-02"><title>run-02: 4.1 min, passed (cache hit)</title><text x="64" y="47" text-anchor="end">run-02</text><rect class="bar ok" x="72" y="35" width="164" height="16" rx="4"/><text class="muted" x="242" y="47">4.1 min · passed</text></g>
+<g id="viz-run-03"><title>run-03: 3.8 min, passed (cache hit)</title><text x="64" y="69" text-anchor="end">run-03</text><rect class="bar ok" x="72" y="57" width="152" height="16" rx="4"/><text class="muted" x="230" y="69">3.8 min · passed</text></g>
+<g id="viz-run-04"><title>run-04: 6.9 min, failed (stale cache: old packages restored after a dependency update)</title><text x="64" y="91" text-anchor="end">run-04</text><rect class="bar bad" x="72" y="79" width="276" height="16" rx="4"/><text class="muted" x="354" y="91">6.9 min · failed</text></g>
+<g id="viz-run-05"><title>run-05: 4.4 min, passed (cache hit)</title><text x="64" y="113" text-anchor="end">run-05</text><rect class="bar ok" x="72" y="101" width="176" height="16" rx="4"/><text class="muted" x="254" y="113">4.4 min · passed</text></g>
+<g id="viz-run-06"><title>run-06: 3.9 min, passed (cache hit)</title><text x="64" y="135" text-anchor="end">run-06</text><rect class="bar ok" x="72" y="123" width="156" height="16" rx="4"/><text class="muted" x="234" y="135">3.9 min · passed</text></g>
+<g id="viz-run-07"><title>run-07: 10.6 min, passed (cold: cache evicted after 7 idle days)</title><text x="64" y="157" text-anchor="end">run-07</text><rect class="bar ok" x="72" y="145" width="424" height="16" rx="4"/><text class="muted" x="502" y="157">10.6 min · passed</text></g>
+<g id="viz-run-08"><title>run-08: 4.2 min, passed (cache hit)</title><text x="64" y="179" text-anchor="end">run-08</text><rect class="bar ok" x="72" y="167" width="168" height="16" rx="4"/><text class="muted" x="246" y="179">4.2 min · passed</text></g>
+<g id="viz-run-09"><title>run-09: 7.3 min, failed (stale cache: same cause as run-04)</title><text x="64" y="201" text-anchor="end">run-09</text><rect class="bar bad" x="72" y="189" width="292" height="16" rx="4"/><text class="muted" x="370" y="201">7.3 min · failed</text></g>
+<g id="viz-run-10"><title>run-10: 4.0 min, passed (cache hit)</title><text x="64" y="223" text-anchor="end">run-10</text><rect class="bar ok" x="72" y="211" width="160" height="16" rx="4"/><text class="muted" x="238" y="223">4.0 min · passed</text></g>
+<text class="muted" x="72" y="260">minutes per run; dashed line: median without the cache, 9.0 min</text>
+</svg>
+      <figcaption class="viz-caption">Author's summary of <a href="#runs">the runs table</a>: minutes per run and its result, as recorded there.</figcaption>
+    </figure>
+    <div class="scroll">
+      <table id="runs">
+        <thead><tr><th>Run</th><th>Minutes</th><th>Result</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr id="run-01"><th scope="row">run-01</th><td>11.2</td><td><span class="pill ok">passed</span></td><td>cold: first run, empty cache</td></tr>
+          <tr id="run-02"><th scope="row">run-02</th><td>4.1</td><td><span class="pill ok">passed</span></td><td>cache hit</td></tr>
+          <tr id="run-03"><th scope="row">run-03</th><td>3.8</td><td><span class="pill ok">passed</span></td><td>cache hit</td></tr>
+          <tr id="run-04"><th scope="row">run-04</th><td>6.9</td><td><span class="pill bad">failed</span></td><td>stale cache: old packages restored after a dependency update</td></tr>
+          <tr id="run-05"><th scope="row">run-05</th><td>4.4</td><td><span class="pill ok">passed</span></td><td>cache hit</td></tr>
+          <tr id="run-06"><th scope="row">run-06</th><td>3.9</td><td><span class="pill ok">passed</span></td><td>cache hit</td></tr>
+          <tr id="run-07"><th scope="row">run-07</th><td>10.6</td><td><span class="pill ok">passed</span></td><td>cold: cache evicted after 7 idle days</td></tr>
+          <tr id="run-08"><th scope="row">run-08</th><td>4.2</td><td><span class="pill ok">passed</span></td><td>cache hit</td></tr>
+          <tr id="run-09"><th scope="row">run-09</th><td>7.3</td><td><span class="pill bad">failed</span></td><td>stale cache: same cause as run-04</td></tr>
+          <tr id="run-10"><th scope="row">run-10</th><td>4.0</td><td><span class="pill ok">passed</span></td><td>cache hit</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="step-times-title">Time per step</h3>
+    <figure class="viz card" id="viz-step-times">
+<svg viewBox="0 0 640 200" role="img" aria-label="Time per pipeline step on a log scale, lowest to highest over the 10 runs: install dependencies and build vary most, checkout and test barely at all.">
+<line class="gridline" x1="150" y1="10" x2="150" y2="166"/><text class="muted" x="150" y="180" text-anchor="middle">2 s</text>
+<line class="gridline" x1="254.4" y1="10" x2="254.4" y2="166"/><text class="muted" x="254.4" y="180" text-anchor="middle">10 s</text>
+<line class="gridline" x1="325.7" y1="10" x2="325.7" y2="166"/><text class="muted" x="325.7" y="180" text-anchor="middle">30 s</text>
+<line class="gridline" x1="370.6" y1="10" x2="370.6" y2="166"/><text class="muted" x="370.6" y="180" text-anchor="middle">1 min</text>
+<line class="gridline" x1="441.9" y1="10" x2="441.9" y2="166"/><text class="muted" x="441.9" y="180" text-anchor="middle">3 min</text>
+<line class="gridline" x1="520" y1="10" x2="520" y2="166"/><text class="muted" x="520" y="180" text-anchor="middle">10 min</text>
+<g id="viz-time-checkout"><title>Checkout: 4 s–6 s</title><text x="142" y="27" text-anchor="end">Checkout</text><rect class="range" x="195" y="18" width="26.3" height="10" rx="5"/><circle class="dot" cx="195" cy="23" r="5"/><circle class="dot" cx="221.3" cy="23" r="5"/><text class="muted" x="231.3" y="27">4 s–6 s</text></g>
+<g id="viz-time-restore"><title>Restore cache: 3 s–41 s</title><text x="142" y="53" text-anchor="end">Restore cache</text><rect class="range" x="176.3" y="44" width="169.6" height="10" rx="5"/><circle class="dot" cx="176.3" cy="49" r="5"/><circle class="dot" cx="345.9" cy="49" r="5"/><text class="muted" x="355.9" y="53">3 s–41 s</text></g>
+<g id="viz-time-install"><title>Install dependencies: 12 s–3.1 min</title><text x="142" y="79" text-anchor="end">Install dependencies</text><rect class="range" x="266.2" y="70" width="177.8" height="10" rx="5"/><circle class="dot" cx="266.2" cy="75" r="5"/><circle class="dot" cx="444" cy="75" r="5"/><text class="muted" x="454" y="79">12 s–3.1 min</text></g>
+<g id="viz-time-build"><title>Build: 55 s–5.2 min</title><text x="142" y="105" text-anchor="end">Build</text><rect class="range" x="365" y="96" width="112.6" height="10" rx="5"/><circle class="dot" cx="365" cy="101" r="5"/><circle class="dot" cx="477.6" cy="101" r="5"/><text class="muted" x="487.6" y="105">55 s–5.2 min</text></g>
+<g id="viz-time-test"><title>Test: 1.9 min–2.6 min</title><text x="142" y="131" text-anchor="end">Test</text><rect class="range" x="412.3" y="122" width="20.3" height="10" rx="5"/><circle class="dot" cx="412.3" cy="127" r="5"/><circle class="dot" cx="432.6" cy="127" r="5"/><text class="muted" x="442.6" y="131">1.9 min–2.6 min</text></g>
+<g id="viz-time-save"><title>Save cache: 9 s–35 s</title><text x="142" y="157" text-anchor="end">Save cache</text><rect class="range" x="247.6" y="148" width="88.1" height="10" rx="5"/><circle class="dot" cx="247.6" cy="153" r="5"/><circle class="dot" cx="335.7" cy="153" r="5"/><text class="muted" x="345.7" y="157">9 s–35 s</text></g>
+<text class="muted" x="150" y="196">time per step, log scale (each gridline is about three times the last)</text>
+</svg>
+      <figcaption class="viz-caption">Author's summary of <a href="#step-times">the step times table</a>: lowest and highest time of each step over the 10 runs, on a <strong>log scale</strong> so seconds and minutes fit on one axis.</figcaption>
+    </figure>
+    <div class="scroll">
+      <table id="step-times">
+        <thead><tr><th>Step</th><th>Lowest</th><th>Highest</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr id="time-checkout"><td>Checkout</td><td>4 s</td><td>6 s</td><td>Unchanged by the cache.</td></tr>
+          <tr id="time-restore"><td>Restore cache</td><td>3 s</td><td>41 s</td><td>3 s on a miss, up to 41 s on a full hit.</td></tr>
+          <tr id="time-install"><td>Install dependencies</td><td>12 s</td><td>3.1 min</td><td>12 s on a hit, 3.1 min on a miss.</td></tr>
+          <tr id="time-build"><td>Build</td><td>55 s</td><td>5.2 min</td><td>Gains least on a stale hit: a failed build still runs most of the way.</td></tr>
+          <tr id="time-test"><td>Test</td><td>1.9 min</td><td>2.6 min</td><td>Unchanged by the cache.</td></tr>
+          <tr id="time-save"><td>Save cache</td><td>9 s</td><td>35 s</td><td>Runs on every passed run; 35 s after a cold run.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="options">
+    <h2>Cache options compared</h2>
+    <div class="viz card" id="viz-options">
+      <table class="matrix" id="options-grid">
+          <thead><tr><th>Capability</th><th class="vertical">Runner disk</th><th class="vertical">Shared bucket</th><th class="vertical">Remote build cache</th><th class="vertical">No cache (today)</th></tr></thead>
+          <tbody>
+            <tr id="cap-install"><td>Speeds up installing dependencies</td><td><span class="pill ok">yes</span></td><td><span class="pill ok">yes</span></td><td><span class="pill warn">partly</span></td><td><span class="pill bad">no</span></td></tr>
+            <tr id="cap-build"><td>Speeds up the build step</td><td><span class="pill warn">partly</span></td><td><span class="pill warn">partly</span></td><td><span class="pill ok">yes</span></td><td><span class="pill bad">no</span></td></tr>
+            <tr id="cap-fresh"><td>Survives a fresh runner</td><td><span class="pill bad">no</span></td><td><span class="pill ok">yes</span></td><td><span class="pill ok">yes</span></td><td><span class="pill bad">no</span></td></tr>
+            <tr id="cap-offline"><td>Works without network access</td><td><span class="pill ok">yes</span></td><td><span class="pill bad">no</span></td><td><span class="pill nd">n/d</span></td><td><span class="pill ok">yes</span></td></tr>
+            <tr id="cap-service"><td>Needs no extra service</td><td><span class="pill ok">yes</span></td><td><span class="pill warn">partly</span></td><td><span class="pill bad">no</span></td><td><span class="pill ok">yes</span></td></tr>
+        </tbody>
+      </table>
+      <p class="viz-caption">Author's summary of <a href="#options-table">the options table</a>. Each cell is the author's reading of that table: <strong>partly</strong> means for some steps only, or only with extra setup; <strong>n/d</strong> means not tested in this trial.</p>
+    </div>
+    <div class="scroll">
+      <table id="options-table">
+        <thead><tr><th>Option</th><th>What it does and costs</th></tr></thead>
+        <tbody>
+          <tr id="option-disk"><td>Runner disk</td><td>Keeps the cache on the runner's own disk. Fast to restore, but lost whenever a fresh runner starts, which is most runs on hosted runners. Caches dependencies fully and build outputs only for unchanged modules. Needs nothing else.</td></tr>
+          <tr id="option-bucket"><td>Shared bucket</td><td>Uploads the cache to a storage bucket after each passed run. Survives fresh runners; needs network access and a bucket with a lifecycle rule. Same coverage of dependencies and build outputs as runner disk. This is what the trial used.</td></tr>
+          <tr id="option-remote"><td>Remote build cache</td><td>A build tool's own remote cache, shared per build target. Caches build outputs well and dependencies only through the build tool. Needs a service to run and secure. Offline behaviour was not tested.</td></tr>
+          <tr id="option-none"><td>No cache (today)</td><td>Today's setup. Every run installs and builds from scratch: median 9.0 min over the 10 runs before the trial.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="changed">
+    <h2>What changed</h2>
+    <div class="scroll">
+      <table id="changed-table">
+        <thead><tr><th>What</th><th>Change</th></tr></thead>
+        <tbody>
+          <tr id="changed-pipeline"><td><code>ci/pipeline.yml</code></td><td>Restore and save steps added, on a trial branch only.</td></tr>
+          <tr id="changed-bucket"><td>Cache bucket</td><td>Created, with a rule that deletes entries after 7 idle days.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="not-done">
+    <h2>Not done or not checked</h2>
+    <ul>
+      <li id="not-done-offline">Runs without network access: the bucket needs it, and no offline runner was available.</li>
+      <li id="not-done-remote">The remote build cache was compared on paper only, from its documentation.</li>
+      <li id="not-done-branches">Only the main pipeline; feature branches still run without a cache.</li>
+    </ul>
+  </section>
+
+  <section id="next">
+    <h2>Ideas, by cost</h2>
+    <div class="grid">
+      <div class="card" id="ideas-cheap">
+        <h3>Cheap</h3>
+        <ol>
+          <li id="idea-key">Add the lockfile hash to the cache key. Would have prevented both failures.</li>
+          <li id="idea-skip-save">Skip saving when the restore was an exact hit: about 20 s a run.</li>
+        </ol>
+      </div>
+      <div class="card" id="ideas-medium">
+        <h3>Medium</h3>
+        <ol start="3">
+          <li id="idea-split">Cache dependencies and build outputs separately, so one going stale does not cost the other.</li>
+          <li id="idea-warm">Warm the cache with a nightly run on main, so the first run of the day is not cold.</li>
+        </ol>
+      </div>
+      <div class="card" id="ideas-costly">
+        <h3>Costly</h3>
+        <ol start="5">
+          <li id="idea-remote">Run a remote build cache: the most build time saved, and a service to keep.</li>
+        </ol>
+      </div>
+    </div>
+    <p class="viz-caption" id="ideas-caption">Grouped by the author's estimate of the work, ranked within each group by expected time saved.</p>
+  </section>
+
+  <section id="sources">
+    <h2>Sources and commands</h2>
+    <ul>
+      <li id="source-logs">Run logs: <code>logs/run-01.txt</code> to <code>logs/run-10.txt</code>.</li>
+      <li id="source-baseline">Baseline: the pipeline's run history for the 10 runs before the trial.</li>
+      <li id="source-commands">Commands: <code>ci-runs list --last 20 --json</code>, <code>grep -n "installed" logs/run-04.txt</code>.</li>
+    </ul>
+  </section>
+
+  <section id="decision-rollout" class="your-input">
+    <h3>Keep the cache?</h3>
+    <div class="options" role="radiogroup" aria-label="Keep the cache?">
+      <label class="option recommended">
+        <input type="radio" name="decision-rollout" id="decision-rollout-all" data-vivamark-suggest="looks-good">
+        <span><strong>Yes, on every branch, with the key fix</strong> (recommended): the gain is large and the fix is one line. Cost: a bigger bucket.</span>
+      </label>
+      <label class="option">
+        <input type="radio" name="decision-rollout" id="decision-rollout-main" data-vivamark-suggest="looks-good">
+        <span><strong>Main only, with the key fix</strong>: less storage. Cost: feature branches stay at about 9 min.</span>
+      </label>
+      <label class="option">
+        <input type="radio" name="decision-rollout" id="decision-rollout-off" data-vivamark-suggest="looks-good">
+        <span><strong>Turn it off</strong>: nothing to maintain. Cost: the 4.7 min a run saved.</span>
+      </label>
+    </div>
+    <p class="meta">Approving without choosing accepts the recommended option.</p>
+  </section>
+
+  <section id="decision-next" class="your-input">
+    <h3>Which idea next, after the key fix?</h3>
+    <div class="options" role="radiogroup" aria-label="Which idea next, after the key fix?">
+      <label class="option recommended">
+        <input type="radio" name="decision-next" id="decision-next-warm" data-vivamark-suggest="looks-good">
+        <span><strong>Nightly warm-up</strong> (recommended): removes the cold runs. Cost: one scheduled run a night.</span>
+      </label>
+      <label class="option">
+        <input type="radio" name="decision-next" id="decision-next-split" data-vivamark-suggest="looks-good">
+        <span><strong>Split the cache</strong>: fewer full misses. Cost: two keys to keep right.</span>
+      </label>
+      <label class="option">
+        <input type="radio" name="decision-next" id="decision-next-none" data-vivamark-suggest="looks-good">
+        <span><strong>Nothing yet</strong>: watch a month of runs first. Cost: cold runs continue.</span>
+      </label>
+    </div>
+  </section>
+</main>
+</body>
+</html>

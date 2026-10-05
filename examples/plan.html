@@ -90,6 +90,38 @@ table.diff tr.add td { background: var(--ok-soft); }
 table.diff tr.del td { background: var(--bad-soft); }
 table.diff tr.hunk td { color: var(--muted); padding-top: var(--s2); }
 img, svg { max-width: 100%; height: auto; }
+p code, li code, p a, li a { overflow-wrap: anywhere; }
+.card.ok { border-top: 3px solid var(--ok); }
+.card.warn { border-top: 3px solid var(--warn); }
+.card.bad { border-top: 3px solid var(--bad); }
+.card > h3:first-child { margin-top: 0; }
+.pill.nd { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+/* Visuals (vivamark guide report): inline SVG drawn with the tokens, so light and dark both work. */
+.viz { overflow-x: auto; }
+.viz svg { display: block; width: 100%; min-width: 30rem; max-width: none; height: auto; }
+.viz svg text { fill: var(--fg2); font: 12px var(--ui); }
+.viz svg text.muted { fill: var(--muted); }
+.viz svg text.strong { fill: var(--fg); font-weight: 600; }
+.viz svg .box { fill: var(--panel); stroke: var(--muted); stroke-width: 1; }
+.viz svg .box.accent { fill: var(--accent-soft); stroke: var(--accent); }
+.viz svg .box.q { fill: var(--q-soft); stroke: var(--q); }
+.viz svg .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.viz svg .arrow { fill: var(--muted); }
+.viz svg .gridline { stroke: var(--line); stroke-width: 1; }
+.viz svg .refline { stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 4 3; }
+.viz svg .bar { fill: var(--accent); }
+.viz svg .bar.ok { fill: var(--ok); }
+.viz svg .bar.warn { fill: var(--warn); }
+.viz svg .bar.bad { fill: var(--bad); }
+.viz svg .range { fill: var(--accent-soft); stroke: var(--accent); }
+.viz svg .dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.viz svg g[id]:hover .box, .viz svg g[id]:hover .bar { stroke: var(--fg); stroke-width: 2; }
+.viz-caption { font-size: 13px; color: var(--muted); margin: var(--s2) 0 0; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); font-size: 13px; margin: 0 0 var(--s2); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c, var(--accent)); }
+table.matrix th, table.matrix td { text-align: center; white-space: nowrap; padding: 6px; }
+table.matrix th:first-child, table.matrix td:first-child { text-align: left; white-space: normal; min-width: 10rem; }
+table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; }
 @media (max-width: 600px) {
   body { font-size: 15px; }
   main { padding: var(--s4) var(--s3); }

@@ -110,6 +110,13 @@ ready CSS block that fetches nothing, stable ids on everything worth a note
 (so notes survive edits), decisions laid out as options to point at, and a
 playbook each for a plan, a report, a comparison, an explainer and a diff.
 
+A report is visual by default: it keeps every finding, table and source, and
+adds inline SVG or HTML visuals above the sections they summarise (cards at a
+glance, a flow, a bar chart, a range chart, a capability grid, ideas grouped
+by cost), each captioned as the author's summary of a named section.
+[`examples/report.html`](examples/report.html) shows each kind, on made-up
+content.
+
 ```sh
 node dist/cli.js guide            # the topics
 node dist/cli.js guide plan       # one topic

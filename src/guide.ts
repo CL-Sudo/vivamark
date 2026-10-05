@@ -17,7 +17,8 @@ export interface GuideTopic {
 /**
  * The "Smooth glass" look for review pages, ready to paste into a <style>
  * element. Self-contained: no fonts, images or scripts are fetched, because a
- * review page should make no outbound requests. Matches src/ui/chrome.css.
+ * review page should make no outbound requests. The base matches
+ * src/ui/chrome.css; the visual classes (.viz and the rest) are for pages only.
  */
 export const PAGE_CSS = `/* vivamark "Smooth glass" page style (vivamark guide design). Fetches nothing. */
 :root {
@@ -104,6 +105,38 @@ table.diff tr.add td { background: var(--ok-soft); }
 table.diff tr.del td { background: var(--bad-soft); }
 table.diff tr.hunk td { color: var(--muted); padding-top: var(--s2); }
 img, svg { max-width: 100%; height: auto; }
+p code, li code, p a, li a { overflow-wrap: anywhere; }
+.card.ok { border-top: 3px solid var(--ok); }
+.card.warn { border-top: 3px solid var(--warn); }
+.card.bad { border-top: 3px solid var(--bad); }
+.card > h3:first-child { margin-top: 0; }
+.pill.nd { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+/* Visuals (vivamark guide report): inline SVG drawn with the tokens, so light and dark both work. */
+.viz { overflow-x: auto; }
+.viz svg { display: block; width: 100%; min-width: 30rem; max-width: none; height: auto; }
+.viz svg text { fill: var(--fg2); font: 12px var(--ui); }
+.viz svg text.muted { fill: var(--muted); }
+.viz svg text.strong { fill: var(--fg); font-weight: 600; }
+.viz svg .box { fill: var(--panel); stroke: var(--muted); stroke-width: 1; }
+.viz svg .box.accent { fill: var(--accent-soft); stroke: var(--accent); }
+.viz svg .box.q { fill: var(--q-soft); stroke: var(--q); }
+.viz svg .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.viz svg .arrow { fill: var(--muted); }
+.viz svg .gridline { stroke: var(--line); stroke-width: 1; }
+.viz svg .refline { stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 4 3; }
+.viz svg .bar { fill: var(--accent); }
+.viz svg .bar.ok { fill: var(--ok); }
+.viz svg .bar.warn { fill: var(--warn); }
+.viz svg .bar.bad { fill: var(--bad); }
+.viz svg .range { fill: var(--accent-soft); stroke: var(--accent); }
+.viz svg .dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.viz svg g[id]:hover .box, .viz svg g[id]:hover .bar { stroke: var(--fg); stroke-width: 2; }
+.viz-caption { font-size: 13px; color: var(--muted); margin: var(--s2) 0 0; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); font-size: 13px; margin: 0 0 var(--s2); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c, var(--accent)); }
+table.matrix th, table.matrix td { text-align: center; white-space: nowrap; padding: 6px; }
+table.matrix th:first-child, table.matrix td:first-child { text-align: left; white-space: normal; min-width: 10rem; }
+table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; }
 @media (max-width: 600px) {
   body { font-size: 15px; }
   main { padding: var(--s4) var(--s3); }
@@ -205,6 +238,20 @@ Classes
             label.option holds a radio or checkbox and its text
   .scroll   a box that scrolls sideways (wide tables)
   table.diff with tr.add, tr.del, tr.hunk and td.ln (see: vivamark guide diff)
+
+Classes for visuals (how to use them: vivamark guide report)
+  .viz      the box around one inline SVG chart or diagram (usually .viz.card);
+            on a narrow screen it scrolls sideways by itself
+            In the SVG: text.muted, text.strong; .box (.accent, .q) for a flow
+            box, .edge and .arrow for its arrows; .bar (.ok .warn .bad);
+            .dot and .range for a dot or range chart; .gridline, .refline.
+            Never a hard-coded colour: these follow light and dark
+  .viz-caption  the line under a visual: whose summary, of which section
+  .legend   keys for colours: <span style="--c: var(--ok)">passed</span>
+  .card.ok .card.warn .card.bad  a card with a coloured top edge
+  table.matrix  a capability grid of word pills; th.vertical stands a long
+            column header upright
+  .pill.nd  a muted outline pill, for "n/d" (not documented or not checked)
 
 The CSS
 <style>
@@ -344,31 +391,91 @@ Pitfalls
   - Renumbering ids when you insert a step: keep ids, change only the order.
 `;
 
-const REPORT = `report: what happened, what you found, what it means
+const REPORT = `report: what happened, what you found, what it means; drawn as well as written
 
 When: after an investigation, an audit, a migration, a test run, an incident,
-or a long piece of work the reviewer did not watch.
+a survey of tools, or a long piece of work the reviewer did not watch.
+
+A report is visual by default
+  Keep the full text: every finding, table, command and source stays on the
+  page. Nothing is summarised away. Then add visuals where they carry meaning,
+  each just above the section it summarises, so the reviewer sees the shape
+  first and the detail under it. A visual is your summary of a named section,
+  never a replacement for it. Where no visual fits, write none.
 
 Sections, in this order
   1. Title, .eyebrow "Report", .lede: the outcome in two sentences. Good or bad
      news first, never last.
-  2. Status at a glance: a row of .card or a short table with .pill statuses
-     (done, partial, failed), one id each.
+  2. At a glance: two cards side by side in a .grid (good and bad, ahead and
+     behind, done and not done): .card.ok and .card.bad, each a short list with
+     an id per item. Then the status table, if there is one, with .pill words.
   3. Findings: one item per finding, most important first, each with the
      evidence (a command and its output, a file and line, a figure) and how
      sure you are. One id per finding (finding-null-dates).
   4. What changed: files, data, settings you touched, as a table by row.
   5. What was not done or not checked, and why.
-  6. Next steps or decisions for the reviewer (see: vivamark guide decisions).
+  6. Sources and the commands you ran.
+  7. Next steps or decisions for the reviewer, last (see: vivamark guide decisions).
+
+Pick each visual by the job its content does
+  A process or pipeline   a flow: boxes and arrows in inline SVG, one
+                          <g id="flow-build"><title>Build: 1-5 min</title>...</g>
+                          per box, so hovering shows the detail. More than four
+                          boxes: wrap them into rows, not one long line.
+  A number per item       a bar chart: one <g id> per bar with a <title>, the
+                          value written at the end of the bar. A status colour
+                          always with its word ("6.9 min · failed") and a .legend.
+  Durations or sizes      a dot or range chart: a .dot per value, a .range bar
+  side by side            from lowest to highest. When values span ten times or
+                          more, use a log scale and say so in the caption.
+  Who or what can do what a capability grid: table.matrix, a row per
+                          capability, a column per tool or option, each cell a
+                          word pill: .pill.ok yes, .pill.warn partly, .pill.bad
+                          no, .pill.nd n/d. The caption says what "partly" and
+                          "n/d" cover.
+  Ranked ideas            grouped cards: a .grid of cards per group (by cost,
+                          effort or risk), each a numbered list, one id per idea.
+
+A bar, as the pattern for every SVG part
+  <figure class="viz card" id="viz-runs">
+    <div class="legend"><span style="--c: var(--ok)">passed</span> ...</div>
+    <svg viewBox="0 0 640 260" role="img" aria-label="One sentence: what it shows.">
+      <g id="viz-run-04"><title>run-04: 6.9 min, failed</title>
+        <text x="64" y="40" text-anchor="end">run-04</text>
+        <rect class="bar bad" x="72" y="28" width="276" height="16" rx="4"/>
+        <text class="muted" x="354" y="40">6.9 min · failed</text></g>
+    </svg>
+    <figcaption class="viz-caption">Author's summary of <a href="#runs">Runs</a>:
+      minutes per run, read from the runs table.</figcaption>
+  </figure>
+
+Rules for every visual
+  - Say what it is drawn from: the caption starts "Author's summary of" and
+    links the section it summarises.
+  - A judgement you made to draw it (a grid cell, a colour, a rank) is labelled
+    as your reading in the caption, and the table or text it came from stays
+    on the page.
+  - Add no claim: every number and verdict in a visual is in the text too.
+  - Never colour alone: a word beside each colour, a legend for each series.
+  - An id on every box, bar, dot and grid row (see: vivamark guide ids);
+    role="img" and a one-sentence aria-label on each <svg>.
+  - Colours only through the .viz classes and tokens (see: vivamark guide
+    design), so it works in light and dark. No fill="#..." in the SVG.
+  - Phone width: a viewBox about 640 wide, short labels; the .viz box scrolls
+    by itself if it must, the page never sideways.
+  - Inline only: no chart library, no script, no external image or font.
 
 What to make pointable
-  Every finding, every status card, every table row, every piece of evidence.
+  Every finding, every card item, every table row, every piece of evidence,
+  every part of every visual.
 
 Pitfalls
   - Narrating the process in time order. Lead with results.
   - Claims without evidence, or evidence the reviewer cannot check.
   - "All tests pass" without saying which suite and command.
   - Pasting long logs. Quote the lines that matter in <pre>; say where the rest is.
+  - A chart for its own sake: two numbers read better in a sentence.
+  - Dropping the table once it is drawn: the visual summarises, the table proves.
 `;
 
 const COMPARISON = `comparison: options side by side, so the reviewer can choose
@@ -485,7 +592,7 @@ export const TOPICS: readonly GuideTopic[] = [
   { name: 'ids', summary: 'stable ids on everything worth a note, so notes survive edits', text: IDS },
   { name: 'decisions', summary: 'ask for choices in a "Your input" card with real controls; open questions to point at', text: DECISIONS },
   { name: 'plan', summary: 'playbook: a plan to approve before building, ending on decisions', text: PLAN },
-  { name: 'report', summary: 'playbook: results, findings with evidence, what was not done', text: REPORT },
+  { name: 'report', summary: 'playbook: results, findings with evidence, what was not done; visual by default', text: REPORT },
   { name: 'comparison', summary: 'playbook: options side by side, criteria as rows', text: COMPARISON },
   { name: 'explainer', summary: 'playbook: how something works, around one labelled diagram', text: EXPLAINER },
   { name: 'diff', summary: 'playbook: a code change, one pointable row per line', text: DIFF },
