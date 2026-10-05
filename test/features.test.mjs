@@ -310,8 +310,11 @@ test('F3: after an edit each note is anchored, moved or orphaned, in wait output
 test('F2: a snapshot at each Send; after an edit, what changed and which targets changed', async () => {
   const s = await openPage('f2.html');
   assert.equal((await send(s, [ELEMENT_NOTE, RISKS_NOTE, TEXT_NOTE])).status, 201);
-  const snapDir = path.join(world.stateDir, 'snapshots', s.id);
-  const snaps = fs.readdirSync(snapDir);
+  // Snapshots live in the file's version store, named by content.
+  const versionsRoot = path.join(world.stateDir, 'versions');
+  const snapDir = path.join(versionsRoot, fs.readdirSync(versionsRoot).find((d) => fs.readFileSync(path.join(versionsRoot, d, 'file.json'), 'utf8').includes('f2.html')));
+  const blobs = () => fs.readdirSync(snapDir).filter((n) => /^[0-9a-f]{64}$/.test(n));
+  const snaps = blobs();
   assert.equal(snaps.length, 1);
   assert.equal(fs.statSync(path.join(snapDir, snaps[0])).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(path.join(snapDir, snaps[0]), 'utf8'), fs.readFileSync(s.file, 'utf8'), 'the file as it was at Send');
@@ -333,7 +336,7 @@ test('F2: a snapshot at each Send; after an edit, what changed and which targets
 
   // A second Send takes a new snapshot; changes are now counted from it.
   assert.equal((await send(s, [], 'approve')).status, 201);
-  assert.equal(fs.readdirSync(snapDir).length, 2);
+  assert.equal(blobs().length, 2);
   const after = await view(s);
   assert.deepEqual([after.changes.inserts, after.changes.removals], [[], []]);
 });

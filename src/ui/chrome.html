@@ -15,11 +15,26 @@
     <div class="brand"><span class="logo" aria-hidden="true"></span>vivamark</div>
     <div class="file"><span id="file-name">…</span><span class="chip" id="reload-chip" hidden>updated</span></div>
     <button type="button" class="toggle" id="show-changes" aria-pressed="false" disabled title="Nothing has changed since you last sent">Show changes</button>
+    <div class="versions-wrap">
+      <button type="button" class="toggle" id="versions-btn" aria-expanded="false" aria-controls="versions-panel" title="Every version of this page vivamark has seen">Versions</button>
+      <div class="versions-panel" id="versions-panel" role="dialog" aria-label="Versions of this page" hidden>
+        <div class="versions-head">Versions<span class="versions-sub">every version seen, across all reviews of this file</span></div>
+        <div class="versions-list" id="versions-list"></div>
+        <label class="compare-row">Compare with <select id="compare-select"></select></label>
+        <p class="versions-hint">Earlier versions are read-only. They use the images and styles beside the file as they are now.</p>
+      </div>
+    </div>
     <span class="turn" id="turn" data-turn="reviewer">Your turn</span>
     <div class="presence" id="presence" data-state="away"><span class="dot" aria-hidden="true"></span><span id="presence-text">Agent away</span></div>
   </header>
   <div class="body">
     <main class="stage">
+      <div class="version-bar" id="version-bar" role="status" hidden>
+        <span class="version-text" id="version-text"></span>
+        <span class="spacer"></span>
+        <button type="button" class="btn small" id="restore" title="Queue a note asking the agent to write this version back to the file; it is sent only with your next Send">Ask the agent to restore this version</button>
+        <button type="button" class="btn small" id="back-current">Back to Current</button>
+      </div>
       <iframe id="page" title="Page under review"
         sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
         referrerpolicy="no-referrer"></iframe>
@@ -29,6 +44,11 @@
       <div class="side-title">Notes <span class="count" id="note-count">0</span></div>
       <div class="thread" id="thread" aria-live="polite"></div>
       <div class="ended" id="ended" role="status" hidden><div class="ended-head" id="ended-head">This review has ended</div><p class="ended-message" id="ended-message" hidden></p></div>
+      <div class="readonly" id="readonly" role="status" hidden>
+        <div class="readonly-head" id="readonly-head">An earlier version, read-only</div>
+        <p class="readonly-text">Notes can't be added or sent on an earlier version. Go back to Current to write notes; your queued notes wait there.</p>
+        <div class="readonly-notes" id="readonly-notes"></div>
+      </div>
       <form class="composer" id="composer" autocomplete="off">
         <div class="target" id="target">
           <span class="target-label">On</span>

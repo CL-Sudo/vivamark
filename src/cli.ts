@@ -59,12 +59,22 @@ Usage:
       sends are refused, and wait returns ended (exit 3). The reviewer can end
       it too, with End review on the page. A later open of the same file
       starts a fresh review.
+  vivamark versions <file|session> [--json]
+      Every version of the file vivamark has seen, across all its reviews,
+      oldest first: number, time, why it was kept (open, save, send, end,
+      read), size and where its content is. A Send shows its decision and
+      note count. Kept forever; vivamark never writes the reviewed file.
+  vivamark show <file|session> --version <n|hash> [--json]
+      Print one version's content (n from versions, or 8+ hex digits of its
+      hash), for you to write back yourself when the reviewer asks to
+      restore it. --json adds the version's details and the notes sent on it.
   vivamark events [--after <seq>] [--follow] [--json]
       Print the event log (events.jsonl in the state directory) after a seq;
       with --follow, keep printing new events until interrupted. One event per
       line: seq, at, type, session, file, labels and a few details. Types:
       session.opened, feedback.sent, reply.posted, note.status,
-      agent-note.added, session.ended, browser.connected, browser.disconnected.
+      agent-note.added, session.ended, browser.connected, browser.disconnected,
+      version.saved (number, hash, size and cause; never the content).
       Events never contain note text, quotes, replies, messages or images
       (feedback.sent counts them as attachments); read those with wait. Reads the log only; needs no server and no browser.
   vivamark guide [<topic>] [--json]
@@ -573,6 +583,67 @@ async function cmdStatus(argv: string[]): Promise<void> {
   }
 }
 
+// ---- versions -----------------------------------------------------------------------
+
+interface VersionRow {
+  n: number;
+  hash: string;
+  at: string;
+  cause: string;
+  size: number;
+  session: string;
+  batch?: string;
+  decision?: Decision;
+  notes?: number;
+  path: string;
+}
+
+const CAUSE_TEXT: Record<string, string> = { open: 'opened', save: 'saved', send: 'sent', end: 'ended', read: 'read' };
+
+function versionLine(v: VersionRow, current: number | null): string {
+  const send = v.cause === 'send' ? ` ${v.decision ?? 'request-changes'}, ${v.notes ?? 0} note${v.notes === 1 ? '' : 's'}` : '';
+  return `v${v.n}  ${v.at}  ${(CAUSE_TEXT[v.cause] ?? v.cause).padEnd(6)}${send}  ${kb(v.size)}  ${v.hash.slice(0, 12)}${v.n === current ? '  (current)' : ''}`;
+}
+
+async function cmdVersions(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { json: { type: 'boolean' } } });
+  if (positionals.length !== 1) throw new UsageError('versions takes exactly one file or session id');
+  const s = sessionFor(positionals[0]);
+  const info = await ensureDaemon();
+  const r = await request<{ schema: string; file: string; current: number | null; versions: VersionRow[] }>(info.port, 'GET', `/api/s/${s.id}/versions`, { token: s.token });
+  if (values.json) {
+    process.stdout.write(JSON.stringify(r) + '\n');
+    return;
+  }
+  if (!r.versions.length) {
+    process.stdout.write(`No versions of ${r.file} kept yet.\n`);
+    return;
+  }
+  process.stdout.write(
+    `${r.versions.length} version${r.versions.length === 1 ? '' : 's'} of ${r.file}, oldest first:\n` +
+      r.versions.map((v) => `  ${versionLine(v, r.current)}\n`).join('') +
+      `content of one: vivamark show ${quote(r.file)} --version <n>\n`,
+  );
+}
+
+async function cmdShow(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { version: { type: 'string' }, json: { type: 'boolean' } } });
+  if (positionals.length !== 1) throw new UsageError('show takes exactly one file or session id');
+  const ref = values.version;
+  if (!ref || !/^(\d{1,9}|[0-9a-f]{8,64})$/.test(ref)) throw new UsageError('show needs --version <n> (from vivamark versions) or 8+ hex digits of a hash');
+  const s = sessionFor(positionals[0]);
+  const info = await ensureDaemon();
+  const r = await request<{ schema: string; file: string; version: VersionRow; notes: unknown[]; content: string }>(info.port, 'GET', `/api/s/${s.id}/versions/${ref}?content=1`, {
+    token: s.token,
+  });
+  // The content goes to stdout as it is, so it can be written back unchanged; the details go to stderr.
+  if (values.json) process.stdout.write(JSON.stringify(r) + '\n');
+  else {
+    process.stderr.write(`${versionLine(r.version, null)}\n  ${r.version.path}\n`);
+    process.stdout.write(r.content);
+  }
+}
+
 // ---- events -----------------------------------------------------------------------
 
 const EVENT_CORE = new Set(['seq', 'at', 'type', 'session', 'file', 'labels']);
@@ -695,6 +766,10 @@ export async function main(argv: string[]): Promise<void> {
         return await cmdEnd(rest);
       case 'events':
         return await cmdEvents(rest);
+      case 'versions':
+        return await cmdVersions(rest);
+      case 'show':
+        return await cmdShow(rest);
       case 'guide':
         return cmdGuide(rest);
       case 'stop':

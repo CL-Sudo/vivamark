@@ -82,7 +82,8 @@ test('a whole review is logged, one metadata-only event per step, and no text ev
   for (const [what, word] of Object.entries(SECRET)) assert.ok(!raw.includes(word), `the event log carries no ${what}`);
   assert.equal(fs.statSync(path.join(world.stateDir, 'events.jsonl')).mode & 0o777, 0o600);
 
-  const events = readLog().filter((e) => e.session === s.id);
+  // Versions of the file kept along the way are logged too; test/versions.test.mjs covers them.
+  const events = readLog().filter((e) => e.session === s.id && e.type !== 'version.saved');
   assert.deepEqual(
     events.map((e) => e.type),
     [
@@ -127,7 +128,7 @@ test('a page reload is not logged as a disconnect', async () => {
   const second = await connectBrowser(p);
   await sleep(1300);
   const types = readLog()
-    .filter((e) => e.session === p.id)
+    .filter((e) => e.session === p.id && e.type !== 'version.saved')
     .map((e) => e.type);
   assert.deepEqual(types, ['session.opened', 'browser.connected']);
   second.close();

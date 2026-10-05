@@ -111,6 +111,28 @@ interface SessionView {
   limits?: { image_bytes: number; note_image_bytes: number };
 }
 
+/** One version of the reviewed file, across all its reviews. */
+interface VersionRow {
+  n: number;
+  hash: string;
+  at: string;
+  cause: 'open' | 'save' | 'send' | 'end' | 'read';
+  size: number;
+  session: string;
+  batch?: string;
+  decision?: Decision;
+  notes?: number;
+  path: string;
+}
+interface VersionNote {
+  id: string;
+  kind: Kind;
+  comment: string;
+  intent?: Intent;
+  severity?: Severity;
+  anchor: Anchor | null;
+}
+
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const sessionId = location.pathname.split('/').pop() ?? '';
@@ -168,6 +190,14 @@ let ended: Ended | null = null;
 /** Images for the note being written, uploaded already, added to it on Add note. */
 let pendingImages: Image[] = [];
 let limits = { image_bytes: 10 * 1024 * 1024, note_image_bytes: 25 * 1024 * 1024 };
+/** Every version of the file, oldest first, and the one the file is at now. */
+let versions: VersionRow[] = [];
+let currentVersion: number | null = null;
+/** An earlier version shown read-only, with the notes sent on it; null shows the page as it is now. */
+let viewing: { row: VersionRow; notes: VersionNote[] } | null = null;
+/** "Compare with…": the version Show changes counts from, and what it found. */
+let compareBase: number | 'current' | null = null;
+let compareChanges: Changes | null = null;
 
 function loadQueue(): Draft[] {
   try {
@@ -693,12 +723,12 @@ function render(): void {
 
   $('note-count').textContent = String(sent.length + queue.length);
   renderEnded();
-  sendBtn.disabled = sending || queue.length === 0;
+  sendBtn.disabled = sending || queue.length === 0 || !!viewing;
   sendBtn.textContent = queue.length ? `Send ${queue.length}` : 'Send';
-  approveBtn.disabled = sending;
+  approveBtn.disabled = sending || !!viewing;
   approveBtn.textContent = queue.length ? 'Approve with notes' : 'Approve';
   approveBtn.title = queue.length ? 'Approve, and send the queued notes as guidance' : 'Approve: no further revision needed';
-  dismissBtn.disabled = sending || queue.length > 0;
+  dismissBtn.disabled = sending || queue.length > 0 || !!viewing;
   dismissBtn.title = queue.length ? 'Send or remove the queued notes first' : 'Close this review without feedback';
   addBtn.disabled = !comment.value.trim();
   const composerImages = $('composer-images');
@@ -727,6 +757,7 @@ function render(): void {
   $('hint').hidden = sent.length + queue.length > 0;
   renderTags();
   renderChanges();
+  renderVersions();
   postMarks();
 }
 
@@ -734,7 +765,7 @@ function render(): void {
 function renderEnded(): void {
   const box = $('ended');
   box.hidden = !ended;
-  $('composer').hidden = !!ended;
+  $('composer').hidden = !!ended || !!viewing;
   if (!ended) return;
   const who = ended.by === 'agent' ? 'The agent' : 'You';
   $('ended-head').textContent = `${who} ended this review at ${new Date(ended.at).toLocaleTimeString()}`;
@@ -745,18 +776,28 @@ function renderEnded(): void {
   if (pointBtn.getAttribute('aria-pressed') === 'true') setPicking(false);
 }
 
+/** What Show changes highlights: since the last Send, or between two versions picked with "Compare with…". */
+function shownChanges(): Changes | null {
+  if (compareBase !== null) return compareChanges;
+  // Changes since the last Send are offsets into the page as it is now.
+  return viewing ? null : changes;
+}
+
 function renderChanges(): void {
   const btn = $<HTMLButtonElement>('show-changes');
-  const n = changes ? changes.inserts.length + changes.removals.length : 0;
+  const c = shownChanges();
+  const n = c ? c.inserts.length + c.removals.length : 0;
   btn.disabled = n === 0;
   if (!n) showChanges = false;
   btn.setAttribute('aria-pressed', String(showChanges));
   btn.textContent = n ? `Show changes · ${n}` : 'Show changes';
-  btn.title = n && changes ? `What changed since you last sent, at ${new Date(changes.since).toLocaleTimeString()}` : 'Nothing has changed since you last sent';
+  if (compareBase !== null) btn.title = n ? `What changed from ${versionName(compareBase)} to ${viewing ? `v${viewing.row.n}` : 'Current'}` : 'No difference in the text between these versions';
+  else btn.title = n && changes ? `What changed since you last sent, at ${new Date(changes.since).toLocaleTimeString()}` : 'Nothing has changed since you last sent';
 }
 
 function postChanges(): void {
-  toFrame({ type: 'changes', show: showChanges, inserts: changes?.inserts ?? [], removals: changes?.removals ?? [] });
+  const c = shownChanges();
+  toFrame({ type: 'changes', show: showChanges, inserts: c?.inserts ?? [], removals: c?.removals ?? [] });
 }
 
 function setPresence(state: 'listening' | 'away'): void {
@@ -774,6 +815,12 @@ function toFrame(msg: Record<string, unknown>): void {
 }
 
 function postMarks(): void {
+  if (viewing) {
+    // An earlier version shows only the notes sent on it, where they were when sent.
+    const marks = viewing.notes.map((n) => ({ n: Number(n.id.slice(2)), kind: n.kind, anchor: n.anchor, queued: false }));
+    toFrame({ type: 'marks', marks });
+    return;
+  }
   const marks = [
     ...sent.flatMap((e, i) => {
       const a = e.note.anchor;
@@ -800,7 +847,10 @@ function setPicking(on: boolean): void {
 function loadFrame(): void {
   if (!session) return;
   loadNonce = Math.random().toString(36).slice(2, 12);
-  frame.src = `${session.artifact_url}?vmload=${loadNonce}`;
+  // /a/<session>/<key>/<name> is the page now; /v/<session>/<key>/<hash>/<name> an earlier version of it.
+  const [, , id, key, ...name] = session.artifact_url.split('/');
+  const url = viewing ? `/v/${id}/${key}/${viewing.row.hash}/${name.join('/')}` : session.artifact_url;
+  frame.src = `${url}?vmload=${loadNonce}`;
 }
 
 window.addEventListener('message', (e) => {
@@ -816,6 +866,8 @@ window.addEventListener('message', (e) => {
       postChanges();
       break;
     case 'pick':
+      // An earlier version is read-only: nothing on it becomes a note.
+      if (viewing) break;
       if ((d.kind === 'element' || d.kind === 'text') && d.anchor) {
         // A page can only propose a target. Nothing is queued or sent without the reviewer.
         target = { kind: d.kind, anchor: d.anchor };
@@ -825,7 +877,7 @@ window.addEventListener('message', (e) => {
       }
       break;
     case 'suggest':
-      onSuggest(d as Parameters<typeof onSuggest>[0]);
+      if (!viewing) onSuggest(d as Parameters<typeof onSuggest>[0]);
       break;
     case 'pick-cancelled':
       pointBtn.setAttribute('aria-pressed', 'false');
@@ -840,7 +892,7 @@ window.addEventListener('message', (e) => {
 
 function addNote(): void {
   const text = comment.value.trim();
-  if (!text) return;
+  if (!text || viewing) return;
   queue.push({
     kind: target.kind,
     comment: text,
@@ -927,7 +979,8 @@ const SENT_TEXT: Record<Decision, string> = {
 
 /** The only way anything reaches the agent: one of the reviewer's Send buttons. */
 async function sendDecision(decision: Decision): Promise<void> {
-  if (sending) return;
+  // Notes are sent against the page as it is now, never an earlier version.
+  if (sending || viewing) return;
   const notes = decision === 'approve' || decision === 'dismiss' ? [] : queue;
   if ((decision === 'request-changes' || decision === 'approve-with-notes') && !notes.length) return;
   sending = true;
@@ -982,6 +1035,188 @@ function mergeReply(r: ReplyView): void {
   if (!replies.some((x) => x.seq === r.seq)) replies.push(r);
 }
 
+// ---- versions ---------------------------------------------------------------------------------
+
+const CAUSE_LABEL: Record<VersionRow['cause'], string> = { open: 'Opened', save: 'Saved', send: 'Sent', end: 'Ended', read: 'Seen' };
+const CAUSE_TITLE: Record<VersionRow['cause'], string> = {
+  open: 'The file when a review of it was opened',
+  save: 'The file after a save, seen while the review page was open',
+  send: 'The file as it was when you pressed a Send button',
+  end: 'The file when the review ended',
+  read: 'The file as found the next time anything looked at the review (a save made while no review page was open)',
+};
+const DECISION_SHORT: Record<Decision, string> = { 'request-changes': 'Changes requested', approve: 'Approved', 'approve-with-notes': 'Approved with notes', dismiss: 'Dismissed' };
+
+function versionName(v: number | 'current'): string {
+  return v === 'current' ? 'Current' : `v${v}`;
+}
+
+function timeText(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString() : `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+}
+
+async function loadVersions(): Promise<void> {
+  try {
+    const r = await api<{ current: number | null; versions: VersionRow[] }>('GET', '/versions');
+    versions = r.versions;
+    currentVersion = r.current;
+    renderVersions();
+  } catch {
+    // The server is restarting; the next event reloads the list.
+  }
+}
+
+function versionRowButton(v: VersionRow | null): HTMLElement {
+  const b = el('button', `version-row${v?.cause === 'send' ? ' send' : ''}`);
+  b.type = 'button';
+  b.setAttribute('aria-current', String(v ? viewing?.row.n === v.n : !viewing));
+  if (!v) {
+    b.dataset.version = 'current';
+    b.append(el('span', 'vnum', 'Now'), el('span', 'vcause', 'Current'), el('span', 'vtime', currentVersion ? `same as v${currentVersion}` : 'the file as it is'));
+    b.title = 'The page as it is now: notes are added and sent here';
+    b.addEventListener('click', () => void viewVersion(null));
+    return b;
+  }
+  b.dataset.version = String(v.n);
+  b.title = `${CAUSE_TITLE[v.cause]}\nsha256 ${v.hash}\n${v.path}`;
+  b.append(el('span', 'vnum', `v${v.n}`), el('span', 'vcause', CAUSE_LABEL[v.cause]), el('span', 'vtime', timeText(v.at)));
+  const meta = el('span', 'vmeta');
+  if (v.cause === 'send') {
+    const d = v.decision ?? 'request-changes';
+    meta.append(el('span', `pill decision-pill ${d}`, DECISION_SHORT[d]));
+    if (v.notes) meta.append(el('span', 'pill count-pill', `${v.notes} note${v.notes === 1 ? '' : 's'}`));
+  }
+  meta.append(el('span', 'vsize', sizeText(v.size)));
+  b.append(meta);
+  b.addEventListener('click', () => void viewVersion(v));
+  return b;
+}
+
+function renderVersions(): void {
+  const btn = $<HTMLButtonElement>('versions-btn');
+  btn.textContent = versions.length ? `Versions · ${versions.length}` : 'Versions';
+  // Newest first, under Current.
+  $('versions-list').replaceChildren(versionRowButton(null), ...[...versions].reverse().map((v) => versionRowButton(v)));
+  const select = $<HTMLSelectElement>('compare-select');
+  const shown = viewing ? viewing.row.n : 'current';
+  const options = [Object.assign(el('option', '', 'Nothing (since your last Send)'), { value: '' })];
+  if (shown !== 'current') options.push(Object.assign(el('option', '', 'Current'), { value: 'current' }));
+  for (const v of [...versions].reverse()) {
+    if (v.n === shown) continue;
+    options.push(Object.assign(el('option', '', `v${v.n} · ${CAUSE_LABEL[v.cause]} · ${timeText(v.at)}`), { value: String(v.n) }));
+  }
+  select.replaceChildren(...options);
+  select.value = compareBase === null ? '' : String(compareBase);
+
+  const bar = $('version-bar');
+  bar.hidden = !viewing;
+  $('readonly').hidden = !viewing;
+  if (!viewing) return;
+  const v = viewing.row;
+  $('version-text').textContent = `Viewing v${v.n} · ${CAUSE_LABEL[v.cause]} ${timeText(v.at)} · read-only`;
+  $<HTMLButtonElement>('restore').disabled = !!ended;
+  $<HTMLButtonElement>('restore').title = ended
+    ? 'This review has ended; open the file again to ask for a restore'
+    : 'Queue a note asking the agent to write this version back to the file; it is sent only with your next Send';
+  $('readonly-head').textContent = `v${v.n} is an earlier version, read-only`;
+  const list = $('readonly-notes');
+  const sentOn = viewing.notes.map((n) => {
+    const row = el('div', 'readonly-note');
+    row.append(el('span', 'num', String(Number(n.id.slice(2)))), document.createTextNode(`${describe(n.kind, n.anchor)}: ${clip(n.comment, 140)}`));
+    return row;
+  });
+  if (sentOn.length) sentOn.unshift(el('div', 'readonly-head', `Notes sent on v${v.n} · ${sentOn.length}`));
+  list.replaceChildren(...sentOn);
+}
+
+/** Shows an earlier version read-only, or (null) the page as it is now. */
+async function viewVersion(v: VersionRow | null): Promise<void> {
+  if (!v) viewing = null;
+  else {
+    let notes: VersionNote[] = [];
+    try {
+      notes = (await api<{ notes: VersionNote[] }>('GET', `/versions/${v.n}`)).notes;
+    } catch (err) {
+      banner(`Could not load v${v.n}: ${(err as Error).message}`, true, 5000);
+      return;
+    }
+    viewing = { row: v, notes };
+    if (pointBtn.getAttribute('aria-pressed') === 'true') setPicking(false);
+  }
+  // A comparison with the version now shown would be empty: drop it.
+  if (compareBase !== null && compareBase === (viewing ? viewing.row.n : 'current')) compareBase = null;
+  lastScroll = { x: 0, y: 0 };
+  setVersionsOpen(false);
+  if (compareBase !== null) await loadCompare();
+  render();
+  loadFrame();
+}
+
+async function loadCompare(): Promise<void> {
+  if (compareBase === null) {
+    compareChanges = null;
+    return;
+  }
+  try {
+    const to = viewing ? String(viewing.row.n) : 'current';
+    const r = await api<Changes & { from: number | 'current' }>('GET', `/compare?from=${compareBase}&to=${to}`);
+    compareChanges = { since: '', inserts: r.inserts, removals: r.removals };
+  } catch (err) {
+    compareChanges = null;
+    banner(`Could not compare: ${(err as Error).message}`, true, 5000);
+  }
+  renderChanges();
+  postChanges();
+}
+
+function setVersionsOpen(open: boolean): void {
+  $('versions-panel').hidden = !open;
+  $('versions-btn').setAttribute('aria-expanded', String(open));
+  if (open) void loadVersions();
+}
+
+$('versions-btn').addEventListener('click', () => setVersionsOpen($('versions-panel').hidden));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('versions-panel').hidden) setVersionsOpen(false);
+});
+document.addEventListener('click', (e) => {
+  if (!(e.target as Element).closest('.versions-wrap')) setVersionsOpen(false);
+});
+$<HTMLSelectElement>('compare-select').addEventListener('change', async (e) => {
+  const v = (e.target as HTMLSelectElement).value;
+  compareBase = v === '' ? null : v === 'current' ? 'current' : Number(v);
+  await loadCompare();
+  // Picking a version to compare with is asking to see the changes.
+  showChanges = compareBase !== null;
+  renderChanges();
+  postChanges();
+});
+$('back-current').addEventListener('click', () => void viewVersion(null));
+
+/**
+ * Asks the agent, through an ordinary queued note, to bring this version back.
+ * Nothing is sent here: the note waits for the reviewer's next Send, and the
+ * agent writes the file itself (vivamark never does).
+ */
+$('restore').addEventListener('click', () => {
+  if (!viewing || ended) return;
+  const v = viewing.row;
+  queue.push({
+    kind: 'page',
+    intent: 'change',
+    comment:
+      `Please restore version ${v.n} of this page (${CAUSE_LABEL[v.cause].toLowerCase()} ${new Date(v.at).toLocaleString()}, sha256 ${v.hash}).\n` +
+      `Its content is kept at ${v.path}\n` +
+      `Get it with: vivamark show ${session?.file ?? '<file>'} --version ${v.n}\n` +
+      `then write it back to the file yourself.`,
+    anchor: null,
+  });
+  saveQueue();
+  void viewVersion(null).then(() => banner(`Queued a note asking the agent to restore v${v.n}. It is sent with your next Send.`, false, 4000));
+});
+
 // ---- live events ----------------------------------------------------------------------------
 
 let backoff = 500;
@@ -1009,10 +1244,14 @@ function connect(): void {
       render();
     } else if (ev.type === 'state') {
       void refresh();
+    } else if (ev.type === 'versions') {
+      void loadVersions();
     } else if (ev.type === 'reload') {
       // The file changed: the server has re-anchored every note against it.
       void refresh();
-      loadFrame();
+      // An earlier version does not change; the page as it is now does.
+      if (!viewing) loadFrame();
+      if (compareBase !== null) void loadCompare();
       const chip = $('reload-chip');
       chip.hidden = false;
       setTimeout(() => (chip.hidden = true), 4000);
@@ -1074,6 +1313,7 @@ async function start(): Promise<void> {
   render();
   loadFrame();
   connect();
+  void loadVersions();
 }
 
 void start();

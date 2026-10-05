@@ -11,7 +11,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AgentStatus, Decision, NoteKind, NoteStatus } from './schema.js';
+import type { AgentStatus, Decision, NoteKind, NoteStatus, VersionCause } from './schema.js';
 
 export interface EventDetails {
   'session.opened': Record<string, never>;
@@ -28,6 +28,8 @@ export interface EventDetails {
   'session.ended': { by: 'agent' | 'reviewer'; has_message: boolean };
   'browser.connected': Record<string, never>;
   'browser.disconnected': Record<string, never>;
+  /** A new version of the reviewed file was kept: its number in the file's timeline, hash, size and why. Never its content. */
+  'version.saved': { version: number; hash: string; size: number; cause: VersionCause };
 }
 
 export type EventType = keyof EventDetails;

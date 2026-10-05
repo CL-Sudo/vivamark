@@ -65,7 +65,7 @@ test('notify runs once per event with that event as JSON on stdin, and no note t
 
   const events = eventLog(w);
   assert.deepEqual(
-    events.map((e) => e.type),
+    events.map((e) => e.type).filter((t) => t !== 'version.saved'),
     ['session.opened', 'feedback.sent', 'reply.posted', 'session.ended'],
   );
   assert.ok(await until(() => lines(out).length >= events.length), `ran for every event: ${JSON.stringify(lines(out))}`);
@@ -86,8 +86,9 @@ test('notify can come from the user config file instead', async () => {
   fs.mkdirSync(cfgDir, { recursive: true });
   fs.writeFileSync(path.join(cfgDir, 'config.json'), JSON.stringify({ notify_cmd: nodeCmd(captureScript(w), out) }));
   await openSession(w);
-  assert.ok(await until(() => lines(out).length === 1));
-  assert.equal(JSON.parse(lines(out)[0].stdin).type, 'session.opened');
+  // session.opened, then version.saved for the file as it was opened.
+  assert.ok(await until(() => lines(out).length === 2));
+  assert.deepEqual(lines(out).map((l) => JSON.parse(l.stdin).type).sort(), ['session.opened', 'version.saved']);
 });
 
 test('a hanging notify command is killed at the timeout without stalling the review', async () => {
@@ -108,8 +109,11 @@ test('a hanging notify command is killed at the timeout without stalling the rev
   assert.equal(view.status, 200);
   assert.ok(Date.now() - started < 5_000, `the review went on while the hook hung (${Date.now() - started} ms)`);
 
-  assert.ok(await until(() => fs.readdirSync(pids).length === 4), 'one run per event');
-  assert.ok(await until(() => (daemonLog(w).match(/killed the notify command/g) ?? []).length === 4), daemonLog(w));
+  // session.opened and 3 feedback.sent, each with its version.saved (the open, and every Send).
+  const n = eventLog(w).length;
+  assert.equal(n, 8);
+  assert.ok(await until(() => fs.readdirSync(pids).length === n), 'one run per event');
+  assert.ok(await until(() => (daemonLog(w).match(/killed the notify command/g) ?? []).length === n), daemonLog(w));
   for (const pid of fs.readdirSync(pids).map(Number)) {
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, `notify process ${pid} was killed`);
   }
@@ -120,8 +124,9 @@ test('a failing notify command is logged and ignored', async () => {
   const s = await openSession(w);
   assert.equal((await sendNotes(s, [ELEMENT_NOTE])).status, 201);
   assert.equal((await w.cli(['wait', w.page])).code, 0);
-  assert.ok(await until(() => /notify command for event 2 \(feedback\.sent\) exited with 3: hook broke/.test(daemonLog(w))), daemonLog(w));
-  assert.equal((daemonLog(w).match(/exited with 3/g) ?? []).length, 2, 'never retried');
+  // Events 1-4: session.opened, version.saved (open), version.saved (send), feedback.sent.
+  assert.ok(await until(() => /notify command for event 4 \(feedback\.sent\) exited with 3: hook broke/.test(daemonLog(w))), daemonLog(w));
+  assert.equal((daemonLog(w).match(/exited with 3/g) ?? []).length, 4, 'never retried');
 });
 
 test('nothing runs when notify is not configured, and no request or page can set it', async () => {

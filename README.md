@@ -141,6 +141,35 @@ it cannot drift from the installed CLI. It is generated from the guide's text:
 after changing `src/guide.ts`, run `npm run skill`; a test fails when the
 committed stub is out of date.
 
+## Going back to an earlier version
+
+vivamark keeps every version of the file it sees: when a review opens, on
+each save while the page is open, at each Send, when a review ends, and
+whenever the review is read, so a save made with the page closed is caught
+at the next `status` or `wait`. It is one timeline per file, across every
+review of it. Press **Versions** on the review page to see them, newest
+first: when, why (Opened, Saved, Sent, Ended, Seen), size, and for a Send
+its decision and how many notes. Pick one to see it read-only, with the
+notes sent on it. **Compare with…** picks a second version and Show changes
+highlights what differs. Old versions use the images and styles beside the
+file as they are now.
+
+To get one back, press **Ask the agent to restore this version**. That
+queues an ordinary note naming the version, its hash and the local path of
+its content; it reaches the agent only with your next Send. The agent (or
+you) can also read any version directly:
+
+```sh
+node dist/cli.js versions examples/plan.html          # the timeline
+node dist/cli.js show examples/plan.html --version 3  # its content, on stdout
+```
+
+vivamark never writes the reviewed file itself. **Storage:** versions are
+never deleted. Each distinct version is one copy of the file in the state
+directory under `versions/`; identical content is stored once. A page saved
+a hundred times at 50 KB costs about 5 MB. To reclaim space, delete a file's
+folder under `versions/` by hand (its `file.json` says which file it is).
+
 ## Ending a review
 
 When the work is done, the agent ends the review, with a message if it likes:
@@ -187,8 +216,9 @@ Every review is also recorded in `events.jsonl` in the state directory
 (`~/.local/state/vivamark` by default): append-only, one JSON object per line,
 each with `seq`, `at`, `type`, `session`, `file` and `labels`. The types are
 `session.opened`, `feedback.sent` (with a count of `attachments`), `reply.posted`, `note.status`,
-`agent-note.added`, `session.ended`, `browser.connected` and
-`browser.disconnected`. **Events carry metadata only:** ids, counts, decisions
+`agent-note.added`, `session.ended`, `browser.connected`,
+`browser.disconnected` and `version.saved` (with the version's number, hash,
+size and cause). **Events carry metadata only:** ids, counts, decisions
 and statuses, never a note, quote, reply, message, image or image path. Read the words with
 `wait`.
 

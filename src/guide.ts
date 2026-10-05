@@ -202,6 +202,19 @@ Pointing things out yourself
   vivamark note add <file> --target '#risk-rollback' --text "I guessed this number."
   The reviewer sees it labelled as yours. It reaches wait only if the reviewer
   endorses it or replies to it. Use it for guesses and things you are unsure of.
+
+Versions and restore requests
+  vivamark keeps every version of the file it sees (at open, on saves, at
+  each Send, at the end, and whenever the review is read), across all
+  reviews of that file, forever. The reviewer can look at any of them
+  read-only and compare two.
+    vivamark versions <file>              the timeline: n, time, cause, size
+    vivamark show <file> --version <n>    that version's content, on stdout
+  A note starting "Please restore version <n>" is the reviewer asking for
+  that version back. It names the hash and a local path to the content. Run
+  vivamark show <file> --version <n> > <file> (or merge by hand if they asked
+  for part of it), reply on the note, and wait as usual. vivamark never
+  writes the file; you do.
 `;
 
 const DESIGN = `design: the Smooth glass look
@@ -587,7 +600,7 @@ the review, and carry the agreed changes back.
 `;
 
 export const TOPICS: readonly GuideTopic[] = [
-  { name: 'workflow', summary: 'the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected', text: WORKFLOW },
+  { name: 'workflow', summary: 'the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected; versions and restore', text: WORKFLOW },
   { name: 'design', summary: 'the Smooth glass look: a ready CSS block, light and dark, and layout rules', text: DESIGN },
   { name: 'ids', summary: 'stable ids on everything worth a note, so notes survive edits', text: IDS },
   { name: 'decisions', summary: 'ask for choices in a "Your input" card with real controls; open questions to point at', text: DECISIONS },

@@ -20,9 +20,9 @@ import { EventLog } from './events.js';
 import { injectScript } from './html.js';
 import { sniffImage } from './image.js';
 import { configPath, Notifier, notifyConfig } from './notify.js';
-import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, IMAGE_LIMITS, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA } from './schema.js';
-import type { AgentNote, AgentStatus, Anchor, Attachment, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
-import { randomToken, readServerInfo, serverInfoPath, Store, writeJsonAtomic } from './store.js';
+import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, IMAGE_LIMITS, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA, VERSION_SCHEMA, VERSIONS_SCHEMA } from './schema.js';
+import type { AgentNote, AgentStatus, Anchor, Attachment, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn, VersionCause, VersionEntry } from './schema.js';
+import { randomToken, readServerInfo, serverInfoPath, sha256, Store, writeJsonAtomic } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
 
@@ -433,6 +433,19 @@ export class Daemon {
       if (!tokensEqual(m[2], s.artifact_key)) throw new HttpError(404, 'not found');
       return this.serveArtifact(res, s, m[3], url.searchParams.get('vmload') ?? '');
     }
+    if ((m = /^\/v\/(s_[a-z0-9]+)\/([0-9a-f]{64})\/([0-9a-f]{64})\/(.*)$/.exec(p)) && method === 'GET') {
+      // An earlier version of the page, read-only, through the same one injected script tag.
+      const s = this.session(m[1]);
+      if (!tokensEqual(m[2], s.artifact_key)) throw new HttpError(404, 'not found');
+      const version = [...this.store.timeline(s.file)].reverse().find((e) => e.hash === m![3]);
+      if (!version) throw new HttpError(404, 'no such version of this file');
+      return this.serveArtifact(res, s, m[4], url.searchParams.get('vmload') ?? '', version);
+    }
+    if ((m = /^\/api\/s\/(s_[a-z0-9]+)\/versions\/(\d{1,9}|[0-9a-f]{8,64})$/.exec(p)) && method === 'GET') {
+      const s = this.session(m[1]);
+      this.requireSessionToken(req, s);
+      return sendJson(res, 200, this.versionView(s, m[2], url.searchParams.get('content') === '1'));
+    }
     if ((m = /^\/api\/s\/(s_[a-z0-9]+)\/attachments\/([0-9a-f]{64})$/.exec(p)) && method === 'GET') {
       const s = this.session(m[1]);
       this.requireSessionToken(req, s);
@@ -446,6 +459,8 @@ export class Daemon {
       const sub = m[2] ?? '';
       if (sub === '' && method === 'GET') return sendJson(res, 200, this.sessionView(s));
       if (sub === '/feedback' && method === 'GET') return this.feedback(req, res, s, url);
+      if (sub === '/versions' && method === 'GET') return sendJson(res, 200, this.versionsView(s));
+      if (sub === '/compare' && method === 'GET') return sendJson(res, 200, this.compare(s, url.searchParams.get('from') ?? '', url.searchParams.get('to') ?? 'current'));
       if (sub === '/end' && method === 'POST') return this.receiveEnd(req, res, s);
       // An ended review takes nothing more from either side.
       if (method === 'POST' && s.status === 'ended') throw new HttpError(409, 'this review has ended; open the file again to start a new one');
@@ -489,6 +504,7 @@ export class Daemon {
     const { session, created } = this.store.openSession(file, labels);
     sendJson(res, created ? 201 : 200, { id: session.id, file: session.file, created, labels: session.labels });
     if (created) this.events.append('session.opened', session, {});
+    this.capture(session, 'open');
   }
 
   private sessionView(s: Session) {
@@ -518,6 +534,8 @@ export class Daemon {
    * never blocks and never moves a cursor, so it takes nothing from the agent.
    */
   private statusView(s: Session, owner: string) {
+    // A read: a save made while no review page was open is kept now.
+    this.capture(s, 'read');
     const cursor = s.cursors[owner] ?? 0;
     const last = s.log.at(-1);
     return {
@@ -578,7 +596,8 @@ export class Daemon {
     });
   }
 
-  private serveArtifact(res: ServerResponse, s: Session, rest: string, load: string): void {
+  /** The page, or with `version` an earlier version of it; sibling assets are always the current files beside it. */
+  private serveArtifact(res: ServerResponse, s: Session, rest: string, load: string, version?: VersionEntry): void {
     const headers = { 'Content-Security-Policy': `sandbox ${SANDBOX}` };
     let rel: string;
     try {
@@ -588,10 +607,16 @@ export class Daemon {
     }
     if (rel === '' || rel === path.basename(s.file)) {
       let html: string;
-      try {
-        html = fs.readFileSync(s.file, 'utf8');
-      } catch {
-        throw new HttpError(404, 'the reviewed file is missing');
+      if (version) {
+        const kept = this.store.readVersion(s.file, version);
+        if (kept === null) throw new HttpError(404, 'this version is missing from the state directory');
+        html = kept;
+      } else {
+        try {
+          html = fs.readFileSync(s.file, 'utf8');
+        } catch {
+          throw new HttpError(404, 'the reviewed file is missing');
+        }
       }
       // A Markdown file is rendered to a page; the saved file itself is never changed.
       if (docKind(s.file) === 'markdown') html = renderMarkdownPage(html, path.basename(s.file));
@@ -651,6 +676,7 @@ export class Daemon {
     } catch {
       // The file is gone: so is every target on it.
     }
+    if (source !== null) this.capture(s, 'read', source);
     const key = `${source === null ? 'gone' : createHash('sha256').update(source).digest('hex')}:${s.log.length}:${s.annotations.length}`;
     const cached = this.analyses.get(s.id);
     if (cached?.key === key) return cached;
@@ -693,6 +719,114 @@ export class Daemon {
     return doc;
   }
 
+  // ---- version history --------------------------------------------------------
+
+  /**
+   * Keeps the file as it is now in its timeline (`source` when the caller has
+   * read it already). A new version is logged as a metadata-only event and
+   * every open review page of the file is told to refresh its Versions list.
+   */
+  private capture(s: Session, cause: VersionCause, source?: string, send?: { batch: string; decision: Decision; notes: number }): VersionEntry | null {
+    let text = source;
+    if (text === undefined) {
+      try {
+        text = fs.readFileSync(s.file, 'utf8');
+      } catch {
+        return null; // The file is gone: there is nothing to keep.
+      }
+    }
+    let r: { entry: VersionEntry; added: boolean };
+    try {
+      r = this.store.recordVersion(s, text, cause, send);
+    } catch (err) {
+      // History is kept alongside the review; a full disk must not stop the review itself.
+      console.error(`vivamark: could not keep a version of ${s.file}: ${(err as Error).message}`);
+      return null;
+    }
+    if (!r.added) return r.entry;
+    this.events.append('version.saved', s, { version: r.entry.n, hash: r.entry.hash, size: r.entry.size, cause: r.entry.cause });
+    for (const other of this.store.sessions.values()) if (other.file === s.file) this.broadcast(other, { type: 'versions' });
+    return r.entry;
+  }
+
+  private versionRow(s: Session, e: VersionEntry) {
+    return { ...e, path: this.store.versionPath(s.file, e) };
+  }
+
+  /** The file's whole timeline, across all its reviews, and which version the file is at now. */
+  private versionsView(s: Session) {
+    const now = this.capture(s, 'read');
+    const list = this.store.timeline(s.file);
+    let current: number | null = null;
+    if (now) current = now.n;
+    return {
+      schema: VERSIONS_SCHEMA,
+      session: { id: s.id, file: s.file, status: s.status, labels: s.labels },
+      file: s.file,
+      current,
+      versions: list.map((e) => this.versionRow(s, e)),
+    };
+  }
+
+  /** Finds a version by its number, or by a prefix of its hash (8 or more hex digits). */
+  private findVersion(s: Session, ref: string): VersionEntry {
+    const list = this.store.timeline(s.file);
+    let found: VersionEntry[];
+    if (/^\d+$/.test(ref)) found = list.filter((e) => e.n === Number(ref));
+    else {
+      const hashes = new Set(list.filter((e) => e.hash.startsWith(ref)).map((e) => e.hash));
+      if (hashes.size > 1) throw new HttpError(400, `hash prefix ${ref} matches more than one version; give more of it`);
+      found = list.filter((e) => hashes.has(e.hash)).slice(-1);
+    }
+    if (!found.length) throw new HttpError(404, `no version ${ref} of this file; vivamark versions lists them`);
+    return found[0];
+  }
+
+  /**
+   * One version: its entry, the notes sent on it when it is a Send (from
+   * whichever review sent them, as they were sent), and with `content` the file as it was.
+   */
+  private versionView(s: Session, ref: string, content: boolean) {
+    const e = this.findVersion(s, ref);
+    const from = this.store.sessions.get(e.session);
+    const notes = e.batch && from
+      ? from.log
+          .filter((x): x is NoteEntry => x.type === 'note' && x.batch === e.batch)
+          .map(({ note: n }) => ({ id: n.id, kind: n.kind, comment: n.comment, ...(n.intent ? { intent: n.intent } : {}), ...(n.severity ? { severity: n.severity } : {}), anchor: n.anchor }))
+      : [];
+    let text: string | null = null;
+    if (content) {
+      text = this.store.readVersion(s.file, e);
+      if (text === null) throw new HttpError(404, `the content of version ${e.n} is missing or damaged in the state directory`);
+    }
+    return {
+      schema: VERSION_SCHEMA,
+      file: s.file,
+      version: this.versionRow(s, e),
+      notes,
+      ...(text !== null ? { content: text } : {}),
+    };
+  }
+
+  /** What changed in the page's text from one version to another (`current` is the file as it is now), for Show changes. */
+  private compare(s: Session, fromRef: string, toRef: string) {
+    const load = (ref: string) => {
+      if (ref === 'current') {
+        const doc = this.readDoc(s);
+        if (!doc) throw new HttpError(404, 'the reviewed file is missing');
+        return { n: null as number | null, doc };
+      }
+      if (!/^(\d{1,9}|[0-9a-f]{8,64})$/.test(ref)) throw new HttpError(400, 'from and to are version numbers, hash prefixes or current');
+      const e = this.findVersion(s, ref);
+      const text = this.store.readVersion(s.file, e);
+      if (text === null) throw new HttpError(404, `the content of version ${e.n} is missing`);
+      return { n: e.n as number | null, doc: loadDoc(docKind(s.file) ?? 'html', text, path.basename(s.file)) };
+    };
+    const a = load(fromRef);
+    const b = load(toRef);
+    return { from: a.n ?? 'current', to: b.n ?? 'current', ...diffText(a.doc.text, b.doc.text) };
+  }
+
   /** A note as readers see it: the logged note, plus where its target is now. */
   private noteView<N extends Note | AgentNote>(n: N, a: Analysis, status?: string): N & { status?: string } {
     const tail: { status?: string } = status ? { status } : {};
@@ -731,7 +865,7 @@ export class Daemon {
   }
 
   private async receiveNotes(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
-    const body = (await readBody(req, LIMITS.sendBody)) as { notes?: unknown; decision?: unknown };
+    const body = (await readBody(req, LIMITS.sendBody)) as { notes?: unknown; decision?: unknown; version?: unknown };
     const notes = body.notes ?? [];
     if (!Array.isArray(notes)) throw new HttpError(400, 'notes must be an array');
     if (notes.length > LIMITS.notesPerBatch) throw new HttpError(400, 'too many notes in one send');
@@ -758,6 +892,10 @@ export class Daemon {
       drafts.push(d);
     }
     const doc = this.readDoc(s);
+    // Notes are made on the page as it is now; an earlier version is read-only.
+    if (body.version !== undefined && body.version !== null && (typeof body.version !== 'string' || !doc || body.version !== sha256(doc.source))) {
+      throw new HttpError(409, 'that is an earlier version of the page, shown read-only; go back to Current to add and send notes');
+    }
     // F2: keep the file as the reviewer saw it, for "what changed since I last sent".
     const snapshot = doc ? this.store.saveSnapshot(s, doc.source) : undefined;
     const entries = this.store.appendBatch(
@@ -770,6 +908,7 @@ export class Daemon {
       (d) => (d.attachments ?? []).map((id) => images.get(id)!),
     );
     const seq = { from: entries[0].seq, to: entries[entries.length - 1].seq };
+    if (doc) this.capture(s, 'send', doc.source, { batch: entries[0].batch, decision: decision as Decision, notes: drafts.length });
     sendJson(res, 201, { seq, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
     const attached = drafts.reduce((n, d) => n + (d.attachments?.length ?? 0), 0);
@@ -893,6 +1032,7 @@ export class Daemon {
     // Only the review page sends an Origin; the CLI never does.
     const by = req.headers.origin !== undefined && originAllowed(req, true) ? 'reviewer' : 'agent';
     const already = s.status === 'ended';
+    if (!already) this.capture(s, 'end');
     const ended = this.store.endSession(s, by, message || undefined);
     sendJson(res, 200, { session: s.id, status: s.status, ended, already });
     if (already) return;
@@ -1054,7 +1194,8 @@ export class Daemon {
         if (changed && changed.toString() !== name) return;
         clearTimeout(l.reloadTimer);
         l.reloadTimer = setTimeout(() => {
-          // Re-anchor every note against the new file before the page asks for it.
+          // Keep the saved version, then re-anchor every note against it before the page asks.
+          this.capture(s, 'save');
           this.analyze(s);
           this.broadcast(s, { type: 'reload' });
         }, RELOAD_DEBOUNCE_MS);
