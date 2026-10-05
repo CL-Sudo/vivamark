@@ -5,13 +5,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { ApiError, ensureDaemon, request, runningDaemon, stopDaemon } from './client.js';
+import { ApiError, ensureDaemon, mayBeRunning, request, runningDaemon, stopDaemon } from './client.js';
 import { eventsPath, parseEventLines } from './events.js';
 import type { VivamarkEvent } from './events.js';
 import { GUIDE_SCHEMA, TAGLINE, TOPICS, findTopic, guideIndex } from './guide.js';
 import { FEEDBACK_SCHEMA } from './schema.js';
 import type { Anchor, Decision, Note, NoteKind } from './schema.js';
-import { findSession, stateDir } from './store.js';
+import { findSession, readServerInfo, stateDir } from './store.js';
 import type { Ended, SessionRecord } from './store.js';
 import { VERSION } from './version.js';
 
@@ -731,6 +731,8 @@ function cmdGuide(argv: string[]): void {
 async function cmdStop(): Promise<void> {
   const info = await runningDaemon();
   if (!info) {
+    const named = readServerInfo();
+    if (named && (await mayBeRunning(named))) fail(`the review server (pid ${named.pid}, port ${named.port}) is running but did not answer, so it was not stopped; stop it with kill ${named.pid}`);
     process.stdout.write('The review server is not running.\n');
     return;
   }

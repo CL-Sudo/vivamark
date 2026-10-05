@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import MarkdownIt from 'markdown-it';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
+import { mayBeRunning } from './client.js';
 import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensEqual, wsToken } from './guard.js';
 import { createHash } from 'node:crypto';
 import { diffText } from './diff.js';
@@ -22,7 +23,7 @@ import { sniffImage } from './image.js';
 import { configPath, Notifier, notifyConfig } from './notify.js';
 import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, IMAGE_LIMITS, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA, VERSION_SCHEMA, VERSIONS_SCHEMA } from './schema.js';
 import type { AgentNote, AgentStatus, Anchor, Attachment, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn, VersionCause, VersionEntry } from './schema.js';
-import { randomToken, readServerInfo, serverInfoPath, sha256, Store, writeJsonAtomic } from './store.js';
+import { randomToken, readJson, readServerInfo, serverInfoPath, sha256, Store } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
 
@@ -310,7 +311,16 @@ export class Daemon {
     throw new Error('could not find a free loopback port');
   }
 
-  writeServerInfo(): void {
+  /**
+   * Writes server.json, unless another daemon that may still be running
+   * holds it: then returns that daemon's info and writes nothing. One daemon
+   * per state directory, so the CLI and the review pages always reach the same
+   * one. The file is linked into place, which fails if it exists, so two
+   * daemons starting at once cannot both win. A server.json left by a daemon
+   * that is gone is moved aside and replaced.
+   */
+  async claimServerInfo(): Promise<ServerInfo | null> {
+    const file = serverInfoPath(this.store.dir);
     const info: ServerInfo = {
       app: 'vivamark',
       pid: process.pid,
@@ -319,7 +329,51 @@ export class Daemon {
       admin_token: this.adminToken,
       started: new Date().toISOString(),
     };
-    writeJsonAtomic(serverInfoPath(this.store.dir), info);
+    const tmp = `${file}.${process.pid}.${randomToken().slice(0, 8)}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(info, null, 2) + '\n', { mode: 0o600 });
+    try {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          fs.linkSync(tmp, file);
+          return null;
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        }
+        const other = readServerInfo(this.store.dir);
+        if (other && (await mayBeRunning(other))) return other;
+        // Unreadable: removed by a daemon that is stopping, or damaged. Look once more before replacing it.
+        if (!other) {
+          await new Promise((r) => setTimeout(r, 100));
+          if (readServerInfo(this.store.dir)) continue;
+        }
+        const aside = `${file}.${process.pid}.stale`;
+        try {
+          fs.renameSync(file, aside);
+        } catch {
+          continue;
+        }
+        const moved = readJson<ServerInfo>(aside);
+        if (other && moved && moved.admin_token !== other.admin_token) {
+          // Another daemon claimed it between the check and the move: put it back and yield.
+          try {
+            fs.linkSync(aside, file);
+          } catch {
+            // Someone else holds it now; they win either way.
+          }
+          fs.rmSync(aside, { force: true });
+          return moved;
+        }
+        fs.rmSync(aside, { force: true });
+      }
+      throw new Error('could not claim server.json');
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
+  }
+
+  /** Closes the listening sockets of a daemon that never served anything. */
+  async close(): Promise<void> {
+    await Promise.all(this.servers.map((s) => new Promise<void>((r) => s.close(() => r()))));
   }
 
   startTimers(): void {
@@ -1247,7 +1301,13 @@ export async function runDaemon(): Promise<void> {
     console.error('vivamark: no notify command configured');
   }
   await daemon.listen(port);
-  daemon.writeServerInfo();
+  const other = await daemon.claimServerInfo();
+  if (other) {
+    console.error(`vivamark: a daemon already serves ${store.dir} (pid ${other.pid}, port ${other.port}); this one (pid ${process.pid}) exits`);
+    await daemon.close();
+    process.exitCode = 1;
+    return;
+  }
   daemon.startTimers();
   const stop = () => void daemon.shutdown('signal');
   process.on('SIGTERM', stop);

@@ -5,10 +5,11 @@ import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tokenProof } from './guard.js';
-import { ensureDir, readServerInfo, serverInfoPath, stateDir } from './store.js';
+import { ensureDir, readServerInfo, stateDir } from './store.js';
 import type { ServerInfo } from './store.js';
 import { VERSION } from './version.js';
 
@@ -91,6 +92,46 @@ export async function runningDaemon(dir = stateDir()): Promise<ServerInfo | null
   return (await verify(info)) ? info : null;
 }
 
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Whether the daemon that server.json names may still be running: its
+ * process exists and its port still accepts connections. A daemon too busy
+ * to answer passes (the kernel accepts for it); one that crashed, or a pid
+ * reused by another program, does not.
+ */
+export function mayBeRunning(info: ServerInfo): Promise<boolean> {
+  if (info.pid === process.pid || !pidAlive(info.pid)) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port: info.port });
+    const done = (alive: boolean) => {
+      socket.destroy();
+      resolve(alive);
+    };
+    socket.setTimeout(1_000, () => done(true));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
+}
+
+/** How long a daemon that is alive but not answering gets before the CLI gives up on it. */
+const UNANSWERED_MS = 10_000;
+
+export function stuckMessage(info: ServerInfo, dir: string): string {
+  return (
+    `the vivamark daemon for ${dir} (pid ${info.pid}, port ${info.port}) is running but did not answer, ` +
+    `so no second one was started: open review pages are connected to it. ` +
+    `If it stays stuck, stop it (kill ${info.pid}) and run the command again.`
+  );
+}
+
 function cliPath(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), 'cli.js');
 }
@@ -110,14 +151,24 @@ export async function stopDaemon(info: ServerInfo): Promise<void> {
   await waitFor(async () => ((await verify(info)) ? null : true), 5_000);
 }
 
-/** Finds the daemon, restarting one from another vivamark version, or starts a new one. */
+/**
+ * Finds the daemon, restarting one from another vivamark version, or starts a
+ * new one. Never starts a second daemon beside one that is alive but slow to
+ * answer: review pages stay connected to the first, so a second would answer
+ * from a log that never sees their notes. The daemon itself refuses to start
+ * while another one holds server.json (Daemon.claimServerInfo).
+ */
 export async function ensureDaemon(dir = stateDir()): Promise<ServerInfo> {
   const info = readServerInfo(dir);
   if (info) {
-    const health = await verify(info);
+    let health = await verify(info);
+    if (!health && (await mayBeRunning(info))) {
+      health = await waitFor(() => verify(info), UNANSWERED_MS);
+      if (!health) throw new Error(stuckMessage(info, dir));
+    }
     if (health && health.version === VERSION) return info;
     if (health) await stopDaemon(info);
-    else fs.rmSync(serverInfoPath(dir), { force: true });
+    // Otherwise it is gone; the new daemon replaces its server.json.
   }
   ensureDir(dir);
   const log = fs.openSync(path.join(dir, 'daemon.log'), 'a', 0o600);
@@ -128,9 +179,10 @@ export async function ensureDaemon(dir = stateDir()): Promise<ServerInfo> {
   });
   child.unref();
   fs.closeSync(log);
+  // Ours, or one another command started at the same moment: ours then exits.
   const started = await waitFor(async () => {
     const next = readServerInfo(dir);
-    return next && next.pid === child.pid && (await verify(next)) ? next : null;
+    return next && next.version === VERSION && (await verify(next)) ? next : null;
   }, 10_000);
   if (!started) throw new Error(`the vivamark daemon did not start; see ${path.join(dir, 'daemon.log')}`);
   return started;

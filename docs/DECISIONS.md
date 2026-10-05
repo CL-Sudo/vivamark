@@ -62,3 +62,19 @@ changes for a particular vivamark page?"
 This supersedes nothing. It extends F2: Send snapshots now live in the file's
 version store (`versions/` in the state directory) instead of
 `snapshots/<session>/`, which is still read for snapshots made before.
+
+## 2026-10-05: One server per state directory
+
+A server that missed one health check was replaced by a second one on a
+random port while the first kept running. The review page stayed on the
+first, the CLI moved to the second, and `wait` answered `disconnected` while
+the reviewer's sent notes sat unread.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Starting a server | The CLI starts a new server only when the one in `server.json` is gone: its process has exited, or nothing accepts connections on its port. One that is alive but slow gets up to 10 s more to answer; if it still does not, the command fails (exit 1) naming its pid and port, and starts nothing. | The review pages stay connected to the running server. A second one would answer from a log that never sees their notes. Failing loudly is better than answering wrongly. |
+| The server itself | A server claims `server.json` with an atomic create that fails if the file exists. If another server that may still be running holds it, the new one logs why and exits without serving. A file left by a server that is gone is replaced. | Two commands starting at the same moment, or a slow check, cannot leave two servers on one state directory. The CLI was the only other writer of `server.json`; it no longer deletes it. |
+| `stop` | On a server that is running but not answering, `stop` says so and names the pid to kill, instead of "not running". | It was running; saying otherwise hides the problem. |
+| Port fallback | Unchanged: a busy preferred port still falls back to a random one. | The sandbox case it serves has no other server running. |
+
+This supersedes nothing.
