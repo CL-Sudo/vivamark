@@ -38,3 +38,10 @@ reload), the first version includes these features, which lavish-axi lacks
 
 - Domains, Homebrew formula name and trademark search for "vivamark".
 - The exact CLI surface and feedback schema (draft in `research/design-proposal.md`, section 2.3, where it uses the working name "stet").
+
+## 2026-10-05: Reports are visual by default
+
+| Topic | Decision | Why |
+|---|---|---|
+| Report pages | `vivamark guide report` teaches a visual report: the full text and tables stay, and inline SVG/HTML visuals go above the sections they summarise, each captioned as the author's summary of a named section. The guide's CSS carries the classes for them. | The reviewer sees the shape first and can still check every claim against the text under it. |
+| Visuals | Never a chart library or any external resource. | Keeps the no-outbound-requests promise. |
