@@ -139,6 +139,12 @@ test('a version is kept on open, read, Send, save and end; identical content is 
   assert.equal(v.versions.length, 4);
   assert.ok(['save', 'read'].includes(v.versions[3].cause));
   ws.close();
+  // The close reaches the server asynchronously. Until it does, the page still
+  // counts as open and its watcher would rightly keep the next write as a save.
+  assert.ok(
+    await until(async () => JSON.parse((await world.cli(['status', s.file, '--json'])).stdout).reviewer === 'disconnected'),
+    'the server saw the page close',
+  );
 
   // Ending the review keeps the file as it was at the end.
   fs.writeFileSync(s.file, original);
