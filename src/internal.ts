@@ -9,3 +9,4 @@ export { Store } from './store.js';
 export { cssEscape, cssPath, loadDoc, locate, resolveSelector } from './doc.js';
 export { diffText, editScript, tokenize } from './diff.js';
 export { GUIDE_SCHEMA, PAGE_CSS, TOPICS, guideIndex, skillMarkdown } from './guide.js';
+export { browserCommands, browserEntry, defaultBrowser, openBrowser, splitBrowserList } from './browser.js';

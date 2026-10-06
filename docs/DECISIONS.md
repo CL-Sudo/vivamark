@@ -78,3 +78,14 @@ the reviewer's sent notes sat unread.
 | Port fallback | Unchanged: a busy preferred port still falls back to a random one. | The sandbox case it serves has no other server running. |
 
 This supersedes nothing.
+
+## 2026-10-06: The reviewer's browser follows BROWSER
+
+Asked: "fix vivamark to respect BROWSER". On WSL, `open` started the Windows
+default browser while the reviewer uses another.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Which browser | `open` starts the commands in `BROWSER` in order, then the platform default as before. Entries are separated by `:` (`;` on Windows), keeping a drive letter's colon. An entry without `%s` is one program, spaces and all, given the URL; one with `%s` is split into words (quotes group) with `%s` as the URL. Run without a shell; an entry that fails to start gives way to the next. `--no-browser` still opens nothing. | The common convention of `xdg-open` and Python's `webbrowser`, made safe for WSL's `/mnt/c/Program Files/...` paths without quoting, and with no shell to interpret the URL. |
+
+This supersedes nothing.

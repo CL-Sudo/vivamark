@@ -1,10 +1,10 @@
 // The agent's only interface. stdout carries the result; progress and
 // heartbeats go to stderr, so an agent can read stdout as the answer.
 
-import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { openBrowser } from './browser.js';
 import { ApiError, ensureDaemon, mayBeRunning, request, runningDaemon, stopDaemon } from './client.js';
 import { eventsPath, parseEventLines } from './events.js';
 import type { VivamarkEvent } from './events.js';
@@ -22,7 +22,9 @@ const HELP = `vivamark ${VERSION}: ${TAGLINE}
 Usage:
   vivamark open <file.html> [--label k=v]... [--no-browser] [--json]
       Start (or resume) a review of a saved HTML or Markdown (.md) file and open
-      it in the browser. Markdown is rendered with raw HTML shown as text.
+      it in the browser: the one BROWSER names, else the system's default (see
+      Environment). --no-browser opens none. The URL is always printed. Markdown
+      is rendered with raw HTML shown as text.
   vivamark wait <file|session> [--after <seq>] [--timeout <dur>] [--owner <name>]
                 [-m <text> | --reply-file <file>] [--json]
       Block until the reviewer sends notes or a decision, then print them.
@@ -119,6 +121,17 @@ Notify hook (set only by you, never by a page or a request):
   Read when the server starts: run vivamark stop to apply a change.
 
 Environment:
+  BROWSER                       the browser open starts, instead of the system's
+                                default. Commands separated by : (; on Windows),
+                                tried in order; a drive letter's colon (C:\\) is
+                                kept. Without %s, the whole entry is one program,
+                                spaces and all, given the URL:
+                                  BROWSER="/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+                                With %s, it is a command line split on spaces
+                                ('...' or "..." keep them) and %s is the URL:
+                                  BROWSER="firefox --new-window %s"
+                                Run without a shell. If none starts, the system's
+                                default opens it.
   VIVAMARK_STATE_DIR            state directory (default $XDG_STATE_HOME/vivamark
                                 or ~/.local/state/vivamark)
   VIVAMARK_DISCONNECT_GRACE_MS  how long wait goes on after the review page went
@@ -153,37 +166,6 @@ function sessionFor(ref: string): SessionRecord {
 
 function quote(s: string): string {
   return /^[A-Za-z0-9_./:@%+=-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-function isWsl(): boolean {
-  try {
-    return /microsoft/i.test(fs.readFileSync('/proc/version', 'utf8'));
-  } catch {
-    return false;
-  }
-}
-
-function has(cmd: string): boolean {
-  return spawnSync('sh', ['-c', `command -v ${cmd}`], { stdio: 'ignore' }).status === 0;
-}
-
-/** Opens the URL in the person's browser. A local process only; the URL is always printed as well. */
-function openBrowser(url: string): void {
-  let cmd: string;
-  let args: string[];
-  if (process.platform === 'darwin') [cmd, args] = ['open', [url]];
-  else if (process.platform === 'win32') [cmd, args] = ['explorer.exe', [url]];
-  else if (isWsl()) {
-    if (has('wslview')) [cmd, args] = ['wslview', [url]];
-    else [cmd, args] = ['powershell.exe', ['-NoProfile', '-Command', `Start-Process '${url}'`]];
-  } else [cmd, args] = ['xdg-open', [url]];
-  try {
-    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
-    child.on('error', () => process.stderr.write(`vivamark: could not start ${cmd}; open the URL yourself.\n`));
-    child.unref();
-  } catch {
-    process.stderr.write(`vivamark: could not start ${cmd}; open the URL yourself.\n`);
-  }
 }
 
 // ---- open -------------------------------------------------------------------

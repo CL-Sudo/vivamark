@@ -29,7 +29,8 @@ node dist/cli.js open examples/plan.html
 ```
 
 Your browser opens the review page. If it does not, open the URL that the
-command printed. If your browser reaches this machine through a port forwarder
+command printed. To choose the browser, set `BROWSER` (below); `--no-browser`
+opens none. If your browser reaches this machine through a port forwarder
 (VS Code's WSL forwarding, `ssh -L`), keep the path and the `#t=` part of the
 URL and change only the port to the forwarded one. In a second terminal, play
 the agent:
@@ -99,6 +100,33 @@ node dist/cli.js open examples/plan.md
 
 `node dist/cli.js --help` lists every option and what `wait` returns;
 `node dist/cli.js stop` stops the background server.
+
+### Choosing the browser
+
+`open` starts the browser named in `BROWSER` when it is set, and the system's
+default otherwise (`open` on macOS, `explorer.exe` on Windows, `wslview` or
+PowerShell's `Start-Process` on WSL, `xdg-open` elsewhere). On WSL, for
+example, to use Chrome rather than the Windows default:
+
+```sh
+export BROWSER="/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+```
+
+The rules, close to those of `xdg-open` and Python's `webbrowser`:
+
+- `BROWSER` is a list of commands tried in order, separated by `:` (`;` on
+  Windows). A `:` right after a lone drive letter at the start of an entry
+  (`C:\`, `C:/`) is part of the path, not a separator.
+- An entry without `%s` is one program: the whole entry, spaces included, is
+  its path or name, and the URL is its only argument. No quoting needed.
+- An entry with `%s` is a command line. It is split on whitespace, with
+  `'...'` or `"..."` keeping spaces inside one word; `%s` becomes the URL and
+  `%%` a literal `%`. The URL is not added again. For example
+  `BROWSER='"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" --new-window %s'`.
+- Each command runs directly from an argument list, never through a shell.
+- If an entry cannot be started (not found, not executable), the next is
+  tried, and after the last the system's default. A browser that starts and
+  then fails is not noticed. The URL is printed either way.
 
 ![The review page: notes with intents and severities, an approval, and Show changes](docs/screenshots/review-ui.png)
 
