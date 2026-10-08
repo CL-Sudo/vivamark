@@ -194,13 +194,6 @@ async function readRaw(req: IncomingMessage, limit: number, what: string): Promi
   return Buffer.concat(chunks);
 }
 
-/** Offers a file as a download under its cleaned name, never shown inline. */
-function contentDisposition(name: string | undefined): string {
-  if (!name) return 'attachment';
-  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-  return `attachment; filename*=UTF-8''${encoded}`;
-}
-
 /** The largest file the reviewer can attach, and the largest total on one note; images or not. */
 export interface ImageLimits {
   imageBytes: number;
@@ -513,14 +506,9 @@ export class Daemon {
       this.requireSessionToken(req, s);
       const found = this.store.readAttachment(s, m[2]);
       if (!found) throw new HttpError(404, 'no such attachment');
-      const a = found.attachment;
-      // Only a real image is served as itself, for its thumbnail. Any other file is never rendered: a download at most.
-      if (a.mime !== 'application/octet-stream') return send(res, 200, found.data, { 'Content-Type': a.mime, 'Content-Security-Policy': "default-src 'none'" });
-      return send(res, 200, found.data, {
-        'Content-Type': 'application/octet-stream',
-        'Content-Disposition': contentDisposition(a.name),
-        'Content-Security-Policy': "default-src 'none'; sandbox",
-      });
+      // Only a real image is served, for its thumbnail. Any other file is never handed back to the browser.
+      if (found.attachment.mime === 'application/octet-stream') throw new HttpError(404, 'no such attachment');
+      return send(res, 200, found.data, { 'Content-Type': found.attachment.mime, 'Content-Security-Policy': "default-src 'none'" });
     }
     if ((m = /^\/api\/s\/(s_[a-z0-9]+)(\/[a-z-]+)?$/.exec(p))) {
       const s = this.session(m[1]);
