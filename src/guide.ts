@@ -148,6 +148,8 @@ const WORKFLOW = `workflow: running a review
 
 The loop
   1. Write the page (see: vivamark guide <playbook>, design, ids) and save it.
+     Check it with vivamark lint <file>; for a page with figures, read them
+     back too (see: vivamark guide figures).
   2. vivamark open <file>             opens it in the reviewer's browser
   3. vivamark wait <file>             blocks until the reviewer sends or decides
   4. Edit the saved file. The page reloads in place; notes re-attach.
@@ -257,9 +259,11 @@ Classes for visuals (how to use them: vivamark guide report)
             on a narrow screen it scrolls sideways by itself
             In the SVG: text.muted, text.strong; .box (.accent, .q) for a flow
             box, .edge and .arrow for its arrows; .bar (.ok .warn .bad);
-            .dot and .range for a dot or range chart; .gridline, .refline.
+            .dot and .range for a dot or range chart; .gridline, .refline;
+            <g class="axis"> around tick labels and an axis title.
             Never a hard-coded colour: these follow light and dark
-  .viz-caption  the line under a visual: whose summary, of which section
+  .viz-caption  the line under a visual: whose summary, of which section,
+            and what it leaves out (see: vivamark guide figures)
   .legend   keys for colours: <span style="--c: var(--ok)">passed</span>
   .card.ok .card.warn .card.bad  a card with a coloured top edge
   table.matrix  a capability grid of word pills; th.vertical stands a long
@@ -280,7 +284,9 @@ something about:
   - each table row (<tr id="row-canary">); cells are then named by row and
     column automatically, from the row's first cell and the column header
   - each list item that is a step, a finding, a risk or a question
-  - each diagram part: <g id="node-api"> in inline SVG, one per box or series
+  - each diagram part: <g id="node-api"> in inline SVG, one per box or series;
+    each arrow a group naming its ends:
+    <g id="edge-api-writes-db" data-from="node-api" data-to="node-db">
   - each code block or diff hunk, each callout and each card
 
 Why
@@ -414,7 +420,9 @@ A report is visual by default
   page. Nothing is summarised away. Then add visuals where they carry meaning,
   each just above the section it summarises, so the reviewer sees the shape
   first and the detail under it. A visual is your summary of a named section,
-  never a replacement for it. Where no visual fits, write none.
+  never a replacement for it. Where no visual fits, write none. Before you
+  draw, read vivamark guide figures: the fidelity checklist, which diagram
+  fits which text, and the checks to run before opening.
 
 Sections, in this order
   1. Title, .eyebrow "Report", .lede: the outcome in two sentences. Good or bad
@@ -469,6 +477,9 @@ Rules for every visual
     as your reading in the caption, and the table or text it came from stays
     on the page.
   - Add no claim: every number and verdict in a visual is in the text too.
+  - Say what it leaves out: when it covers less than its section, the
+    caption ends with a coverage line ("Shows 6 of the 9 steps; retries and
+    logging are in the text.").
   - Never colour alone: a word beside each colour, a legend for each series.
   - An id on every box, bar, dot and grid row (see: vivamark guide ids);
     role="img" and a one-sentence aria-label on each <svg>.
@@ -477,6 +488,8 @@ Rules for every visual
   - Phone width: a viewBox about 640 wide, short labels; the .viz box scrolls
     by itself if it must, the page never sideways.
   - Inline only: no chart library, no script, no external image or font.
+  - Before vivamark open: vivamark lint <file>, and for a flow, sequence,
+    state or architecture figure the read-back (see: vivamark guide figures).
 
 What to make pointable
   Every finding, every card item, every table row, every piece of evidence,
@@ -489,6 +502,128 @@ Pitfalls
   - Pasting long logs. Quote the lines that matter in <pre>; say where the rest is.
   - A chart for its own sake: two numbers read better in a sentence.
   - Dropping the table once it is drawn: the visual summarises, the table proves.
+`;
+
+const FIGURES = `figures: drawing a section without losing its facts
+
+A figure is your summary of one section; the full text stays on the page
+under it and carries everything. A faithful figure adds nothing, distorts
+nothing, and says what it left out. It need not draw everything.
+
+The checklist
+   1. List before you draw. From the section, write down the things it
+      names; what each does to another, in the section's own verb; every
+      number with its unit; every condition ("if", "only when", "unless");
+      every order; every hedge ("about", "may", "not checked"). Check the
+      drawing against the list, never the other way round.
+   2. Draw only what the list holds. No new box, arrow, number, duration,
+      share, step, loop or group. A detail you do not know stays out; an
+      item with no stated position sits in its zone and no finer.
+   3. Every arrow carries the section's verb ("writes", "retries 3 times").
+      A condition sits on the arrow it limits ("only if approved"), not in
+      a note beside it.
+   4. Numbers exactly as written, with unit and qualifier ("about 20 min",
+      "7-59 min"). Never round, convert, total or average unless the text
+      does. A number you work out shows its working in the caption
+      ("160 = 99 + 60 + 1").
+   5. A mark's size is its number: bar length, dot position and funnel
+      width are the value times one scale for the whole figure, on one
+      axis, bars from zero. A log scale only when the caption says so.
+      Write the value beside the mark and in its <title>. Tick labels and
+      the axis title go in a <g class="axis">: a scale, not a claim.
+   6. Keep the section's names. Shorten, never rename ("Postgres" does not
+      become "the database"); a shortened label keeps the full name in its
+      <title>.
+   7. Keep the distinctions the text makes: done or planned; failed,
+      skipped or not reached; measured or estimated; required or optional.
+      Each gets its own word or pill, never colour alone.
+   8. Keep hedges visible: an "about" or "not checked" in the text shows on
+      the mark (~, a dashed outline, .pill.nd) and in the caption.
+   9. One drawn part per claim, one connector per relation. No decoration
+      that reads as a second path.
+  10. Say what you left out. Whenever the figure covers less than its
+      section, the caption ends with a coverage line, starting "Shows":
+        Shows 6 of the 9 steps; retries and logging are in the text.
+      A grouping, rank or colour you chose is named as your reading.
+  11. Too much for one picture: an overview plus small multiples. Never
+      smaller type or merged boxes.
+  12. The aria-label states the section's finding at its own strength:
+      "7 of 14 failed", not "most failed".
+  13. Read it back before opening (Checks, below): from the figure alone,
+      list what it claims. Each claim must be on the list from rule 1, and
+      each list item drawn or named in the coverage line.
+  14. Pair parts with their source. A part's id echoes its row, finding or
+      step (row-canary, viz-canary). An arrow is a group naming its ends:
+        <g id="edge-api-writes-db" data-from="node-api" data-to="node-db">
+          <path class="edge" d="..."/><text ...>writes</text></g>
+
+Pick the diagram by the shape of the text
+  Steps in order          a flow, in rows past 4 boxes: the verb on every
+                          arrow; box numbers match the text's numbering
+  Branching rules         a decision flow: a diamond per condition the text
+                          states, each exit labelled in its words; no
+                          "else" the text lacks
+  Status or lifecycle     a state machine: a box per state the text names,
+                          each transition labelled with its trigger,
+                          terminal states marked
+  Actors exchanging       a sequence: a lane per actor, arrows in the text's
+  messages                order, returns dashed, async marked
+  Components, and who     architecture: boundaries only where the text
+  calls whom              states one (trust, process, machine); show the
+                          path the argument hinges on
+  Before and after,       two small flows on one scale: only what changes
+  option A and B          in the accent colour, the rest identical
+  Who can do what         a capability grid (see: vivamark guide report)
+  A number per item       bars: value times one scale, from zero, the
+                          value at the bar's end, a status colour with its word
+  Durations or sizes      a dot or range chart: a dot per value; a log scale
+                          only past 10x, and the caption says so
+  Counts through stages   a funnel: width as a share of the first stage; a
+                          share the text lacks is worked out in the caption
+  Part of a whole         one stacked bar: segments add up to the stated
+                          total, the sum in the caption
+  Dated events            a timeline to scale: marks placed by date, the
+                          date words beside them, "~" for approximate dates
+  Causes of one effect    a cause-effect chain or a fishbone: only causes the
+                          text asserts; suspected causes dashed
+  Hierarchy, ownership    a tree or nested boxes: containment only where the
+                          text says "part of" or "owns"
+  Cases, failure modes    small multiples: the same mini diagram per case,
+                          differences in the accent colour
+  Two-axis positioning    a 2x2, only when the text gives both axes; an item
+                          with no stated position sits in its quadrant only
+  Ranked ideas            grouped cards: rank and group as the text gives
+                          them; your own ranking named as your reading
+  Cycle or feedback       a loop, only when the text says the end feeds the
+                          start; name the link
+  Definitions, reasoning, no visual: write the sentence
+  one or two numbers
+
+Checks, before vivamark open
+  vivamark lint <file>  on every page. Exit 0 clean, 1 errors, 2 warnings.
+    Errors: an <svg> without role="img" and an aria-label; a caption that
+    does not start "Author's summary of" or links no id on the page; a
+    duplicate part id; fill="#..." or stroke="#..."; a script; an external
+    URL; a number of two or more digits in a figure that is not in the
+    linked section's text (or worked out in the caption, rule 4); bars not
+    drawn to one scale from the value in their <title>. Warnings: label
+    words not in the section; no coverage line where the section has more
+    items than the figure has parts; an arrow group without data-from and
+    data-to. Fix every error; fix each warning or know why it is wrong.
+  The read-back (rule 13), for flow, sequence, state and architecture
+  figures (vivamark figures marks them "read back: yes"):
+    1. vivamark figures <file> prints each figure with its caption and,
+       apart, the text of the sections its caption links to.
+    2. Give a fresh subagent the figure and caption alone. It lists every
+       atomic claim it reads, one per line: who does what to whom, each
+       number, condition and order.
+    3. Then give it the section text. It marks each claim supported,
+       unsupported or overstated, and lists the section's facts that are
+       neither drawn nor named in the coverage line.
+    4. Fix each unsupported or overstated claim and each unnamed gap; lint
+       again. No subagent: list the claims yourself before rereading.
+  vivamark open runs lint too and prints what it finds; it never stops the
+  page from opening.
 `;
 
 const COMPARISON = `comparison: options side by side, so the reviewer can choose
@@ -528,7 +663,9 @@ Sections, in this order
   1. Title, .eyebrow "Explainer", .lede: what it is and why it matters, in two
      sentences.
   2. The picture: one inline SVG diagram of the parts and how they connect,
-     each part a <g id="part-queue"> with a text label.
+     each part a <g id="part-queue"> with a text label, each arrow a <g>
+     with data-from and data-to. Draw and check it as vivamark guide figures
+     says; it is an architecture or flow figure, so read it back.
   3. The walk-through: one section per step or part, in the order things
      happen, each with an id and a short code excerpt where it helps.
   4. Edge cases and gotchas: one list item each.
@@ -606,6 +743,7 @@ export const TOPICS: readonly GuideTopic[] = [
   { name: 'decisions', summary: 'ask for choices in a "Your input" card with real controls; open questions to point at', text: DECISIONS },
   { name: 'plan', summary: 'playbook: a plan to approve before building, ending on decisions', text: PLAN },
   { name: 'report', summary: 'playbook: results, findings with evidence, what was not done; visual by default', text: REPORT },
+  { name: 'figures', summary: 'drawing a section without losing its facts: the checklist, which diagram, lint and read-back', text: FIGURES },
   { name: 'comparison', summary: 'playbook: options side by side, criteria as rows', text: COMPARISON },
   { name: 'explainer', summary: 'playbook: how something works, around one labelled diagram', text: EXPLAINER },
   { name: 'diff', summary: 'playbook: a code change, one pointable row per line', text: DIFF },
@@ -626,7 +764,8 @@ export function guideIndex(): string {
     `vivamark guide: how to write a page worth reviewing, and how to run the review.\n\n` +
     `Topics (vivamark guide <topic>):\n${topicList('  ')}\n\n` +
     `Start with workflow. Then read the playbook for your page (plan, report,\n` +
-    `comparison, explainer or diff), design and ids. --json gives the same as data.\n`
+    `comparison, explainer or diff), design and ids; figures before you draw one.\n` +
+    `--json gives the same as data.\n`
   );
 }
 

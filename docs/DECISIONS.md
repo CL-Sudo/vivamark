@@ -89,3 +89,19 @@ default browser while the reviewer uses another.
 | Which browser | `open` starts the commands in `BROWSER` in order, then the platform default as before. Entries are separated by `:` (`;` on Windows), keeping a drive letter's colon. An entry without `%s` is one program, spaces and all, given the URL; one with `%s` is split into words (quotes group) with `%s` as the URL. Run without a shell; an entry that fails to start gives way to the next. `--no-browser` still opens nothing. | The common convention of `xdg-open` and Python's `webbrowser`, made safe for WSL's `/mnt/c/Program Files/...` paths without quoting, and with no shell to interpret the URL. |
 
 This supersedes nothing.
+
+## 2026-10-08: Figures that keep the text's facts
+
+Asked: how to draw a section "without losing any of the meanings and facts",
+and whether to check it.
+
+| Topic | Decision | Why |
+|---|---|---|
+| What fidelity means | A figure adds nothing, distorts nothing, and says what it left out. The full text under it carries everything; the figure need not draw all of it. | Drawing every fact would take many figures per section and defeat the at-a-glance purpose. The page already keeps the full text. |
+| The coverage line | Whenever a figure covers less than its section, its caption ends with a line saying what it shows and what is left to the text ("Shows 6 of the 9 steps; retries and logging are in the text."). | What a figure leaves out is then stated, not silently lost. |
+| The guide | `vivamark guide figures`: a 14-rule checklist (list the section's facts first, draw only from the list, read it back) and a map from the shape of the text to a diagram and its drawing rule. `report` points to it. Arrows are `<g>` groups with `data-from` and `data-to`; tick labels sit in `<g class="axis">`. | Gathered from published diagram and chart-faithfulness work: list, draw from the list, check back. Machine-readable relations let a check rebuild the graph without vision. |
+| Checking | `vivamark lint`: deterministic, offline, never writes the page. Errors for markup and provenance breaks, numbers not in the linked text, bars not on one scale; warnings for label words, a missing coverage line, arrows without ends. Exit 0, 1 errors, 2 warnings only. `vivamark open` runs it and prints what it finds, and opens the page anyway. | Cheap and catches most invented numbers and markup breaks, but not wrong or missing relations. A warning must not stand between the reviewer and the page. |
+| The read-back | For flow, sequence, state and architecture figures, the authoring agent has a fresh reader list the claims of the figure alone, then compares them with the section. `vivamark figures` prints each figure and, apart, the text it summarises. vivamark itself calls no model. | Relations are the main failure and need reading, not counting. Keeping the model call with the agent keeps vivamark free of outbound requests. |
+| Which rules govern | vivamark pages follow vivamark's own guide (inline SVG, tokens, offline, no script), not the conventions of other diagram tools or skills. | Tools that produce image files or need a server cannot give inline, pointable, offline figures. |
+
+This supersedes nothing. It extends "Reports are visual by default".

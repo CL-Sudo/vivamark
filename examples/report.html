@@ -162,21 +162,21 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
   <section id="pipeline">
     <h2>How the pipeline runs</h2>
     <figure class="viz card" id="viz-flow">
-<svg viewBox="0 0 640 180" role="img" aria-label="The pipeline in six steps: checkout, restore cache, install dependencies, build, test, save cache. Restore and save are new in the trial.">
+<svg viewBox="0 0 640 180" role="img" aria-label="The pipeline in six steps: checkout, restore cache, install dependencies, build, test, save cache. Restore and save were added in the trial.">
 <defs><marker id="viz-arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="arrow" d="M0,0 L10,5 L0,10 z"/></marker></defs>
 <g id="viz-flow-checkout"><title>Checkout: Unchanged by the cache.</title><rect class="box" x="10" y="10" width="180" height="58" rx="10"/><text class="strong" x="22" y="34">1 · Checkout</text><text class="muted" x="22" y="54">4–6 s</text></g>
-<path class="edge" marker-end="url(#viz-arrowhead)" d="M192,39 H226"/>
-<g id="viz-flow-restore"><title>Restore cache: 3 s on a miss, up to 41 s on a full hit.</title><rect class="box accent" x="230" y="10" width="180" height="58" rx="10"/><text class="strong" x="242" y="34">2 · Restore cache</text><text class="muted" x="242" y="54">new in the trial</text></g>
-<path class="edge" marker-end="url(#viz-arrowhead)" d="M412,39 H446"/>
-<g id="viz-flow-install"><title>Install deps: 12 s on a hit, 3.1 min on a miss.</title><rect class="box" x="450" y="10" width="180" height="58" rx="10"/><text class="strong" x="462" y="34">3 · Install deps</text><text class="muted" x="462" y="54">12 s–3.1 min</text></g>
+<g id="viz-flow-edge-checkout-restore" data-from="viz-flow-checkout" data-to="viz-flow-restore"><path class="edge" marker-end="url(#viz-arrowhead)" d="M192,39 H226"/></g>
+<g id="viz-flow-restore"><title>Restore cache: 3 s on a miss, up to 41 s on a full hit.</title><rect class="box accent" x="230" y="10" width="180" height="58" rx="10"/><text class="strong" x="242" y="34">2 · Restore cache</text><text class="muted" x="242" y="54">added in the trial</text></g>
+<g id="viz-flow-edge-restore-install" data-from="viz-flow-restore" data-to="viz-flow-install"><path class="edge" marker-end="url(#viz-arrowhead)" d="M412,39 H446"/></g>
+<g id="viz-flow-install"><title>Install dependencies: 12 s on a hit, 3.1 min on a miss.</title><rect class="box" x="450" y="10" width="180" height="58" rx="10"/><text class="strong" x="462" y="34">3 · Install deps</text><text class="muted" x="462" y="54">12 s–3.1 min</text></g>
 <g id="viz-flow-build"><title>Build: Gains least on a stale hit: a failed build still runs most of the way.</title><rect class="box" x="10" y="112" width="180" height="58" rx="10"/><text class="strong" x="22" y="136">4 · Build</text><text class="muted" x="22" y="156">55 s–5.2 min</text></g>
-<path class="edge" marker-end="url(#viz-arrowhead)" d="M192,141 H226"/>
+<g id="viz-flow-edge-build-test" data-from="viz-flow-build" data-to="viz-flow-test"><path class="edge" marker-end="url(#viz-arrowhead)" d="M192,141 H226"/></g>
 <g id="viz-flow-test"><title>Test: Unchanged by the cache.</title><rect class="box" x="230" y="112" width="180" height="58" rx="10"/><text class="strong" x="242" y="136">5 · Test</text><text class="muted" x="242" y="156">1.9–2.6 min</text></g>
-<path class="edge" marker-end="url(#viz-arrowhead)" d="M412,141 H446"/>
-<g id="viz-flow-save"><title>Save cache: Runs on every passed run; 35 s after a cold run.</title><rect class="box accent" x="450" y="112" width="180" height="58" rx="10"/><text class="strong" x="462" y="136">6 · Save cache</text><text class="muted" x="462" y="156">new; passed runs only</text></g>
-<path class="edge" marker-end="url(#viz-arrowhead)" d="M540,70 V90 H100 V108"/>
+<g id="viz-flow-edge-test-save" data-from="viz-flow-test" data-to="viz-flow-save"><path class="edge" marker-end="url(#viz-arrowhead)" d="M412,141 H446"/></g>
+<g id="viz-flow-save"><title>Save cache: Runs on every passed run; 35 s after a cold run.</title><rect class="box accent" x="450" y="112" width="180" height="58" rx="10"/><text class="strong" x="462" y="136">6 · Save cache</text><text class="muted" x="462" y="156">added; passed runs only</text></g>
+<g id="viz-flow-edge-install-build" data-from="viz-flow-install" data-to="viz-flow-build"><path class="edge" marker-end="url(#viz-arrowhead)" d="M540,70 V90 H100 V108"/></g>
 </svg>
-      <figcaption class="viz-caption">Author's summary of <a href="#pipeline-steps">the steps below</a>. Highlighted: the two steps the trial added. Hover a box for its timing.</figcaption>
+      <figcaption class="viz-caption">Author's summary of <a href="#pipeline-steps">the steps below</a>, with each step's time from <a href="#step-times">the step times table</a> and what <a href="#changed-table">changed</a>. Highlighted: the two steps the trial added. Hover a box for its timing.</figcaption>
     </figure>
     <ol id="pipeline-steps">
       <li id="pipeline-checkout"><strong>Checkout.</strong> Unchanged by the cache.</li>
@@ -201,6 +201,7 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
     <figure class="viz card" id="viz-runs">
       <div class="legend"><span style="--c: var(--ok)">passed</span><span style="--c: var(--bad)">failed</span></div>
 <svg viewBox="0 0 640 264" role="img" aria-label="Minutes per run for the 10 runs with the cache: from 3.8 to 11.2 minutes; 8 passed and 2 failed. The dashed line is the 9.0 minute median without the cache.">
+<g class="axis">
 <line class="gridline" x1="72" y1="10" x2="72" y2="230"/><text class="muted" x="72" y="244" text-anchor="middle">0</text>
 <line class="gridline" x1="152" y1="10" x2="152" y2="230"/><text class="muted" x="152" y="244" text-anchor="middle">2</text>
 <line class="gridline" x1="232" y1="10" x2="232" y2="230"/><text class="muted" x="232" y="244" text-anchor="middle">4</text>
@@ -208,6 +209,8 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
 <line class="gridline" x1="392" y1="10" x2="392" y2="230"/><text class="muted" x="392" y="244" text-anchor="middle">8</text>
 <line class="gridline" x1="472" y1="10" x2="472" y2="230"/><text class="muted" x="472" y="244" text-anchor="middle">10</text>
 <line class="gridline" x1="552" y1="10" x2="552" y2="230"/><text class="muted" x="552" y="244" text-anchor="middle">12</text>
+<text class="muted" x="72" y="260">minutes per run</text>
+</g>
 <g id="viz-runs-baseline"><title>No cache: median 9.0 min over the 10 runs before the trial</title><line class="refline" x1="432" y1="6" x2="432" y2="230"/></g>
 <g id="viz-run-01"><title>run-01: 11.2 min, passed (cold: first run, empty cache)</title><text x="64" y="25" text-anchor="end">run-01</text><rect class="bar ok" x="72" y="13" width="448" height="16" rx="4"/><text class="muted" x="526" y="25">11.2 min · passed</text></g>
 <g id="viz-run-02"><title>run-02: 4.1 min, passed (cache hit)</title><text x="64" y="47" text-anchor="end">run-02</text><rect class="bar ok" x="72" y="35" width="164" height="16" rx="4"/><text class="muted" x="242" y="47">4.1 min · passed</text></g>
@@ -219,9 +222,9 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
 <g id="viz-run-08"><title>run-08: 4.2 min, passed (cache hit)</title><text x="64" y="179" text-anchor="end">run-08</text><rect class="bar ok" x="72" y="167" width="168" height="16" rx="4"/><text class="muted" x="246" y="179">4.2 min · passed</text></g>
 <g id="viz-run-09"><title>run-09: 7.3 min, failed (stale cache: same cause as run-04)</title><text x="64" y="201" text-anchor="end">run-09</text><rect class="bar bad" x="72" y="189" width="292" height="16" rx="4"/><text class="muted" x="370" y="201">7.3 min · failed</text></g>
 <g id="viz-run-10"><title>run-10: 4.0 min, passed (cache hit)</title><text x="64" y="223" text-anchor="end">run-10</text><rect class="bar ok" x="72" y="211" width="160" height="16" rx="4"/><text class="muted" x="238" y="223">4.0 min · passed</text></g>
-<text class="muted" x="72" y="260">minutes per run; dashed line: median without the cache, 9.0 min</text>
+<text class="muted" x="300" y="260">dashed line: median before the cache, 9.0 min</text>
 </svg>
-      <figcaption class="viz-caption">Author's summary of <a href="#runs">the runs table</a>: minutes per run and its result, as recorded there.</figcaption>
+      <figcaption class="viz-caption">Author's summary of <a href="#runs">the runs table</a>: minutes per run and its result, as recorded there. The dashed median is from <a href="#finding-speed">the first finding</a>.</figcaption>
     </figure>
     <div class="scroll">
       <table id="runs">
@@ -243,20 +246,22 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
 
     <h3 id="step-times-title">Time per step</h3>
     <figure class="viz card" id="viz-step-times">
-<svg viewBox="0 0 640 200" role="img" aria-label="Time per pipeline step on a log scale, lowest to highest over the 10 runs: install dependencies and build vary most, checkout and test barely at all.">
+<svg viewBox="0 0 640 200" role="img" aria-label="Time per pipeline step on a log scale, lowest to highest: install dependencies and build vary most, checkout and test barely at all.">
+<g class="axis">
 <line class="gridline" x1="150" y1="10" x2="150" y2="166"/><text class="muted" x="150" y="180" text-anchor="middle">2 s</text>
 <line class="gridline" x1="254.4" y1="10" x2="254.4" y2="166"/><text class="muted" x="254.4" y="180" text-anchor="middle">10 s</text>
 <line class="gridline" x1="325.7" y1="10" x2="325.7" y2="166"/><text class="muted" x="325.7" y="180" text-anchor="middle">30 s</text>
 <line class="gridline" x1="370.6" y1="10" x2="370.6" y2="166"/><text class="muted" x="370.6" y="180" text-anchor="middle">1 min</text>
 <line class="gridline" x1="441.9" y1="10" x2="441.9" y2="166"/><text class="muted" x="441.9" y="180" text-anchor="middle">3 min</text>
 <line class="gridline" x1="520" y1="10" x2="520" y2="166"/><text class="muted" x="520" y="180" text-anchor="middle">10 min</text>
+<text class="muted" x="150" y="196">time per step, log scale (each gridline is about three times the last)</text>
+</g>
 <g id="viz-time-checkout"><title>Checkout: 4 s–6 s</title><text x="142" y="27" text-anchor="end">Checkout</text><rect class="range" x="195" y="18" width="26.3" height="10" rx="5"/><circle class="dot" cx="195" cy="23" r="5"/><circle class="dot" cx="221.3" cy="23" r="5"/><text class="muted" x="231.3" y="27">4 s–6 s</text></g>
 <g id="viz-time-restore"><title>Restore cache: 3 s–41 s</title><text x="142" y="53" text-anchor="end">Restore cache</text><rect class="range" x="176.3" y="44" width="169.6" height="10" rx="5"/><circle class="dot" cx="176.3" cy="49" r="5"/><circle class="dot" cx="345.9" cy="49" r="5"/><text class="muted" x="355.9" y="53">3 s–41 s</text></g>
 <g id="viz-time-install"><title>Install dependencies: 12 s–3.1 min</title><text x="142" y="79" text-anchor="end">Install dependencies</text><rect class="range" x="266.2" y="70" width="177.8" height="10" rx="5"/><circle class="dot" cx="266.2" cy="75" r="5"/><circle class="dot" cx="444" cy="75" r="5"/><text class="muted" x="454" y="79">12 s–3.1 min</text></g>
 <g id="viz-time-build"><title>Build: 55 s–5.2 min</title><text x="142" y="105" text-anchor="end">Build</text><rect class="range" x="365" y="96" width="112.6" height="10" rx="5"/><circle class="dot" cx="365" cy="101" r="5"/><circle class="dot" cx="477.6" cy="101" r="5"/><text class="muted" x="487.6" y="105">55 s–5.2 min</text></g>
 <g id="viz-time-test"><title>Test: 1.9 min–2.6 min</title><text x="142" y="131" text-anchor="end">Test</text><rect class="range" x="412.3" y="122" width="20.3" height="10" rx="5"/><circle class="dot" cx="412.3" cy="127" r="5"/><circle class="dot" cx="432.6" cy="127" r="5"/><text class="muted" x="442.6" y="131">1.9 min–2.6 min</text></g>
 <g id="viz-time-save"><title>Save cache: 9 s–35 s</title><text x="142" y="157" text-anchor="end">Save cache</text><rect class="range" x="247.6" y="148" width="88.1" height="10" rx="5"/><circle class="dot" cx="247.6" cy="153" r="5"/><circle class="dot" cx="335.7" cy="153" r="5"/><text class="muted" x="345.7" y="157">9 s–35 s</text></g>
-<text class="muted" x="150" y="196">time per step, log scale (each gridline is about three times the last)</text>
 </svg>
       <figcaption class="viz-caption">Author's summary of <a href="#step-times">the step times table</a>: lowest and highest time of each step over the 10 runs, on a <strong>log scale</strong> so seconds and minutes fit on one axis.</figcaption>
     </figure>
@@ -349,7 +354,7 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
         </ol>
       </div>
     </div>
-    <p class="viz-caption" id="ideas-caption">Grouped by the author's estimate of the work, ranked within each group by expected time saved.</p>
+    <p class="meta" id="ideas-caption">Grouped by the author's estimate of the work, ranked within each group by expected time saved.</p>
   </section>
 
   <section id="sources">

@@ -12,7 +12,7 @@ import { ROOT, makeWorld, runCli } from './helpers/harness.mjs';
 
 const NO_STATE = '/nonexistent/vivamark-guide-should-not-be-created';
 const env = { ...process.env, VIVAMARK_STATE_DIR: NO_STATE };
-const REQUIRED = ['workflow', 'design', 'ids', 'plan', 'report', 'comparison', 'explainer', 'diff', 'markdown'];
+const REQUIRED = ['workflow', 'design', 'ids', 'plan', 'report', 'figures', 'comparison', 'explainer', 'diff', 'markdown'];
 
 test('guide prints an index of every topic, without a server or state', async () => {
   const r = await runCli(['guide'], env);

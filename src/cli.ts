@@ -9,6 +9,8 @@ import { ApiError, ensureDaemon, mayBeRunning, request, runningDaemon, stopDaemo
 import { eventsPath, parseEventLines } from './events.js';
 import type { VivamarkEvent } from './events.js';
 import { GUIDE_SCHEMA, TAGLINE, TOPICS, findTopic, guideIndex } from './guide.js';
+import { FIGURES_SCHEMA, lintExitCode, lintPage, pageFigures, renderFigures, renderLint } from './lint.js';
+import type { LintResult } from './lint.js';
 import { FEEDBACK_SCHEMA } from './schema.js';
 import type { Anchor, Decision, Note, NoteKind } from './schema.js';
 import { findSession, readServerInfo, stateDir } from './store.js';
@@ -83,6 +85,21 @@ Usage:
       How to run a review and write a page worth reviewing: the workflow, the
       page design (ready CSS), stable ids, and playbooks for a plan, report,
       comparison, explainer or diff. Without a topic, lists the topics.
+  vivamark lint <page.html> [--json]
+      Check a page's figures against the text they summarise (vivamark guide
+      figures), offline, without changing the page. Errors: an SVG without
+      role="img" and an aria-label; a caption not starting "Author's summary
+      of" or not linking a section on the page; a duplicate part id; a hex
+      fill or stroke; a script; an external URL; a number of two or more
+      digits in a figure that is not in the linked section; bars not drawn to
+      one scale. Warnings: label words not in the section; no coverage line
+      where the section has more items than the figure has parts; an arrow
+      group without data-from and data-to.
+      Exit 0 clean, 1 errors (or the page cannot be read), 2 warnings only.
+  vivamark figures <page.html> [--json]
+      Print each figure (.viz) as saved, with its caption, and apart from it
+      the text of the section(s) its caption links to: for a read-back check,
+      give a fresh reader the figure alone first, the section after.
   vivamark stop
       Stop the background review server.
 
@@ -204,6 +221,7 @@ async function cmdOpen(argv: string[]): Promise<void> {
     ? 'for decisions, tables or a diff a structured HTML page is often better: vivamark guide markdown'
     : 'how to write a page worth reviewing: vivamark guide';
   if (!values['no-browser'] && process.env.VIVAMARK_NO_BROWSER !== '1') openBrowser(url);
+  lintOnOpen(file);
   if (values.json) {
     process.stdout.write(
       JSON.stringify({ schema: 'vivamark.open/1', session: { id: res.id, file: res.file, status: 'open', labels: res.labels }, url, created: res.created, next, guide }) + '\n',
@@ -708,6 +726,59 @@ function cmdGuide(argv: string[]): void {
   else process.stdout.write(t.text);
 }
 
+// ---- lint and figures ---------------------------------------------------------------
+
+/** Reads one HTML page for lint or figures. Usage problems exit 1 here: lint's 2 means warnings. */
+function readPage(cmd: string, argv: string[]): { file: string; html: string; json: boolean } {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { json: { type: 'boolean' } } });
+  } catch (err) {
+    fail(`${(err as Error).message}\nRun vivamark --help for usage.`);
+  }
+  const { values, positionals } = parsed;
+  if (positionals.length !== 1) fail(`${cmd} takes exactly one .html file\nRun vivamark --help for usage.`);
+  const file = path.resolve(positionals[0]);
+  if (!/\.html?$/i.test(file)) fail(`${cmd} reads .html and .htm pages`);
+  let html: string;
+  try {
+    html = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    fail(`cannot read ${file}: ${(err as Error).message}`);
+  }
+  return { file, html, json: !!values.json };
+}
+
+function cmdLint(argv: string[]): void {
+  const { file, html, json } = readPage('lint', argv);
+  const r = lintPage(html);
+  process.stdout.write(json ? JSON.stringify({ ...r, file }) + '\n' : renderLint(r, file));
+  process.exitCode = lintExitCode(r);
+}
+
+function cmdFigures(argv: string[]): void {
+  const { file, html, json } = readPage('figures', argv);
+  const figures = pageFigures(html);
+  process.stdout.write(json ? JSON.stringify({ schema: FIGURES_SCHEMA, file, figures }) + '\n' : renderFigures(figures, file));
+}
+
+/** open lints an HTML page and prints what it finds on stderr. It never stops the page from opening. */
+function lintOnOpen(file: string): void {
+  if (!/\.html?$/i.test(file)) return;
+  let r: LintResult;
+  try {
+    r = lintPage(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return;
+  }
+  if (!r.problems.length) return;
+  const shown = r.problems.slice(0, 8).map((p) => `  ${p.severity} ${p.rule}${p.line ? ` (line ${p.line})` : ''}: ${p.message}`);
+  if (r.problems.length > shown.length) shown.push(`  ... and ${r.problems.length - shown.length} more`);
+  process.stderr.write(
+    `lint: ${r.errors} error${r.errors === 1 ? '' : 's'}, ${r.warnings} warning${r.warnings === 1 ? '' : 's'} (the page opened anyway; details: vivamark lint ${quote(file)})\n${shown.join('\n')}\n`,
+  );
+}
+
 // ---- stop -------------------------------------------------------------------------
 
 async function cmdStop(): Promise<void> {
@@ -756,6 +827,10 @@ export async function main(argv: string[]): Promise<void> {
         return await cmdShow(rest);
       case 'guide':
         return cmdGuide(rest);
+      case 'lint':
+        return cmdLint(rest);
+      case 'figures':
+        return cmdFigures(rest);
       case 'stop':
         return await cmdStop();
       case '__daemon': {

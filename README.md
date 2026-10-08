@@ -151,6 +151,26 @@ node dist/cli.js guide plan       # one topic
 node dist/cli.js guide ids --json # the same, as data
 ```
 
+A figure adds nothing, distorts nothing, and says what it left out: when it
+covers less than its section, its caption ends with a coverage line.
+`vivamark guide figures` has the checklist and a map from the shape of the
+text to a diagram. Two commands help check a page before it is opened; both
+only read it, offline:
+
+```sh
+node dist/cli.js lint examples/report.html     # 0 clean, 1 errors, 2 warnings only
+node dist/cli.js figures examples/report.html  # each figure, then the text it summarises
+```
+
+`lint` checks the markup (role, aria-label, captions that link a section on
+the page, no script, no external URL, no hard-coded colour), that every number
+of two or more digits in a figure is in the text it summarises, and that bars
+are drawn to one scale; it warns about label words not in that text, a missing
+coverage line, and arrows that do not name their ends. `open` runs it too and
+prints what it finds, without stopping the page from opening. `figures` is for
+a read-back: give a fresh reader the figure alone, have it list what the figure
+claims, then compare with the section. vivamark makes no model calls itself.
+
 [`examples/plan.html`](examples/plan.html) follows the `plan` playbook and the
 `design` CSS. Each decision sits in a "Your input" card with real radio
 buttons marked `data-vivamark-suggest="looks-good"`. Clicking one queues a

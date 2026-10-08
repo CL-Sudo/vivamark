@@ -27,6 +27,7 @@ and read the topics you need (`vivamark guide <topic>`):
 - `decisions`: ask for choices in a "Your input" card with real controls; open questions to point at
 - `plan`: playbook: a plan to approve before building, ending on decisions
 - `report`: playbook: results, findings with evidence, what was not done; visual by default
+- `figures`: drawing a section without losing its facts: the checklist, which diagram, lint and read-back
 - `comparison`: playbook: options side by side, criteria as rows
 - `explainer`: playbook: how something works, around one labelled diagram
 - `diff`: playbook: a code change, one pointable row per line
