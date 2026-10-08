@@ -410,7 +410,7 @@ test('End review on the page ends the review: the agent is told and the page tak
   await page2.close();
 });
 
-test('images: attached by file picker, paste or drop, shown as thumbnails, removable, and sent only with the note', { timeout: 90_000 }, async (t) => {
+test('attachments: images and other files by file picker, paste or drop, shown as thumbnails or chips, removable, and sent only with the note', { timeout: 90_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = path.join(world.pageDir, 'images.html');
   fs.writeFileSync(file, fs.readFileSync(FIXTURE, 'utf8'));
@@ -424,7 +424,7 @@ test('images: attached by file picker, paste or drop, shown as thumbnails, remov
   const blue = makePng(30, 10, [37, 99, 235]);
 
   // The file picker, onto the note being written.
-  await page.setInputFiles('#image-input', { name: 'red.png', mimeType: 'image/png', buffer: red });
+  await page.setInputFiles('#file-input', { name: 'red.png', mimeType: 'image/png', buffer: red });
   await page.waitForSelector('#composer-images .thumb img[src^="data:image/png"]');
   // A paste into the note.
   await page.focus('#comment');
@@ -438,9 +438,16 @@ test('images: attached by file picker, paste or drop, shown as thumbnails, remov
   // Removed before sending.
   await page.click('#composer-images .thumb:nth-child(2) .remove-image');
   assert.equal(await page.locator('#composer-images .thumb').count(), 1);
-  // Not an image, whatever its name says: refused with a message, nothing attached.
-  await page.setInputFiles('#image-input', { name: 'fake.png', mimeType: 'image/png', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') });
-  await page.waitForFunction(() => /Not attached \(fake\.png\): only PNG, JPEG, GIF and WebP/.test(document.getElementById('banner').textContent));
+  // Not an image, whatever its name says: a chip with its name and size, never rendered.
+  await page.setInputFiles('#file-input', { name: 'fake.png', mimeType: 'image/png', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="parent.pwned=1"/>') });
+  await page.waitForSelector('#composer-images .thumb.attached-file');
+  assert.equal(await page.textContent('#composer-images .thumb.attached-file .file-name'), 'fake.png');
+  assert.equal(await page.locator('#composer-images .thumb.attached-file img').count(), 0);
+  await page.click('#composer-images .thumb.attached-file .remove-image');
+  assert.equal(await page.locator('#composer-images .thumb').count(), 1);
+  // Over the per-file limit: refused with a message, nothing attached.
+  await page.setInputFiles('#file-input', { name: 'huge.csv', mimeType: 'text/csv', buffer: Buffer.alloc(11 * 1024 * 1024, 'a') });
+  await page.waitForFunction(() => /Not attached \(huge\.csv\): that file is 11 MB; a file may be at most 10 MB/.test(document.getElementById('banner').textContent));
   assert.equal(await page.locator('#composer-images .thumb').count(), 1);
 
   await page.fill('#comment', 'The header overlaps the table here, see the screenshot.');
@@ -458,6 +465,17 @@ test('images: attached by file picker, paste or drop, shown as thumbnails, remov
     card.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
   }, blue.toString('base64'));
   await page.waitForFunction(() => document.querySelectorAll('.note.queued .thumb').length === 2);
+  // So does any other file: the exported report the reviewer was asked for.
+  const report = '<!doctype html><title>Detailed Report</title><script>parent.pwned = 1</script><p>Profit 12.5</p>';
+  await page.evaluate((text) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([text], 'MT4 Detailed Report.htm', { type: 'text/html' }));
+    const card = document.querySelector('.note.queued');
+    card.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    card.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, report);
+  await page.waitForSelector('.note.queued .thumb.attached-file');
+  assert.equal(await page.textContent('.note.queued .thumb.attached-file .file-name'), 'MT4 Detailed Report.htm');
 
   // Nothing has reached the agent.
   assert.equal((await world.cli(['wait', file, '--timeout', '800ms'])).code, 5);
@@ -467,15 +485,19 @@ test('images: attached by file picker, paste or drop, shown as thumbnails, remov
   const w = await world.cli(['wait', file, '--json']);
   assert.equal(w.code, 0, w.stderr);
   const [note] = JSON.parse(w.stdout).notes;
-  assert.deepEqual(note.attachments.map((a) => [a.mime, a.width, a.height, a.bytes]), [
-    ['image/png', 48, 32, red.length],
-    ['image/png', 30, 10, blue.length],
+  assert.deepEqual(note.attachments.map((a) => [a.mime, a.width, a.height, a.bytes, a.name]), [
+    ['image/png', 48, 32, red.length, 'red.png'],
+    ['image/png', 30, 10, blue.length, 'blue.png'],
+    ['application/octet-stream', undefined, undefined, Buffer.byteLength(report), 'MT4 Detailed Report.htm'],
   ]);
   assert.deepEqual(fs.readFileSync(note.attachments[0].path), red);
+  assert.equal(fs.readFileSync(note.attachments[2].path, 'utf8'), report);
+  assert.match(await page.textContent('.note:not(.queued) .thumb.attached-file'), /MT4 Detailed Report\.htm/);
+  // The file was never run or shown on the review page.
+  assert.equal(await page.evaluate(() => window.pwned), undefined);
 
   assert.deepEqual(offLoopback, []);
-  // The browser logs the refused upload itself; that one is expected.
-  assert.deepEqual(problems.filter((p) => !/status of 415/.test(p)), []);
+  assert.deepEqual(problems, []);
   await page.close();
 });
 

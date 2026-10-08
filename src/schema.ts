@@ -7,8 +7,10 @@
 // `decision` (F1), `target_changed` (F2), `anchor.state` (F3), `note.intent`
 // and `note.severity` (F4), `anchor.lines` (F5), a per-note `status` carried
 // by replies and `answers` on notes (F6), notes from the agent or tools in a
-// log of their own (F7), `anchor.cell`, `control` and `point` (F8), and
-// images in `note.attachments`, which was always there and always empty before.
+// log of their own (F7), `anchor.cell`, `control` and `point` (F8),
+// images in `note.attachments`, which was always there and always empty before,
+// and other files there too: an attachment with mime application/octet-stream
+// and no width or height, and an optional `name` on every attachment.
 // Version history (VersionEntry) is a log of its own, per reviewed file.
 // Readers must ignore fields they do not know.
 
@@ -62,17 +64,32 @@ export interface Anchor {
 }
 
 /**
- * An image the reviewer attached to a note. `path` is an absolute path in the
+ * A file the reviewer attached to a note. `path` is an absolute path in the
  * state directory that the agent can open; the bytes are never inlined.
- * `id` is the sha256 of the image, so the same image is stored once.
+ * `id` is the sha256 of the file, so the same file is stored once. A real PNG,
+ * JPEG, GIF or WebP image, checked by its bytes, carries its type and size; any
+ * other file is application/octet-stream, whatever its name says. `name` is
+ * the name the reviewer's file had, cleaned (attachmentName): metadata only,
+ * never part of `path`.
  */
-export interface Attachment {
+export type Attachment = ImageAttachment | FileAttachment;
+
+export interface ImageAttachment {
   id: string;
   path: string;
   mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
   width: number;
   height: number;
   bytes: number;
+  name?: string;
+}
+
+export interface FileAttachment {
+  id: string;
+  path: string;
+  mime: 'application/octet-stream';
+  bytes: number;
+  name?: string;
 }
 
 export const ATTACHMENT_ID = /^[0-9a-f]{64}$/;
@@ -97,7 +114,7 @@ export interface Note {
   target_changed?: boolean;
   /** Who made the note. Only `reviewer` notes exist today. */
   source: 'reviewer';
-  /** Images attached by the reviewer, in the order they were added. Empty when there are none. */
+  /** Images and other files attached by the reviewer, in the order they were added. Empty when there are none. */
   attachments: Attachment[];
   at: string;
 }
@@ -245,7 +262,7 @@ export interface DraftNote {
   answers?: string;
   endorses?: string;
   replies_to?: string;
-  /** Ids of images uploaded to this review from the review page; the server fills in the rest. */
+  /** Ids of files uploaded to this review from the review page; the server fills in the rest. */
   attachments?: string[];
   anchor: Omit<Anchor, 'source_line' | 'lines'> | null;
 }
@@ -261,15 +278,35 @@ export const LIMITS = {
   reply: 256 * 1024,
   endMessage: 2_000,
   attachmentsPerNote: 20,
+  attachmentName: 200,
 };
 
-/** Default sizes for attached images; the user can change them (VIVAMARK_MAX_IMAGE_BYTES and friends). */
+/**
+ * Default sizes for attached files, images or not; the user can change them
+ * (VIVAMARK_MAX_IMAGE_BYTES and friends, named when only images could be attached).
+ */
 export const IMAGE_LIMITS = {
   imageBytes: 10 * 1024 * 1024,
   noteBytes: 25 * 1024 * 1024,
 };
 
 export const NOTE_ID = /^n_\d{4,}$/;
+
+/** Control, format and direction-override characters: none belong in a file name shown to a person or an agent. */
+const NAME_JUNK = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g;
+
+/**
+ * The name of a file the reviewer attached, as metadata: its last path part,
+ * without control or direction-override characters, at most 200 characters.
+ * Undefined when nothing usable is left. It never becomes a path on disk.
+ */
+export function attachmentName(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const base = (raw.split(/[\\/]/).pop() ?? '').replace(NAME_JUNK, '').trim();
+  if (!base || base === '.' || base === '..') return undefined;
+  const chars = [...base];
+  return chars.length > LIMITS.attachmentName ? chars.slice(0, LIMITS.attachmentName).join('') : base;
+}
 
 function str(v: unknown, max: number): string | undefined {
   if (typeof v !== 'string') return undefined;
@@ -344,7 +381,7 @@ export function parseDraft(input: unknown): DraftNote | string {
     const ids = x.attachments;
     if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string' && ATTACHMENT_ID.test(id))) return 'note.attachments must be a list of attachment ids';
     const unique = [...new Set(ids as string[])];
-    if (unique.length > LIMITS.attachmentsPerNote) return `a note carries at most ${LIMITS.attachmentsPerNote} images`;
+    if (unique.length > LIMITS.attachmentsPerNote) return `a note carries at most ${LIMITS.attachmentsPerNote} attachments`;
     if (unique.length) tags.attachments = unique;
   }
   if (kind === 'page') return { kind, comment, ...tags, anchor: null };

@@ -10,7 +10,7 @@ page updates in place, and the conversation carries on until you approve.
 > HTML or Markdown file), with the first-version features F1–F8: decisions,
 > "what changed", notes that re-attach after edits, intent and severity,
 > Markdown with line ranges, per-note replies with whose turn it is, notes
-> from the agent, and named table cells, controls and chart points. Notes can carry images, and a
+> from the agent, and named table cells, controls and chart points. Notes can carry images and other files, and a
 > page can ask for a decision with real controls the reviewer clicks. A
 > supervisor can follow reviews with `status`, the event log and a notify
 > hook, and either side can `end` a review. `vivamark guide` teaches any
@@ -45,24 +45,32 @@ paragraph, a table cell (named by its row and column), one of the options in
 by its label). Type a note, pick an intent (Change, Question,
 Delete, Looks good) and a severity if you like, and press **Add note**. On a
 queued note, one key does the same: C Q D G for the intent, B I N for the
-severity. To show what you mean, attach an image: paste a screenshot (Ctrl+V)
-into the note, drop an image on the note or on a queued note, or press
-**Image**. Each shows as a thumbnail you can remove before sending. Then
-decide:
+severity. To show what you mean, or to hand the agent a file it asked for,
+attach it: paste a screenshot (Ctrl+V) into the note, drop a file on the note
+or on a queued note, or press **Attach**. An image shows as a thumbnail, any
+other file as a chip with its name and size; you can remove either before
+sending. Then decide:
 
 - **Send** requests changes. `wait` prints each note with what it points at
-  (an id or selector, the quoted text, the lines in the file) and any images
-  (as local paths the agent can open), and exits 0.
+  (an id or selector, the quoted text, the lines in the file) and any
+  attachments (as local paths the agent can open), and exits 0.
 - **Approve** (or **Approve with notes**, when notes are queued) exits 6.
 - **Dismiss** closes the round with nothing and exits 7.
 
-Only real PNG, JPEG, GIF and WebP images are accepted, checked by their
-content: about 10 MB each and 25 MB per note (`VIVAMARK_MAX_IMAGE_BYTES`,
-`VIVAMARK_MAX_NOTE_IMAGE_BYTES`, or `max_image_bytes` and
-`max_note_image_bytes` in the config file). They are kept in the state
-directory under `attachments/<session>/`, named by their hash, and never next
-to the reviewed file. In `wait --json` each note's `attachments` lists
-`{id, path, mime, width, height, bytes}`; the image itself is never inlined.
+Any file can be attached, up to about 10 MB each and 25 MB per note
+(`VIVAMARK_MAX_IMAGE_BYTES`, `VIVAMARK_MAX_NOTE_IMAGE_BYTES`, or
+`max_image_bytes` and `max_note_image_bytes` in the config file; the names
+are older than files other than images, and the limits cover both). A file
+over a limit is refused, never cut short. A file counts as an image only when
+its content is a real PNG, JPEG, GIF or WebP image, whatever it is called;
+anything else is a plain file that vivamark never opens, parses, previews or
+shows in the review page. Files are kept in the state directory under
+`attachments/<session>/`, named by their hash (`.bin` for files other than
+images), and never next to the reviewed file. The name the file had is kept
+only as cleaned-up metadata. In `wait --json` each note's `attachments` lists
+`{id, path, mime, width, height, bytes, name}` for an image and
+`{id, path, mime, bytes, name}`, with mime `application/octet-stream`, for any
+other file; the contents are never inlined.
 
 Answer on the page, as a whole or note by note:
 
@@ -267,7 +275,7 @@ each with `seq`, `at`, `type`, `session`, `file` and `labels`. The types are
 `agent-note.added`, `session.ended`, `browser.connected`,
 `browser.disconnected` and `version.saved` (with the version's number, hash,
 size and cause). **Events carry metadata only:** ids, counts, decisions
-and statuses, never a note, quote, reply, message, image or image path. Read the words with
+and statuses, never a note, quote, reply, message, attached file, or its name or path. Read the words with
 `wait`.
 
 ```sh

@@ -22,13 +22,18 @@ interface Anchor {
 }
 type Intent = 'change' | 'question' | 'delete' | 'looks-good';
 type Severity = 'blocking' | 'important' | 'nit';
-/** An image uploaded to this review for a note; sent notes also carry its local `path`. */
-interface Image {
+/**
+ * A file uploaded to this review for a note; sent notes also carry its local
+ * `path`. A real image has its type and size; any other file is
+ * application/octet-stream, shown by its name and never opened here.
+ */
+interface Attached {
   id: string;
   mime: string;
-  width: number;
-  height: number;
+  width?: number;
+  height?: number;
   bytes: number;
+  name?: string;
   path?: string;
 }
 interface Draft {
@@ -39,7 +44,7 @@ interface Draft {
   answers?: string;
   endorses?: string;
   replies_to?: string;
-  attachments?: Image[];
+  attachments?: Attached[];
   anchor: Anchor | null;
   /**
    * Queued from a control on the page (click-to-answer): which radio group,
@@ -187,8 +192,8 @@ let lastScroll = { x: 0, y: 0 };
 let sending = false;
 /** Set once the agent or the reviewer ends the review: nothing more can be sent. */
 let ended: Ended | null = null;
-/** Images for the note being written, uploaded already, added to it on Add note. */
-let pendingImages: Image[] = [];
+/** Files for the note being written, uploaded already, added to it on Add note. */
+let pendingFiles: Attached[] = [];
 let limits = { image_bytes: 10 * 1024 * 1024, note_image_bytes: 25 * 1024 * 1024 };
 /** Every version of the file, oldest first, and the one the file is at now. */
 let versions: VersionRow[] = [];
@@ -237,18 +242,20 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
   return data as T;
 }
 
-// ---- images ------------------------------------------------------------------------
-
-const IMAGE_TYPES = 'PNG, JPEG, GIF and WebP';
+// ---- attachments -------------------------------------------------------------------
 
 function sizeText(n: number): string {
   return n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${Math.round((n / (1024 * 1024)) * 10) / 10} MB`;
 }
 
-/** Uploads one image the reviewer chose. The server checks what it really is; nothing is sent to the agent here. */
-async function uploadImage(file: Blob): Promise<Image> {
-  if (file.size > limits.image_bytes) throw new Error(`that image is ${sizeText(file.size)}; an image may be at most ${sizeText(limits.image_bytes)}`);
-  const res = await fetch(`/api/s/${sessionId}/attachments`, {
+function isImage(a: Attached): boolean {
+  return a.mime.startsWith('image/');
+}
+
+/** Uploads one file the reviewer chose. The server checks what it really is; nothing is sent to the agent here. */
+async function uploadFile(file: File): Promise<Attached> {
+  if (file.size > limits.image_bytes) throw new Error(`that file is ${sizeText(file.size)}; a file may be at most ${sizeText(limits.image_bytes)}`);
+  const res = await fetch(`/api/s/${sessionId}/attachments?name=${encodeURIComponent(file.name)}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
     body: file,
@@ -257,7 +264,7 @@ async function uploadImage(file: Blob): Promise<Image> {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
-  return data as Image;
+  return data as Attached;
 }
 
 /**
@@ -268,26 +275,26 @@ async function uploadImage(file: Blob): Promise<Image> {
 async function attachFiles(files: File[], queuedIndex: number | null): Promise<void> {
   if (!files.length || ended) return;
   for (const file of files) {
-    const list = queuedIndex === null ? pendingImages : (queue[queuedIndex]?.attachments ?? []);
+    const list = queuedIndex === null ? pendingFiles : (queue[queuedIndex]?.attachments ?? []);
     const total = list.reduce((n, a) => n + a.bytes, 0) + file.size;
     if (total > limits.note_image_bytes) {
-      banner(`Not attached: the images on one note may come to at most ${sizeText(limits.note_image_bytes)}.`, true, 6000);
+      banner(`Not attached${file.name ? ` (${file.name})` : ''}: the files on one note may come to at most ${sizeText(limits.note_image_bytes)}.`, true, 6000);
       return;
     }
-    let img: Image;
+    let up: Attached;
     try {
-      img = await uploadImage(file);
+      up = await uploadFile(file);
     } catch (err) {
       banner(`Not attached${file.name ? ` (${file.name})` : ''}: ${(err as Error).message}`, true, 6000);
       continue;
     }
     if (queuedIndex === null) {
-      if (!pendingImages.some((a) => a.id === img.id)) pendingImages.push(img);
+      if (!pendingFiles.some((a) => a.id === up.id)) pendingFiles.push(up);
     } else {
       const d = queue[queuedIndex];
       if (!d) return;
       d.attachments = d.attachments ?? [];
-      if (!d.attachments.some((a) => a.id === img.id)) d.attachments.push(img);
+      if (!d.attachments.some((a) => a.id === up.id)) d.attachments.push(up);
       saveQueue();
     }
     render();
@@ -316,23 +323,34 @@ function thumbUrl(id: string): Promise<string> {
   return p;
 }
 
-function thumbStrip(images: Image[], remove?: (i: number) => void): HTMLElement {
+/**
+ * A note's attachments: a thumbnail for a real image, a chip with the name and
+ * size for any other file, whose contents the review page never fetches or shows.
+ */
+function thumbStrip(files: Attached[], remove?: (i: number) => void): HTMLElement {
   const strip = el('div', 'thumbs');
-  images.forEach((a, i) => {
-    const t = el('div', 'thumb');
+  files.forEach((a, i) => {
+    const image = isImage(a);
+    const t = el('div', image ? 'thumb' : 'thumb attached-file');
     t.dataset.attachment = a.id;
-    t.title = `${a.mime.slice(6).toUpperCase()}, ${a.width} × ${a.height}, ${sizeText(a.bytes)}${a.path ? `\n${a.path}` : ''}`;
-    const img = el('img');
-    img.alt = `Attached image ${i + 1}`;
-    void thumbUrl(a.id).then(
-      (u) => (img.src = u),
-      () => t.classList.add('broken'),
-    );
-    t.append(img);
+    const named = a.name ? `${a.name}\n` : '';
+    if (image) {
+      t.title = `${named}${a.mime.slice(6).toUpperCase()}, ${a.width} × ${a.height}, ${sizeText(a.bytes)}${a.path ? `\n${a.path}` : ''}`;
+      const img = el('img');
+      img.alt = a.name ? `Attached image ${a.name}` : `Attached image ${i + 1}`;
+      void thumbUrl(a.id).then(
+        (u) => (img.src = u),
+        () => t.classList.add('broken'),
+      );
+      t.append(img);
+    } else {
+      t.title = `${named}File, ${sizeText(a.bytes)}${a.path ? `\n${a.path}` : ''}`;
+      t.append(el('span', 'file-name', a.name ?? 'File'), el('span', 'file-size', sizeText(a.bytes)));
+    }
     if (remove) {
       const rm = el('button', 'icon remove-image', '×');
       rm.type = 'button';
-      rm.title = 'Remove this image';
+      rm.title = image ? 'Remove this image' : 'Remove this file';
       rm.addEventListener('click', (e) => {
         e.stopPropagation();
         remove(i);
@@ -344,7 +362,7 @@ function thumbStrip(images: Image[], remove?: (i: number) => void): HTMLElement 
   return strip;
 }
 
-/** A drop zone for image files: the composer, or one queued note. */
+/** A drop zone for files: the composer, or one queued note. */
 function dropZone(zone: HTMLElement, queuedIndex: () => number | null): void {
   zone.addEventListener('dragover', (e) => {
     if (!e.dataTransfer?.types.includes('Files') || ended) return;
@@ -441,7 +459,7 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   if (d.endorses) tagRow.append(el('span', 'pill flag agent', `Endorses ${agentLabel(d.endorses)}`));
   if (d.replies_to) tagRow.append(el('span', 'pill flag agent', `Reply to ${agentLabel(d.replies_to)}`));
   card.append(head, tagRow, el('p', 'comment', d.comment));
-  const images = d.attachments ?? [];
+  const files = d.attachments ?? [];
   if (queuedIndex !== null && d.suggested) {
     const actions = el('div', 'note-actions');
     const edit = el('button', 'btn small edit', 'Edit');
@@ -452,16 +470,16 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
     card.append(actions);
   }
   if (queuedIndex !== null) {
-    if (images.length)
+    if (files.length)
       card.append(
-        thumbStrip(images, (i) => {
-          images.splice(i, 1);
+        thumbStrip(files, (i) => {
+          files.splice(i, 1);
           saveQueue();
           render();
         }),
       );
     dropZone(card, () => queuedIndex);
-  } else if (images.length) card.append(thumbStrip(images));
+  } else if (files.length) card.append(thumbStrip(files));
   if (queuedIndex === null) sentExtras(card, n, d as Note);
   return card;
 }
@@ -594,7 +612,7 @@ function editQueued(i: number): void {
   saveQueue();
   target = { kind: d.kind, anchor: d.anchor };
   tags = { ...(d.intent ? { intent: d.intent } : {}), ...(d.severity ? { severity: d.severity } : {}) };
-  pendingImages = [...pendingImages, ...(d.attachments ?? [])];
+  pendingFiles = [...pendingFiles, ...(d.attachments ?? [])];
   linking = null;
   comment.value = d.comment;
   render();
@@ -623,7 +641,7 @@ function onSuggest(d: { key?: unknown; remove?: unknown; kind?: unknown; anchor?
       kind: 'element',
       comment: text,
       ...(intent ? { intent } : {}),
-      // A severity or images the reviewer added stay with the new choice.
+      // A severity or files the reviewer added stay with the new choice.
       ...(prev?.severity ? { severity: prev.severity } : {}),
       ...(prev?.attachments?.length ? { attachments: prev.attachments } : {}),
       anchor: d.anchor as Anchor,
@@ -732,12 +750,12 @@ function render(): void {
   dismissBtn.title = queue.length ? 'Send or remove the queued notes first' : 'Close this review without feedback';
   addBtn.disabled = !comment.value.trim();
   const composerImages = $('composer-images');
-  composerImages.hidden = !pendingImages.length;
+  composerImages.hidden = !pendingFiles.length;
   composerImages.replaceChildren(
-    ...(pendingImages.length
+    ...(pendingFiles.length
       ? [
-          thumbStrip(pendingImages, (i) => {
-            pendingImages.splice(i, 1);
+          thumbStrip(pendingFiles, (i) => {
+            pendingFiles.splice(i, 1);
             render();
           }),
         ]
@@ -898,12 +916,12 @@ function addNote(): void {
     comment: text,
     ...tags,
     ...(linking ? { [linking.field]: linking.id } : {}),
-    ...(pendingImages.length ? { attachments: pendingImages } : {}),
+    ...(pendingFiles.length ? { attachments: pendingFiles } : {}),
     anchor: target.anchor,
   });
   saveQueue();
   comment.value = '';
-  pendingImages = [];
+  pendingFiles = [];
   target = { kind: 'page', anchor: null };
   tags = {};
   linking = null;
@@ -943,16 +961,16 @@ $('target-clear').addEventListener('click', () => {
 });
 pointBtn.addEventListener('click', () => setPicking(pointBtn.getAttribute('aria-pressed') !== 'true'));
 
-// Images: the file picker, a drop on the composer or a queued note, or a paste.
-const imageInput = $<HTMLInputElement>('image-input');
-$('attach').addEventListener('click', () => imageInput.click());
-imageInput.addEventListener('change', () => {
-  const files = [...(imageInput.files ?? [])];
-  imageInput.value = '';
+// Files: the file picker, a drop on the composer or a queued note, or a paste.
+const fileInput = $<HTMLInputElement>('file-input');
+$('attach').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  const files = [...(fileInput.files ?? [])];
+  fileInput.value = '';
   void attachFiles(files, null);
 });
 dropZone($('composer'), () => null);
-// A file dropped anywhere else must not replace the review page with the image.
+// A file dropped anywhere else must not replace the review page with the file.
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => e.preventDefault());
 document.addEventListener('paste', (e) => {
@@ -986,7 +1004,7 @@ async function sendDecision(decision: Decision): Promise<void> {
   sending = true;
   render();
   try {
-    // Images go by id: the server already has them, and fills in the rest.
+    // Files go by id: the server already has them, and fills in the rest.
     const body = notes.map(({ suggested: _s, ...d }) => ({ ...d, attachments: d.attachments?.map((a) => a.id) }));
     const res = await api<{ notes: (NoteEntry & { type: string })[] }>('POST', '/send', { notes: body, decision });
     if (notes.length) {

@@ -105,3 +105,21 @@ and whether to check it.
 | Which rules govern | vivamark pages follow vivamark's own guide (inline SVG, tokens, offline, no script), not the conventions of other diagram tools or skills. | Tools that produce image files or need a server cannot give inline, pointable, offline figures. |
 
 This supersedes nothing. It extends "Reports are visual by default".
+
+## 2026-10-08: Notes carry any file, not only images
+
+Asked: "Allow vivamark to upload files." A reviewer was asked for an exported
+MT4 "Detailed Report" (an `.htm` file) and could only describe its path,
+because notes took nothing but PNG, JPEG, GIF and WebP images.
+
+| Topic | Decision | Why |
+|---|---|---|
+| What can be attached | Any file, through the same ways as images: the **Attach** button (was **Image**), a drop on the note being written or a queued note, or a paste. Same upload, same token and Origin rules, same delivery: only on a note the reviewer sends. | The reviewer is often asked for a file (an export, a log); describing its path is a workaround. One path for everything keeps one set of rules. |
+| Images | Unchanged. A file is an image only when its bytes are a real PNG, JPEG, GIF or WebP; it then keeps its thumbnail and `{mime, width, height}`. Anything else, whatever its name says, is a plain file: `mime` `application/octet-stream`, no width or height. An SVG or HTML file is a plain file. | The content check still decides what is rendered as an image; a name or a declared type never does. |
+| Treating the contents | vivamark never opens, parses, previews or renders a plain file. The review page shows a chip with its name and size and never fetches it. The server never hands it back to the browser, even to a request with the session token; the agent reads it from its `path`. | A file the reviewer drops can be anything, including a page with scripts. Showing it inline would run it with the review page's authority. |
+| Storage | As images: `attachments/<session>/` in the state directory, named by the sha256 of the bytes, never beside the reviewed file. Plain files end in `.bin`. The name the file had is kept beside it (`<sha256>.json`) after cleaning (last path part, no control or direction-override characters, at most 200 characters), as metadata in `wait` only; it never becomes a path. Identical bytes are stored once and carry the name they were last attached under. | Nothing the reviewer chose decides where a file lands or what opens it. The agent still learns what the file was called. |
+| Delivery | `wait --json` lists `{id, path, mime, bytes, name}` for a plain file, local paths only, never inlined. The text form lists every attachment with its path. The event log still only counts attachments. | The agent opens what it needs; output and the log stay small and free of content. |
+| Limits | The existing per-file (10 MB) and per-note (25 MB) limits and their overrides (`VIVAMARK_MAX_IMAGE_BYTES`, `VIVAMARK_MAX_NOTE_IMAGE_BYTES`, `max_image_bytes`, `max_note_image_bytes`) cover every attachment, images and files together. Over a limit, or empty, is refused, never cut short. The names stay as they are. | One budget per note is simpler to reason about, and renaming would break existing settings. A cut-short file would mislead the agent. |
+
+This supersedes nothing. It extends the images on notes that the founding
+feedback schema left room for (`note.attachments`).
