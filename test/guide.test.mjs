@@ -116,9 +116,10 @@ test('the plan playbook ends on decisions, and decisions are answered with real 
   assert.match(PAGE_CSS, /\.your-input::before \{ content: "Your input";/);
 });
 
-test('the workflow topic says where images arrive in wait output', () => {
+test('the workflow topic says where images and other files arrive in wait output', () => {
   const w = TOPICS.find((t) => t.name === 'workflow').text;
-  assert.match(w, /attachments lists them as \{id, path, mime, width, height, bytes\}/);
+  assert.match(w, /\{id, path, mime, width, height, bytes, name\}/);
+  assert.match(w, /\{id, path, mime, bytes, name\} with mime application\/octet-stream/);
   assert.match(w, /path is a\s+local file/);
 });
 

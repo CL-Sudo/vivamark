@@ -10,7 +10,9 @@
 //   <state>/versions/<key>/file.json    which reviewed file this timeline is for 0600
 //   <state>/versions/<key>/index.jsonl  append-only: every version seen, all reviews 0600
 //   <state>/versions/<key>/<sha256>     a version's content, stored once per hash 0600
-//   <state>/attachments/<id>/<sha256>.<ext>  images attached to notes  0600
+//   <state>/attachments/<id>/<sha256>.<ext>  files attached to notes: .png .jpg .gif .webp
+//                                  for real images, .bin for anything else  0600
+//   <state>/attachments/<id>/<sha256>.json   {name}: what the reviewer's file was called 0600
 //   <state>/events.jsonl           append-only, metadata-only events  0600 (events.ts)
 //   <state>/daemon.log
 //
@@ -25,7 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { IMAGE_EXT, sniffImage } from './image.js';
 import type { ImageInfo } from './image.js';
-import { ATTACHMENT_ID, MOTIVATION } from './schema.js';
+import { ATTACHMENT_ID, MOTIVATION, attachmentName } from './schema.js';
 import type { AgentNote, Attachment, AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply, VersionCause, VersionEntry } from './schema.js';
 
 export function stateDir(): string {
@@ -57,6 +59,12 @@ export function readJson<T>(file: string): T | null {
 
 export function sha256(text: string | Buffer): string {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function attachmentOf(id: string, file: string, bytes: number, info: ImageInfo | null, name: string | undefined): Attachment {
+  const named = name ? { name } : {};
+  if (info) return { id, path: file, mime: info.mime, width: info.width, height: info.height, bytes, ...named };
+  return { id, path: file, mime: 'application/octet-stream', bytes, ...named };
 }
 
 export function randomToken(): string {
@@ -458,27 +466,35 @@ export class Store {
   }
 
   /**
-   * Keeps an image the reviewer attached, named by the sha256 of its bytes, in
+   * Keeps a file the reviewer attached, named by the sha256 of its bytes, in
    * the state directory and never next to the reviewed file. `info` is what
-   * sniffImage found in those bytes.
+   * sniffImage found in those bytes: an image keeps its type's extension, any
+   * other file is stored as .bin, whatever it was called. `name`, already
+   * cleaned by attachmentName, is kept beside it as metadata only.
    */
-  saveAttachment(s: Session, bytes: Buffer, info: ImageInfo): Attachment {
+  saveAttachment(s: Session, bytes: Buffer, info: ImageInfo | null, name?: string): Attachment {
     const id = createHash('sha256').update(bytes).digest('hex');
     ensureDir(path.join(this.dir, 'attachments'));
     ensureDir(this.attachmentsDir(s));
-    const file = path.join(this.attachmentsDir(s), `${id}.${IMAGE_EXT[info.mime]}`);
+    const file = path.join(this.attachmentsDir(s), `${id}.${info ? IMAGE_EXT[info.mime] : 'bin'}`);
     if (!fs.existsSync(file)) {
       const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
       fs.writeFileSync(tmp, bytes, { mode: 0o600 });
       fs.renameSync(tmp, file);
     }
-    return { id, path: file, mime: info.mime, width: info.width, height: info.height, bytes: bytes.length };
+    if (name) writeJsonAtomic(path.join(this.attachmentsDir(s), `${id}.json`), { name });
+    return attachmentOf(id, file, bytes.length, info, name);
   }
 
-  /** An image attached in this review, checked again from its bytes; null when there is none by that id. */
+  /**
+   * A file attached in this review, checked again from its bytes (an image by
+   * its type, any other file by its hash); null when there is none by that id.
+   */
   readAttachment(s: Session, id: string): { attachment: Attachment; data: Buffer } | null {
     if (!ATTACHMENT_ID.test(id)) return null;
-    for (const ext of Object.values(IMAGE_EXT)) {
+    const meta = readJson<{ name?: unknown }>(path.join(this.attachmentsDir(s), `${id}.json`));
+    const name = attachmentName(meta?.name);
+    for (const ext of [...Object.values(IMAGE_EXT), 'bin']) {
       const file = path.join(this.attachmentsDir(s), `${id}.${ext}`);
       let data: Buffer;
       try {
@@ -487,8 +503,8 @@ export class Store {
         continue;
       }
       const info = sniffImage(data);
-      if (!info || IMAGE_EXT[info.mime] !== ext) return null;
-      return { attachment: { id, path: file, mime: info.mime, width: info.width, height: info.height, bytes: data.length }, data };
+      if (ext === 'bin' ? info || sha256(data) !== id : !info || IMAGE_EXT[info.mime] !== ext) return null;
+      return { attachment: attachmentOf(id, file, data.length, info, name), data };
     }
     return null;
   }

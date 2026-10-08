@@ -82,6 +82,9 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .thumb { position: relative; min-width: 48px; max-width: 160px; height: 64px; border-radius: var(--r-sm); overflow: hidden; border: 1px solid var(--card-line); background: #f4f8fd; }
 .thumb img { height: 100%; width: auto; max-width: 160px; object-fit: cover; display: block; }
+.thumb.attached-file { display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 160px; padding: 6px 28px 6px 10px; background: var(--card); }
+.thumb.attached-file .file-name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb.attached-file .file-size { color: var(--muted); font-size: 12px; }
 .thumb.broken::after { content: "?"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .thumb .remove-image { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; padding: 0; border-radius: 50%; background: rgba(255, 255, 255, .9); line-height: 18px; }
 .composer-images .thumbs { margin-top: 0; }
