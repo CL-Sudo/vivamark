@@ -1,14 +1,16 @@
-// Images on notes: only real PNG, JPEG, GIF and WebP images, checked by their
-// bytes; kept in the state directory by content hash; uploaded from the review
-// page only, with its token and Origin; delivered to wait as local paths, and
-// only on a note the reviewer sends. The event log counts them and no more.
+// Files on notes. Real PNG, JPEG, GIF and WebP images, checked by their bytes,
+// are images; anything else is a plain file, never opened, kept as .bin with
+// its cleaned name as metadata. Both are kept in the state directory by content
+// hash; uploaded from the review page only, with its token and Origin, and
+// refused, never cut short, over the limits; delivered to wait as local paths,
+// and only on a note the reviewer sends. The event log counts them and no more.
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { imageLimits, parseDraft, sniffImage } from '../dist/internal.js';
+import { attachmentName, imageLimits, parseDraft, sniffImage } from '../dist/internal.js';
 import { ELEMENT_NOTE, FIXTURE, api, makePng, makeWorld, sendNotes, uploadImage } from './helpers/harness.mjs';
 
 let world;
@@ -129,10 +131,11 @@ test('an image is kept by content hash in the state directory, uploaded from the
   assert.equal((await uploadImage(s, png)).json.id, sha, 'the same image twice is stored once');
   assert.equal(fs.readdirSync(dir).length, 1);
 
-  // What it is decides, not what it is called or claims to be.
-  const text = await uploadImage(s, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'));
-  assert.equal(text.status, 415);
-  assert.match(text.json.error, /only PNG, JPEG, GIF and WebP images/);
+  // What it is decides, not what it is called or claims to be: an SVG named .png is a plain file.
+  const text = await uploadImage(s, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), { name: 'shot.png' });
+  assert.equal(text.status, 201, text.text);
+  assert.equal(text.json.mime, 'application/octet-stream');
+  assert.ok(fs.existsSync(path.join(dir, `${text.json.id}.bin`)));
   const big = await uploadImage(s, Buffer.concat([makePng(10, 10), Buffer.alloc(70 * 1024)]));
   assert.equal(big.status, 413);
   assert.match(big.json.error, /at most 0\.1 MB/);
@@ -162,7 +165,7 @@ test('images reach wait only on a sent note, as paths, and the event log counts 
   const foreign = await uploadImage(other, makePng(5, 5, [1, 2, 3]));
   const refused = await sendNotes(s, [{ ...ELEMENT_NOTE, attachments: [foreign.json.id] }]);
   assert.equal(refused.status, 400);
-  assert.match(refused.json.error, /no attached image/);
+  assert.match(refused.json.error, /no attached file/);
   assert.equal((await sendNotes(s, [{ ...ELEMENT_NOTE, attachments: ['../x'] }])).status, 400);
 
   const sent = await sendNotes(s, [
@@ -188,7 +191,7 @@ test('images reach wait only on a sent note, as paths, and the event log counts 
   assert.ok(!w.stdout.includes(makePng(40, 30).toString('base64').slice(0, 24)), 'the bytes are never inlined');
 
   const text = await world.cli(['wait', s.file]);
-  assert.match(text.stdout, /images: 2 attached; open them from these paths:/);
+  assert.match(text.stdout, /attachments: 2; open them from these paths:/);
   assert.ok(text.stdout.includes(`      ${pa.path} (PNG, 40 x 30, 1 KB)`), text.stdout);
   assert.ok(text.stdout.includes(pb.path));
 
@@ -208,9 +211,106 @@ test('images reach wait only on a sent note, as paths, and the event log counts 
   assert.equal(c.status, 201, c.text);
   const tooMuch = await sendNotes(s, [{ ...ELEMENT_NOTE, attachments: [c.json.id, d.json.id] }]);
   assert.equal(tooMuch.status, 413);
-  assert.match(tooMuch.json.error, /images on one note come to more than 0\.1 MB/);
+  assert.match(tooMuch.json.error, /files on one note come to more than 0\.1 MB/);
 
   // An ended review takes no more images.
   assert.equal((await world.cli(['end', s.file])).code, 0);
   assert.equal((await uploadImage(s, makePng(2, 2))).status, 409);
+});
+
+test('a file name is metadata: its last path part, without control or direction characters, cut to 200', () => {
+  assert.equal(attachmentName('MT4 Detailed Report.htm'), 'MT4 Detailed Report.htm');
+  assert.equal(attachmentName('../../etc/passwd'), 'passwd');
+  assert.equal(attachmentName('C:\\Users\\me\\report.htm'), 'report.htm');
+  assert.equal(attachmentName(`evil${String.fromCharCode(0x202e)}lmth.exe\r\n`), 'evillmth.exe');
+  assert.equal(attachmentName(`a${String.fromCharCode(0)}b${String.fromCharCode(0x1b)}[31mc`), 'ab[31mc');
+  assert.equal(attachmentName('x'.repeat(300)).length, 200);
+  for (const nothing of ['', '   ', '..', '.', 'dir/', 42, null, undefined]) assert.equal(attachmentName(nothing), undefined, String(nothing));
+});
+
+test('any other file is accepted as a plain file, never shown inline, and reaches wait as a path with its name', async () => {
+  const s = await openPage('attach-file.html');
+  const report = Buffer.from('<!doctype html><title>Detailed Report</title><script>alert(1)</script><table><tr><td>Profit</td><td>12.5</td></tr></table>');
+  const sha = createHash('sha256').update(report).digest('hex');
+  const dir = path.join(world.stateDir, 'attachments', s.id);
+
+  // The review page's token and Origin, as for images.
+  assert.equal((await uploadImage(s, report, { origin: false, name: 'r.htm' })).status, 403);
+  assert.equal((await uploadImage(s, report, { token: null, name: 'r.htm' })).status, 401);
+
+  const up = await uploadImage(s, report, { name: '../../MT4 Detailed Report.htm' });
+  assert.equal(up.status, 201, up.text);
+  assert.deepEqual(up.json, { id: sha, mime: 'application/octet-stream', bytes: report.length, name: 'MT4 Detailed Report.htm' });
+  // Named by its hash, as .bin: never by the name the reviewer's file had, never beside the reviewed file.
+  const stored = path.join(dir, `${sha}.bin`);
+  assert.deepEqual(fs.readFileSync(stored), report);
+  assert.equal(fs.statSync(stored).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.join(dir, `${sha}.json`)).mode & 0o777, 0o600);
+  assert.deepEqual(fs.readdirSync(dir).sort(), [`${sha}.bin`, `${sha}.json`]);
+  assert.deepEqual(fs.readdirSync(world.pageDir).filter((f) => f.startsWith('attach-file')), ['attach-file.html']);
+  assert.ok(!fs.readdirSync(world.stateDir, { recursive: true }).some((f) => String(f).includes('Detailed Report')), 'the name is never a path');
+
+  // Empty is refused; over the limit is refused, never cut short.
+  const empty = await uploadImage(s, Buffer.alloc(0), { name: 'empty.txt' });
+  assert.equal(empty.status, 400);
+  assert.match(empty.json.error, /empty/);
+  const big = await uploadImage(s, Buffer.alloc(65 * 1024, 'a'), { name: 'big.csv' });
+  assert.equal(big.status, 413);
+  assert.match(big.json.error, /a file may be at most 0\.1 MB/);
+  assert.deepEqual(fs.readdirSync(dir).sort(), [`${sha}.bin`, `${sha}.json`], 'nothing kept of a refused file');
+
+  // Served back only as a download, sandboxed, under its cleaned name; never as HTML.
+  const got = await api(s.port, 'GET', `/api/s/${s.id}/attachments/${sha}`, { token: s.token });
+  assert.equal(got.status, 200);
+  assert.equal(got.headers['content-type'], 'application/octet-stream');
+  assert.equal(got.headers['content-disposition'], "attachment; filename*=UTF-8''MT4%20Detailed%20Report.htm");
+  assert.match(got.headers['content-security-policy'], /default-src 'none'; sandbox/);
+  assert.equal(got.headers['x-content-type-options'], 'nosniff');
+  assert.equal((await api(s.port, 'GET', `/api/s/${s.id}/attachments/${sha}`)).status, 401);
+
+  // A tampered file is not delivered.
+  const csv = Buffer.from('a,b\n1,2\n');
+  const c = await uploadImage(s, csv, { name: 'data.csv' });
+  fs.writeFileSync(path.join(dir, `${c.json.id}.bin`), 'changed');
+  assert.match((await sendNotes(s, [{ ...ELEMENT_NOTE, attachments: [c.json.id] }])).json.error, /no attached file/);
+
+  // Uploaded is not sent.
+  assert.equal((await world.cli(['wait', s.file, '--timeout', '800ms'])).code, 5);
+  const png = await uploadImage(s, makePng(12, 8, [4, 5, 6]), { name: 'screenshot.png' });
+  const sent = await sendNotes(s, [{ ...ELEMENT_NOTE, comment: 'Here is the exported report.', attachments: [up.json.id, png.json.id] }]);
+  assert.equal(sent.status, 201, sent.text);
+
+  const w = await world.cli(['wait', s.file, '--json']);
+  assert.equal(w.code, 0, w.stderr);
+  const [note] = JSON.parse(w.stdout).notes;
+  const [file, image] = note.attachments;
+  assert.deepEqual(Object.keys(file), ['id', 'path', 'mime', 'bytes', 'name']);
+  assert.deepEqual(file, { id: sha, path: stored, mime: 'application/octet-stream', bytes: report.length, name: 'MT4 Detailed Report.htm' });
+  assert.deepEqual(fs.readFileSync(file.path), report, 'the agent can open it');
+  assert.deepEqual({ ...image, path: undefined }, { id: png.json.id, path: undefined, mime: 'image/png', width: 12, height: 8, bytes: png.json.bytes, name: 'screenshot.png' });
+  assert.ok(!w.stdout.includes('Detailed Report</title>'), 'the contents are never inlined');
+
+  const text = await world.cli(['wait', s.file]);
+  assert.match(text.stdout, /attachments: 2; open them from these paths:/);
+  assert.ok(text.stdout.includes(`      ${stored} (file, 1 KB) named "MT4 Detailed Report.htm"`), text.stdout);
+  assert.ok(text.stdout.includes(`      ${image.path} (PNG, 12 x 8, 1 KB) named "screenshot.png"`), text.stdout);
+
+  // The event log: a count, never a name, an id or a path.
+  const raw = fs.readFileSync(path.join(world.stateDir, 'events.jsonl'), 'utf8');
+  const sentEvents = raw
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l))
+    .filter((e) => e.session === s.id && e.type === 'feedback.sent');
+  assert.deepEqual(sentEvents.map((e) => e.attachments), [2]);
+  for (const word of [sha, 'Detailed Report', 'screenshot', '.bin']) assert.ok(!raw.includes(word), `the event log carries no ${word}`);
+
+  // Files and images count together against the per-note limit.
+  const x = await uploadImage(s, Buffer.alloc(60 * 1024, 'x'), { name: 'x.log' });
+  const y = await uploadImage(s, Buffer.concat([makePng(10, 10, [7, 7, 7]), Buffer.alloc(60 * 1024)]));
+  assert.equal(x.status, 201, x.text);
+  assert.equal(y.status, 201, y.text);
+  const tooMuch = await sendNotes(s, [{ ...ELEMENT_NOTE, attachments: [x.json.id, y.json.id] }]);
+  assert.equal(tooMuch.status, 413);
+  assert.match(tooMuch.json.error, /files on one note come to more than 0\.1 MB/);
 });

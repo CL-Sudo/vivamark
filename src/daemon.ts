@@ -21,7 +21,7 @@ import { EventLog } from './events.js';
 import { injectScript } from './html.js';
 import { sniffImage } from './image.js';
 import { configPath, Notifier, notifyConfig } from './notify.js';
-import { AGENT_STATUSES, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, IMAGE_LIMITS, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA, VERSION_SCHEMA, VERSIONS_SCHEMA } from './schema.js';
+import { AGENT_STATUSES, attachmentName, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, IMAGE_LIMITS, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA, VERSION_SCHEMA, VERSIONS_SCHEMA } from './schema.js';
 import type { AgentNote, AgentStatus, Anchor, Attachment, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn, VersionCause, VersionEntry } from './schema.js';
 import { randomToken, readJson, readServerInfo, serverInfoPath, sha256, Store } from './store.js';
 import type { Session, ServerInfo } from './store.js';
@@ -194,6 +194,14 @@ async function readRaw(req: IncomingMessage, limit: number, what: string): Promi
   return Buffer.concat(chunks);
 }
 
+/** Offers a file as a download under its cleaned name, never shown inline. */
+function contentDisposition(name: string | undefined): string {
+  if (!name) return 'attachment';
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename*=UTF-8''${encoded}`;
+}
+
+/** The largest file the reviewer can attach, and the largest total on one note; images or not. */
 export interface ImageLimits {
   imageBytes: number;
   noteBytes: number;
@@ -204,7 +212,7 @@ function mb(n: number): string {
 }
 
 /**
- * How large attached images may be: VIVAMARK_MAX_IMAGE_BYTES and
+ * How large attached files may be, images or not: VIVAMARK_MAX_IMAGE_BYTES and
  * VIVAMARK_MAX_NOTE_IMAGE_BYTES, else "max_image_bytes" and
  * "max_note_image_bytes" in the config file, else 10 MB and 25 MB.
  */
@@ -505,7 +513,14 @@ export class Daemon {
       this.requireSessionToken(req, s);
       const found = this.store.readAttachment(s, m[2]);
       if (!found) throw new HttpError(404, 'no such attachment');
-      return send(res, 200, found.data, { 'Content-Type': found.attachment.mime, 'Content-Security-Policy': "default-src 'none'" });
+      const a = found.attachment;
+      // Only a real image is served as itself, for its thumbnail. Any other file is never rendered: a download at most.
+      if (a.mime !== 'application/octet-stream') return send(res, 200, found.data, { 'Content-Type': a.mime, 'Content-Security-Policy': "default-src 'none'" });
+      return send(res, 200, found.data, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': contentDisposition(a.name),
+        'Content-Security-Policy': "default-src 'none'; sandbox",
+      });
     }
     if ((m = /^\/api\/s\/(s_[a-z0-9]+)(\/[a-z-]+)?$/.exec(p))) {
       const s = this.session(m[1]);
@@ -523,9 +538,9 @@ export class Daemon {
         return this.receiveNotes(req, res, s);
       }
       if (sub === '/attachments' && method === 'POST') {
-        // Images come from the reviewer's review page, with the same token and Origin rules as Send.
-        if (!originAllowed(req, true)) throw new HttpError(403, 'images are attached from the review page only');
-        return this.receiveAttachment(req, res, s);
+        // Files come from the reviewer's review page, with the same token and Origin rules as Send.
+        if (!originAllowed(req, true)) throw new HttpError(403, 'files are attached from the review page only');
+        return this.receiveAttachment(req, res, s, url);
       }
       if (sub === '/replies' && method === 'POST') return this.receiveReply(req, res, s);
       if (sub === '/agent-notes' && method === 'POST') return this.receiveAgentNote(req, res, s);
@@ -926,7 +941,7 @@ export class Daemon {
     const decision = parseDecision(body.decision, notes.length);
     if (!(DECISION_SET as Set<string>).has(decision)) throw new HttpError(400, decision);
     const drafts: DraftNote[] = [];
-    const images = new Map<string, Attachment>();
+    const attached = new Map<string, Attachment>();
     const known = new Set(this.noteEntries(s).map((e) => e.note.id));
     const agentNotes = new Map(this.store.agentNotes(s).map((n) => [n.id, n]));
     for (const n of notes) {
@@ -937,12 +952,12 @@ export class Daemon {
       if (link && !agentNotes.has(link)) throw new HttpError(400, `no agent note ${link} in this review`);
       let total = 0;
       for (const id of d.attachments ?? []) {
-        const a = images.get(id) ?? this.store.readAttachment(s, id)?.attachment;
-        if (!a) throw new HttpError(400, `no attached image ${id.slice(0, 12)}… in this review; attach it again`);
-        images.set(id, a);
+        const a = attached.get(id) ?? this.store.readAttachment(s, id)?.attachment;
+        if (!a) throw new HttpError(400, `no attached file ${id.slice(0, 12)}… in this review; attach it again`);
+        attached.set(id, a);
         total += a.bytes;
       }
-      if (total > this.imageLimits.noteBytes) throw new HttpError(413, `the images on one note come to more than ${mb(this.imageLimits.noteBytes)}`);
+      if (total > this.imageLimits.noteBytes) throw new HttpError(413, `the files on one note come to more than ${mb(this.imageLimits.noteBytes)}`);
       drafts.push(d);
     }
     const doc = this.readDoc(s);
@@ -959,14 +974,14 @@ export class Daemon {
       snapshot,
       (d) => (doc && d.anchor ? placeAnchor(doc, d.anchor) : null),
       (id) => agentNotes.get(id),
-      (d) => (d.attachments ?? []).map((id) => images.get(id)!),
+      (d) => (d.attachments ?? []).map((id) => attached.get(id)!),
     );
     const seq = { from: entries[0].seq, to: entries[entries.length - 1].seq };
     if (doc) this.capture(s, 'send', doc.source, { batch: entries[0].batch, decision: decision as Decision, notes: drafts.length });
     sendJson(res, 201, { seq, notes: entries });
     this.broadcast(s, { type: 'notes', entries });
-    const attached = drafts.reduce((n, d) => n + (d.attachments?.length ?? 0), 0);
-    this.events.append('feedback.sent', s, { decision: decision as Decision, notes: drafts.length, feedback_seq: seq, attachments: attached });
+    const count = drafts.reduce((n, d) => n + (d.attachments?.length ?? 0), 0);
+    this.events.append('feedback.sent', s, { decision: decision as Decision, notes: drafts.length, feedback_seq: seq, attachments: count });
     for (const d of drafts) if (d.answers) this.events.append('note.status', s, { note: d.answers, status: 'answered', by: 'reviewer' });
     const l = this.liveFor(s);
     for (const w of [...l.waiters]) {
@@ -976,16 +991,18 @@ export class Daemon {
   }
 
   /**
-   * Keeps one image for a note the reviewer is writing. Nothing reaches the
-   * agent here: an image is delivered only on a note the reviewer sends.
+   * Keeps one file for a note the reviewer is writing. Nothing reaches the
+   * agent here: a file is delivered only on a note the reviewer sends. A real
+   * PNG, JPEG, GIF or WebP image is kept as one; anything else as a plain file,
+   * never opened or parsed. A file over the limit is refused, never cut short.
    */
-  private async receiveAttachment(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
+  private async receiveAttachment(req: IncomingMessage, res: ServerResponse, s: Session, url: URL): Promise<void> {
     const limit = this.imageLimits.imageBytes;
-    const bytes = await readRaw(req, limit, `an image may be at most ${mb(limit)}`);
-    const info = sniffImage(bytes);
-    if (!info) throw new HttpError(415, 'only PNG, JPEG, GIF and WebP images can be attached');
-    const a = this.store.saveAttachment(s, bytes, info);
-    sendJson(res, 201, { id: a.id, mime: a.mime, width: a.width, height: a.height, bytes: a.bytes });
+    const bytes = await readRaw(req, limit, `a file may be at most ${mb(limit)}`);
+    if (!bytes.length) throw new HttpError(400, 'that file is empty; there is nothing to attach');
+    const a = this.store.saveAttachment(s, bytes, sniffImage(bytes), attachmentName(url.searchParams.get('name')));
+    const { path: _path, ...view } = a;
+    sendJson(res, 201, view);
   }
 
   private async feedback(req: IncomingMessage, res: ServerResponse, s: Session, url: URL): Promise<void> {

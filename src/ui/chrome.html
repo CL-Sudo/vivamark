@@ -68,12 +68,12 @@
             <button type="button" class="tag" data-severity="nit" aria-pressed="false" title="Nit (N)">Nit</button>
           </div>
         </div>
-        <textarea id="comment" rows="3" placeholder="Add a note… (paste or drop an image to attach it)" aria-label="Note"></textarea>
+        <textarea id="comment" rows="3" placeholder="Add a note… (paste or drop a file or image to attach it)" aria-label="Note"></textarea>
         <div class="composer-images" id="composer-images" hidden></div>
         <div class="actions">
           <button type="button" class="btn ghost" id="point" aria-pressed="false" title="Pick an element on the page">Point</button>
-          <button type="button" class="btn ghost" id="attach" title="Attach an image (PNG, JPEG, GIF or WebP); you can also paste or drop one">Image</button>
-          <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+          <button type="button" class="btn ghost" id="attach" title="Attach files or images; you can also paste or drop them. Images show as thumbnails, other files by name.">Attach</button>
+          <input type="file" id="file-input" multiple hidden>
           <span class="spacer"></span>
           <button type="submit" class="btn ghost" id="add" disabled title="Queue this note (Ctrl+Enter)">Add note</button>
           <button type="button" class="btn primary" id="send" disabled title="Request changes: send the queued notes to the agent">Send</button>

@@ -259,14 +259,14 @@ export function makePng(width, height, [r, g, b] = [14, 165, 233]) {
   ]);
 }
 
-/** Uploads an image the way the review page does: raw bytes, the session token and the page's Origin. */
-export function uploadImage(s, bytes, { origin = true, token = s.token } = {}) {
+/** Uploads a file, an image or not, the way the review page does: raw bytes, its name, the session token and the page's Origin. */
+export function uploadImage(s, bytes, { origin = true, token = s.token, name } = {}) {
   return new Promise((resolve, reject) => {
     const headers = { Host: `127.0.0.1:${s.port}`, 'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length) };
     if (token) headers.Authorization = `Bearer ${token}`;
     if (origin === true) headers.Origin = `http://127.0.0.1:${s.port}`;
     else if (origin) headers.Origin = origin;
-    const req = http.request({ host: '127.0.0.1', port: s.port, method: 'POST', path: `/api/s/${s.id}/attachments`, headers }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port: s.port, method: 'POST', path: `/api/s/${s.id}/attachments${name === undefined ? '' : `?name=${encodeURIComponent(name)}`}`, headers }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
