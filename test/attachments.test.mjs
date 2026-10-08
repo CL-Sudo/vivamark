@@ -259,13 +259,10 @@ test('any other file is accepted as a plain file, never shown inline, and reache
   assert.match(big.json.error, /a file may be at most 0\.1 MB/);
   assert.deepEqual(fs.readdirSync(dir).sort(), [`${sha}.bin`, `${sha}.json`], 'nothing kept of a refused file');
 
-  // Served back only as a download, sandboxed, under its cleaned name; never as HTML.
+  // Never served back to the browser, even with the token: the agent reads it from its path.
   const got = await api(s.port, 'GET', `/api/s/${s.id}/attachments/${sha}`, { token: s.token });
-  assert.equal(got.status, 200);
-  assert.equal(got.headers['content-type'], 'application/octet-stream');
-  assert.equal(got.headers['content-disposition'], "attachment; filename*=UTF-8''MT4%20Detailed%20Report.htm");
-  assert.match(got.headers['content-security-policy'], /default-src 'none'; sandbox/);
-  assert.equal(got.headers['x-content-type-options'], 'nosniff');
+  assert.equal(got.status, 404);
+  assert.ok(!got.text.includes('<html'), 'none of the file comes back');
   assert.equal((await api(s.port, 'GET', `/api/s/${s.id}/attachments/${sha}`)).status, 401);
 
   // A tampered file is not delivered.
