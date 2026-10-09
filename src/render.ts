@@ -5,7 +5,7 @@
 // author to look at. Never downloads a browser, never writes the page, and
 // keeps the browser off the network twice over: launch flags that make every
 // host lookup and proxy fail, and the DevTools Fetch domain refusing every
-// request that is not for a local file.
+// request that is not for a local file. Page script is switched off.
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -349,6 +349,9 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
     });
     if (opts.intercept !== false) await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     await send('Page.enable');
+    // Review pages carry no script of their own (lint errors on one): none runs here either, so the
+    // drawing is the saved markup, and nothing in the page can open a socket.
+    await send('Emulation.setScriptExecutionDisabled', { value: true });
     await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
     await send('Emulation.setEmulatedMedia', { media: 'screen', features: [{ name: 'prefers-color-scheme', value: mode }] });
     await send('Page.navigate', { url: pathToFileURL(file).href });

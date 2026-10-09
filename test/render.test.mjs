@@ -157,7 +157,7 @@ test('a page that asks for external things makes no request: refused by the brow
     fs.writeFileSync(
       file,
       `<!doctype html><html><head><meta charset="utf-8"><title>Outbound</title>` +
-        `<link rel="stylesheet" href="${local}/style.css"><style>body { background: url(${local}/bg.png); } @import url("http://example.invalid/x.css");</style></head>` +
+        `<link rel="stylesheet" href="${local}/style.css"><style>@import url("${local}/import.css"); body { background: url(${local}/bg.png); }</style></head>` +
         `<body><main><p>One page.</p><img src="${local}/pixel.png" alt="x"><img src="http://example.invalid/pixel.png" alt="y">` +
         `<iframe src="https://example.invalid/"></iframe></main></body></html>`,
     );
@@ -166,6 +166,7 @@ test('a page that asks for external things makes no request: refused by the brow
     assert.equal(r.code, 1, r.stderr);
     assert.ok(r.blocked.includes(`${local}/pixel.png`), JSON.stringify(r.blocked));
     assert.ok(r.blocked.includes('http://example.invalid/pixel.png'), JSON.stringify(r.blocked));
+    for (const asked of ['style.css', 'import.css']) assert.ok(r.blocked.includes(`${local}/${asked}`), `${asked}: ${JSON.stringify(r.blocked)}`);
     assert.ok(r.problems.some((p) => p.rule === 'outbound-request' && p.severity === 'error' && p.message.includes(`${local}/pixel.png`)));
     assert.equal(hits, 0, 'nothing reached the listener');
     assert.equal(fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '', '', 'and the CLI itself made no connection');
@@ -176,4 +177,36 @@ test('a page that asks for external things makes no request: refused by the brow
   } finally {
     server.close();
   }
+});
+
+/** A page holding one figure: the SVG parts given, with the design CSS's box and text rules. */
+function figurePage(name, parts, body = '') {
+  const file = path.join(dir, name);
+  fs.writeFileSync(
+    file,
+    `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title><style>:root { --panel: #fff; --muted: #789; --fg2: #333; }` +
+      ` .viz svg { display: block; width: 640px; } .viz svg text { fill: var(--fg2); font: 12px sans-serif; } .viz svg .box { fill: var(--panel); stroke: var(--muted); }</style></head>` +
+      `<body><main><figure class="viz" id="viz-one"><svg viewBox="0 0 640 200" role="img" aria-label="one">${parts}</svg></figure>${body}</main></body></html>`,
+  );
+  return file;
+}
+
+test('render: text that leaves its box on the right only is a warning, measured; inside the figure it is not clipped', { skip: needsChrome }, async () => {
+  const long = 'orders this week and orders the week before that one';
+  const r = await render(figurePage('right.html', `<g id="node-right"><rect class="box" x="10" y="40" width="200" height="40"/><text x="20" y="64">${long}</text></g>`));
+  assert.equal(r.code, 2, JSON.stringify(r.problems));
+  assert.deepEqual(r.problems.map((p) => p.rule), ['text-overflow']);
+  assert.match(r.problems[0].message, /^"orders this week.*" is \d+ wide \(x 20\.\.\d+\) and runs out of its box \(x 10\.\.210\)$/);
+  assert.equal(r.problems[0].element, 'node-right');
+  const fits = await render(figurePage('fits.html', '<g id="node-fits"><rect class="box" x="10" y="40" width="200" height="40"/><text x="20" y="64">orders</text></g>'));
+  assert.equal(fits.code, 0, JSON.stringify(fits.problems));
+});
+
+test('render: page script does not run, so what is drawn is the saved markup', { skip: needsChrome }, async () => {
+  const script =
+    '<script>const d = document.createElement("figure"); d.className = "viz"; d.id = "viz-script-ran"; d.style.cssText = "width:40px;height:40px"; document.body.append(d);' +
+    ' document.querySelector("#viz-one text").textContent = "changed by script";</script>';
+  const r = await render(figurePage('script.html', '<g id="node-s"><rect class="box" x="10" y="40" width="200" height="40"/><text x="20" y="64">orders</text></g>', script));
+  assert.deepEqual(r.figure_pngs.map((f) => f.figure), ['viz-one'], 'no figure added by script');
+  assert.equal(r.code, 0, JSON.stringify(r.problems));
 });

@@ -110,8 +110,8 @@ Usage:
       black and text cut off by its figure (errors), text out of its box and
       a page that scrolls sideways (warnings), and any request for something
       other than a local file (an error; refused). The browser is kept off the
-      network by its flags and by refusing every such request. Never writes
-      the page; open never runs it. Exit 0 clean, 1 errors (or no browser),
+      network by its flags and by refusing every such request, and page
+      script does not run. Never writes the page; open never runs it. Exit 0 clean, 1 errors (or no browser),
       2 warnings only.
   vivamark stop
       Stop the background review server.
