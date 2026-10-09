@@ -19,6 +19,14 @@ import type { Problem } from './lint.js';
 
 export const RENDER_SCHEMA = 'vivamark.render/1';
 
+/**
+ * The one name that bypasses the dead proxy, so the resolver rule is the
+ * only thing between it and a connection: with the rule it cannot resolve;
+ * without it, a .localhost name still means this machine (RFC 6761). A test
+ * reads its error to prove the rule holds without ever running unguarded.
+ */
+export const RESOLVER_CHECK_HOST = 'vivamark-resolver-check.localhost';
+
 /** Tried in order on PATH when VIVAMARK_CHROME is not set. */
 export const CHROME_NAMES = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'];
 
@@ -91,10 +99,10 @@ export function chromeArgs(profileDir: string): string[] {
     '--remote-debugging-pipe',
     `--user-data-dir=${profileDir}`,
     // No host name resolves, and anything that would still connect goes to a
-    // proxy that is not there, loopback included.
+    // proxy that is not there, loopback included (all but the resolver check).
     '--host-resolver-rules=MAP * ~NOTFOUND',
     '--proxy-server=127.0.0.1:9',
-    '--proxy-bypass-list=<-loopback>',
+    `--proxy-bypass-list=<-loopback>;${RESOLVER_CHECK_HOST}`,
     // None of the browser's own traffic: updates, sync, metrics, safe browsing.
     '--disable-background-networking',
     '--disable-component-update',
@@ -255,6 +263,39 @@ function measure(): Measured {
   return { problems, figures, width: Math.max(doc.scrollWidth, window.innerWidth), height: doc.scrollHeight };
 }
 
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Runs in the page: widens figure k to its scrolled width if it scrolls sideways; its box on the page. Sent as source. */
+function widen(k: number): Box & { whole: boolean } {
+  const f = [...document.querySelectorAll<HTMLElement>('.viz')].filter((e) => !e.parentElement?.closest('.viz'))[k];
+  let whole = false;
+  if (f.scrollWidth > f.clientWidth + 1) {
+    f.dataset.vivamarkStyle = f.getAttribute('style') ?? '';
+    for (let i = 0; i < 3 && f.scrollWidth > f.clientWidth + 1; i++) {
+      f.style.setProperty('width', `${f.offsetWidth + f.scrollWidth - f.clientWidth}px`, 'important');
+      f.style.setProperty('max-width', 'none', 'important');
+      f.style.setProperty('overflow', 'visible', 'important');
+    }
+    whole = true;
+  }
+  const b = f.getBoundingClientRect();
+  return { x: b.left + window.scrollX, y: b.top + window.scrollY, width: b.width, height: b.height, whole };
+}
+
+/** Runs in the page: puts figure k back as it was. */
+function unwiden(k: number): void {
+  const f = [...document.querySelectorAll<HTMLElement>('.viz')].filter((e) => !e.parentElement?.closest('.viz'))[k];
+  const was = f.dataset.vivamarkStyle;
+  delete f.dataset.vivamarkStyle;
+  if (was) f.setAttribute('style', was);
+  else f.removeAttribute('style');
+}
+
 // ---- rendering ---------------------------------------------------------------------
 
 export interface RenderOptions {
@@ -276,9 +317,12 @@ export interface RenderResult {
   page_png: string;
   /** False when the page is taller than one image can be: the PNG shows the top of it. */
   page_complete: boolean;
-  figure_pngs: { figure: string; path: string }[];
+  /** whole: the figure scrolls sideways on the page, and the PNG shows all of it, not the visible part. */
+  figure_pngs: { figure: string; path: string; whole: boolean }[];
   /** Requests the page made for anything but a local file; all refused. */
   blocked: string[];
+  /** Every such request as it failed in the browser, with Chrome's network error (net::ERR_BLOCKED_BY_CLIENT when refused). */
+  failed: { url: string; error: string }[];
   errors: number;
   warnings: number;
   problems: Problem[];
@@ -328,6 +372,9 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
   });
 
   const blocked: string[] = [];
+  const requested = new Map<string, string>();
+  const failed: RenderResult['failed'] = [];
+  const local = (url: string) => /^(file|data|blob|about):/i.test(url);
   const work = async (): Promise<RenderResult> => {
     const { targetId } = (await cdp.send('Target.createTarget', { url: 'about:blank' })) as { targetId: string };
     const { sessionId } = (await cdp.send('Target.attachToTarget', { targetId, flatten: true })) as { sessionId: string };
@@ -337,10 +384,15 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
     cdp.on((method, params, sid) => {
       if (sid !== sessionId) return;
       if (method === 'Page.loadEventFired') loaded();
+      if (method === 'Network.requestWillBeSent') requested.set(params.requestId as string, String((params.request as { url?: string })?.url ?? ''));
+      if (method === 'Network.loadingFailed') {
+        const url = requested.get(params.requestId as string) ?? '';
+        if (url && !local(url)) failed.push({ url, error: String(params.errorText ?? '') });
+      }
       if (method === 'Fetch.requestPaused') {
         const url = String((params.request as { url?: string })?.url ?? '');
         const requestId = params.requestId as string;
-        if (/^(file|data|blob|about):/i.test(url)) void send('Fetch.continueRequest', { requestId }).catch(() => {});
+        if (local(url)) void send('Fetch.continueRequest', { requestId }).catch(() => {});
         else {
           blocked.push(url);
           void send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }).catch(() => {});
@@ -349,6 +401,7 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
     });
     if (opts.intercept !== false) await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
     await send('Page.enable');
+    await send('Network.enable');
     // Review pages carry no script of their own (lint errors on one): none runs here either, so the
     // drawing is the saved markup, and nothing in the page can open a socket.
     await send('Emulation.setScriptExecutionDisabled', { value: true });
@@ -374,11 +427,16 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
     const pageHeight = Math.min(Math.ceil(m.height), MAX_SHOT_PX);
     const page_png = await shot({ x: 0, y: 0, width: Math.ceil(m.width), height: pageHeight }, `${base}.${mode}.${width}.png`);
     const figure_pngs: RenderResult['figure_pngs'] = [];
-    for (const f of m.figures) {
+    for (const [k, f] of m.figures.entries()) {
       if (f.width < 1 || f.height < 1) continue;
+      // A figure that scrolls sideways (.viz does on a narrow screen) is widened while it is
+      // drawn, so the PNG holds all of it, then put back.
+      const widened = (await send('Runtime.evaluate', { expression: `(${widen.toString()})(${k})`, returnByValue: true })) as { result?: { value?: Box & { whole: boolean } } };
+      const b = widened.result?.value ?? { ...f, whole: false };
       const pad = 8;
-      const clip = { x: Math.max(0, f.x - pad), y: Math.max(0, f.y - pad), width: Math.ceil(f.width + 2 * pad), height: Math.min(Math.ceil(f.height + 2 * pad), MAX_SHOT_PX) };
-      figure_pngs.push({ figure: f.id, path: await shot(clip, `${base}.${safeName(f.id)}.${mode}.${width}.png`) });
+      const clip = { x: Math.max(0, b.x - pad), y: Math.max(0, b.y - pad), width: Math.ceil(b.width + 2 * pad), height: Math.min(Math.ceil(b.height + 2 * pad), MAX_SHOT_PX) };
+      figure_pngs.push({ figure: f.id, path: await shot(clip, `${base}.${safeName(f.id)}.${mode}.${width}.png`), whole: b.whole });
+      if (b.whole) await send('Runtime.evaluate', { expression: `(${unwiden.toString()})(${k})` });
     }
 
     const problems: Problem[] = m.problems.map((p) => ({ ...p, line: lineOfId(html, p.element) }));
@@ -396,6 +454,7 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
       page_complete: m.height <= MAX_SHOT_PX,
       figure_pngs,
       blocked: [...new Set(blocked)],
+      failed,
       errors,
       warnings: problems.length - errors,
       problems,
@@ -436,7 +495,7 @@ export function renderRenderResult(r: RenderResult): string {
   const lines = [
     `${r.file}: rendered ${r.mode} at ${r.width} px with ${r.browser}; ${r.problems.length ? `${n(r.errors, 'error')}, ${n(r.warnings, 'warning')}` : 'clean'}`,
     `  page    ${r.page_png}${r.page_complete ? '' : ` (the top ${MAX_SHOT_PX} px only)`}`,
-    ...r.figure_pngs.map((f) => `  #${f.figure}  ${f.path}`),
+    ...r.figure_pngs.map((f) => `  #${f.figure}  ${f.path}${f.whole ? ' (scrolls sideways on the page; drawn whole)' : ''}`),
   ];
   for (const p of r.problems) {
     const at = [p.line ? `line ${p.line}` : '', p.figure ? `#${p.figure}` : ''].filter(Boolean).join(' ');

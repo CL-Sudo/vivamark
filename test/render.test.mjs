@@ -8,10 +8,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
+import zlib from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { CHROME_NAMES, RENDER_SCHEMA, RenderError, chromeArgs, findChrome, renderPage } from '../dist/internal.js';
+import { CHROME_NAMES, RENDER_SCHEMA, RESOLVER_CHECK_HOST, RenderError, chromeArgs, findChrome, renderPage } from '../dist/internal.js';
 import { EGRESS_GUARD, ROOT, runCli } from './helpers/harness.mjs';
 
 const NO_STATE = '/nonexistent/vivamark-render-should-not-be-created';
@@ -55,7 +56,7 @@ test('the launch flags close every way out: no host resolves, a dead proxy for e
     '--user-data-dir=/tmp/profile',
     '--host-resolver-rules=MAP * ~NOTFOUND',
     '--proxy-server=127.0.0.1:9',
-    '--proxy-bypass-list=<-loopback>',
+    `--proxy-bypass-list=<-loopback>;${RESOLVER_CHECK_HOST}`,
     '--disable-background-networking',
     '--disable-component-update',
     '--disable-sync',
@@ -64,6 +65,8 @@ test('the launch flags close every way out: no host resolves, a dead proxy for e
     assert.ok(args.includes(flag), flag);
   }
   assert.ok(!args.some((a) => /remote-debugging-port/.test(a)), 'no debugging port: a pipe only');
+  // The one name that skips the proxy can only ever mean this machine.
+  assert.match(RESOLVER_CHECK_HOST, /^[a-z-]+\.localhost$/);
 });
 
 test('finding the browser: VIVAMARK_CHROME first, then the names on PATH, never a download', () => {
@@ -138,7 +141,7 @@ test('it writes a PNG of the page at the asked width and one per figure, and nev
   assert.match(text.stdout, /rendered light at 1000 px with .*; clean\n  page    .*page\.light\.1000\.png\n  #viz-store  .*page\.viz-store\.light\.1000\.png\n/);
 });
 
-test('a page that asks for external things makes no request: refused by the browser and by its flags alone', { skip: needsChrome }, async () => {
+test('a page that asks for external things makes no request: refused by the browser, and stopped by each launch flag alone', { skip: needsChrome }, async () => {
   // A listener on loopback, at an explicit port, counting every request that reaches it.
   let hits = 0;
   const server = http.createServer((req, res) => {
@@ -159,6 +162,7 @@ test('a page that asks for external things makes no request: refused by the brow
       `<!doctype html><html><head><meta charset="utf-8"><title>Outbound</title>` +
         `<link rel="stylesheet" href="${local}/style.css"><style>@import url("${local}/import.css"); body { background: url(${local}/bg.png); }</style></head>` +
         `<body><main><p>One page.</p><img src="${local}/pixel.png" alt="x"><img src="http://example.invalid/pixel.png" alt="y">` +
+        `<img src="http://localhost:${port}/name.png" alt="z"><img src="https://example.com/pixel.png" alt="w"><img src="http://${RESOLVER_CHECK_HOST}:${port}/resolver.png" alt="v">` +
         `<iframe src="https://example.invalid/"></iframe></main></body></html>`,
     );
     const log = path.join(dir, 'egress.jsonl');
@@ -170,9 +174,15 @@ test('a page that asks for external things makes no request: refused by the brow
     assert.ok(r.problems.some((p) => p.rule === 'outbound-request' && p.severity === 'error' && p.message.includes(`${local}/pixel.png`)));
     assert.equal(hits, 0, 'nothing reached the listener');
     assert.equal(fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '', '', 'and the CLI itself made no connection');
-    // Without the DevTools refusal, the launch flags alone keep every request in.
+    const asked = [`${local}/pixel.png`, `${local}/style.css`, `${local}/import.css`, `http://localhost:${port}/name.png`, 'http://example.invalid/pixel.png', 'https://example.com/pixel.png'];
+    const errorOf = (res, url) => res.failed.find((f) => f.url === url)?.error;
+    for (const url of [...asked, `http://${RESOLVER_CHECK_HOST}:${port}/resolver.png`]) assert.equal(errorOf(r, url), 'net::ERR_BLOCKED_BY_CLIENT.Inspector', `refused by render: ${url}`);
+    // Without the DevTools refusal, the launch flags stop each request themselves, and the browser says which:
+    // every one at the dead proxy (loopback included), and the one name that skips the proxy at the resolver rule.
     const flagsOnly = await renderPage(file, { outDir: path.join(dir, 'flags-only'), intercept: false });
     assert.deepEqual(flagsOnly.blocked, []);
+    for (const url of asked) assert.equal(errorOf(flagsOnly, url), 'net::ERR_PROXY_CONNECTION_FAILED', `stopped at the dead proxy: ${url} ${JSON.stringify(flagsOnly.failed)}`);
+    assert.equal(errorOf(flagsOnly, `http://${RESOLVER_CHECK_HOST}:${port}/resolver.png`), 'net::ERR_NAME_NOT_RESOLVED', `stopped by the resolver rule: ${JSON.stringify(flagsOnly.failed)}`);
     assert.equal(hits, 0, 'nothing reached the listener with the flags alone');
   } finally {
     server.close();
@@ -209,4 +219,40 @@ test('render: page script does not run, so what is drawn is the saved markup', {
   const r = await render(figurePage('script.html', '<g id="node-s"><rect class="box" x="10" y="40" width="200" height="40"/><text x="20" y="64">orders</text></g>', script));
   assert.deepEqual(r.figure_pngs.map((f) => f.figure), ['viz-one'], 'no figure added by script');
   assert.equal(r.code, 0, JSON.stringify(r.problems));
+});
+
+/** The first pixel of a PNG: on the first row every filter leaves it as stored. */
+function firstPixel(file) {
+  const b = fs.readFileSync(file);
+  const idat = [];
+  for (let at = 8; at < b.length; ) {
+    const len = b.readUInt32BE(at);
+    if (b.toString('latin1', at + 4, at + 8) === 'IDAT') idat.push(b.subarray(at + 8, at + 8 + len));
+    at += 12 + len;
+  }
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  return [raw[1], raw[2], raw[3]];
+}
+
+test('render --dark draws the page in its dark colours', { skip: needsChrome }, async () => {
+  const file = path.join(dir, 'scheme.html');
+  fs.writeFileSync(file, '<!doctype html><html><head><meta charset="utf-8"><title>scheme</title><style>html, body { margin: 0; background: #ffffff; } @media (prefers-color-scheme: dark) { html, body { background: #0b1220; } }</style></head><body><main><p>Orders.</p></main></body></html>');
+  const dark = await render(file, ['--dark']);
+  assert.equal(dark.code, 0, JSON.stringify(dark.problems));
+  assert.deepEqual(firstPixel(dark.page_png), [0x0b, 0x12, 0x20]);
+  const light = await render(file);
+  assert.deepEqual(firstPixel(light.page_png), [0xff, 0xff, 0xff]);
+});
+
+test('a figure that scrolls sideways on a narrow page is drawn whole, then put back', { skip: needsChrome }, async () => {
+  const file = figurePage('narrow.html', '<g id="node-wide"><rect class="box" x="10" y="40" width="600" height="40"/><text x="600" y="64" text-anchor="end">orders</text></g>');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('</style>', ' .viz { overflow-x: auto; margin: 0; }</style>'));
+  const r = await render(file, ['--width', '390']);
+  assert.equal(r.code, 0, JSON.stringify(r.problems));
+  assert.deepEqual(r.figure_pngs.map((f) => [f.figure, f.whole]), [['viz-one', true]]);
+  const [w] = pngSize(r.figure_pngs[0].path);
+  assert.ok(w >= 640, `the whole 640-wide SVG, not the 390 px slice: ${w}`);
+  assert.ok(pngSize(r.page_png)[0] <= 400, 'the page itself drawn as the reviewer sees it');
+  const wide = await render(file, ['--width', '1000']);
+  assert.deepEqual(wide.figure_pngs.map((f) => f.whole), [false], 'a figure that fits is drawn as it is');
 });

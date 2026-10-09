@@ -105,8 +105,8 @@ Usage:
       Draw the page in a headless Chrome or Chromium already on this machine
       (VIVAMARK_CHROME, else google-chrome, google-chrome-stable, chromium or
       chromium-browser on PATH; never downloaded) and write PNGs of the page
-      and of each figure (default: a folder under the system temp directory;
-      width 1000, light). Reports what the drawing shows: a shape painted
+      and of each figure, whole even where it scrolls sideways (default: a
+      folder under the system temp directory; width 1000, light). Reports what the drawing shows: a shape painted
       black and text cut off by its figure (errors), text out of its box and
       a page that scrolls sideways (warnings), and any request for something
       other than a local file (an error; refused). The browser is kept off the
