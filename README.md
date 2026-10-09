@@ -164,14 +164,17 @@ node dist/cli.js figures examples/report.html  # each figure, then the text it s
 
 `lint` checks the markup (role, aria-label, captions that link a section on
 the page, no script, no external URL, no hard-coded colour), that every number
-of two or more digits in a figure is in the text it summarises, and that bars
-are drawn to one scale, and that no shape is left unfilled (SVG paints it
-black); it warns about label words not in that text, a missing coverage line,
+of two or more digits in a figure is in the text it summarises, that bars are
+drawn to one scale and that no shape is left unfilled (SVG paints it black);
+it warns about label words not in that text, a missing coverage line,
 arrows that do not name their ends, text that likely runs out of its box or
 the figure (an estimate from its length), and terms a decision on the page
 supersedes (`data-vivamark-supersedes`) still in the lede, a card or a figure.
 After a decision, `vivamark guide amend` says how to bring the page to the
-decided state.
+decided state. `open` runs lint too and prints what it finds, without
+stopping the page from opening. `figures` is for a read-back: give a fresh
+reader the figure alone, have it list what the figure claims, then compare
+with the section. vivamark makes no model calls itself.
 
 To see what the reviewer will see before opening, draw the page:
 
@@ -186,10 +189,7 @@ WSL) and never downloads one. It writes PNGs of the page and of each figure,
 and reports what the drawing shows: shapes drawn black, text cut off by its
 figure or out of its box, a page that scrolls sideways. The browser runs with
 its network off and every request for anything but a local file refused.
-`open` never runs it. `open` runs it too and
-prints what it finds, without stopping the page from opening. `figures` is for
-a read-back: give a fresh reader the figure alone, have it list what the figure
-claims, then compare with the section. vivamark makes no model calls itself.
+Page script is switched off while it draws. `open` never runs `render`.
 
 [`examples/plan.html`](examples/plan.html) follows the `plan` playbook and the
 `design` CSS. Each decision sits in a "Your input" card with real radio
