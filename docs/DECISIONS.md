@@ -142,3 +142,19 @@ cut-off label for certain, and the author had not looked before opening.
 | Where the PNGs go | `--out`, else a folder per page under the system temp directory. Never beside the page, never the page itself. | Non-negotiable 4. |
 
 This supersedes nothing.
+
+## 2026-10-09: Lint is sure or it warns; render is the judge of paint
+
+Four independent checks kept finding CSS forms (`:is(a, b)`, `:not(.x, .y)`,
+`:root …`, `:first-child`) for which `unfilled-shape` called a shape black
+that a real render drew filled. Asked to choose, the Boss said: "Narrow,
+then land".
+
+| Topic | Decision | Why |
+|---|---|---|
+| `unfilled-shape` | An error only when lint is sure: every page CSS rule that sets `fill`, `fill-opacity` or `all` has a selector lint reads fully (types, `*`, ids, classes and `[attribute]` presence, joined by combinators). When any such rule has a selector it cannot fully read (a pseudo-class, `:root`, `:is(...)`, an attribute value), an unfilled shape is a warning that names the selectors and says to check the page with `vivamark render`. Lint still reads those selectors loosely, so a shape they plainly fill is not reported at all. | A selector engine in lint would never be finished, and a false error tells the author to fix what is not broken. Render draws the page in a browser, so it is sure. |
+| Paint and size | `vivamark render` is authoritative for paint (black shapes) and size (clipped and overflowing text); lint estimates and says so. The guide's figures Checks say it. | |
+
+This supersedes the `unfilled-shape` row of "After a decision, the page
+shows the decided state" (2026-10-09) where it says the rule is an error
+in every case.

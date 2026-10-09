@@ -621,13 +621,13 @@ Checks, before vivamark open
     URL; a number of two or more digits in a figure that is not in the
     linked section's text (or worked out in the caption, rule 4); bars not
     drawn to one scale from the value in their <title>; a shape nothing
-    fills, which SVG paints solid black. Warnings: label words not in the
+    fills, which SVG paints solid black (a warning when the page fills
+    through CSS lint cannot fully read). Warnings: label words not in the
     section; no coverage line where the section has more items than the
     figure has parts; an arrow group without data-from and data-to; text
-    that likely runs out of its box or the viewBox (an estimate from its
-    length: a rendered look beats it); a term a decision supersedes still
-    in the lede, a card or a figure (see: vivamark guide amend). Fix every
-    error; fix each warning or know why it is wrong.
+    that likely runs out of its box or the viewBox (an estimate); a term a
+    decision supersedes still in the lede, a card or a figure (see:
+    vivamark guide amend). Fix every error; fix each warning or know why.
   The read-back (rule 13), for flow, sequence, state and architecture
   figures (vivamark figures marks them "read back: yes"):
     1. vivamark figures <file> prints each figure with its caption and,
@@ -640,9 +640,9 @@ Checks, before vivamark open
        neither drawn nor named in the coverage line.
     4. Fix each unsupported or overstated claim and each unnamed gap; lint
        again. No subagent: list the claims yourself before rereading.
-  Look at it rendered: lint and the read-back see the source, not the
-  drawing. vivamark render <file> (and --dark --width 390) measures it and
-  writes PNGs; look at them for black shapes, cut-off text and overlaps.
+  Look at it rendered: lint and the read-back see the source; render sees
+  the drawing and is the judge of paint and size. vivamark render <file>
+  (and --dark --width 390) measures it and writes PNGs; look at them.
   vivamark open runs lint too and prints what it finds; it never stops the
   page from opening.
 `;

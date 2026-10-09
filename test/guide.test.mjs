@@ -261,9 +261,10 @@ test('the amend topic: the decided state everywhere, what it replaced marked, an
   const figures = topic('figures');
   assert.match(figures, /^ +15\. Show what is true now\. After a decision, change the section and the\s+figure together, never just the caption \(see: vivamark guide amend\)/m);
   assert.match(figures, /a shape nothing\s+fills, which SVG paints solid black/);
-  assert.match(figures, /text\s+that likely runs out of its box or the viewBox \(an estimate/);
-  assert.match(figures, /a term a decision supersedes still\s+in the lede, a card or a figure/);
-  assert.match(figures, /Look at it rendered[\s\S]*vivamark render <file> \(and --dark --width 390\) measures it and\s+writes PNGs/);
+  assert.match(figures, /text\s+that likely runs out of its box or the viewBox \(an estimate\)/);
+  assert.match(figures, /a term a\s+decision supersedes still in the lede, a card or a figure/);
+  assert.match(figures, /a shape nothing\s+fills, which SVG paints solid black \(a warning when the page fills\s+through CSS lint cannot fully read\)/);
+  assert.match(figures, /Look at it rendered[\s\S]*render sees\s+the drawing and is the judge of paint and size\. vivamark render <file>\s+\(and --dark --width 390\) measures it and writes PNGs/);
   assert.match(topic('report'), /vivamark render <file> to look\s+at what the reviewer will see/);
   assert.match(topic('workflow'), /look at vivamark render <file>/);
 });

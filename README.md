@@ -165,7 +165,9 @@ node dist/cli.js figures examples/report.html  # each figure, then the text it s
 `lint` checks the markup (role, aria-label, captions that link a section on
 the page, no script, no external URL, no hard-coded colour), that every number
 of two or more digits in a figure is in the text it summarises, that bars are
-drawn to one scale and that no shape is left unfilled (SVG paints it black);
+drawn to one scale and that no shape is left unfilled (SVG paints it black;
+a warning instead when the page fills through CSS lint cannot fully read,
+since `render` is the judge of paint);
 it warns about label words not in that text, a missing coverage line,
 arrows that do not name their ends, text that likely runs out of its box or
 the figure (an estimate from its length), and terms a decision on the page

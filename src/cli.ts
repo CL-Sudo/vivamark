@@ -93,9 +93,13 @@ Usage:
       of" or not linking a section on the page; a duplicate part id; a hex
       fill or stroke; a script; an external URL; a number of two or more
       digits in a figure that is not in the linked section; bars not drawn to
-      one scale. Warnings: label words not in the section; no coverage line
-      where the section has more items than the figure has parts; an arrow
-      group without data-from and data-to.
+      one scale; a shape nothing fills, which SVG paints black (a warning
+      instead when the page fills through CSS lint cannot fully read: check
+      it with render). Warnings: label words not in the section; no coverage
+      line where the section has more items than the figure has parts; an
+      arrow group without data-from and data-to; text that likely runs out of
+      its box or the viewBox (an estimate from its length); a term listed in
+      data-vivamark-supersedes still in the lede, a card or a figure.
       Exit 0 clean, 1 errors (or the page cannot be read), 2 warnings only.
   vivamark figures <page.html> [--json]
       Print each figure (.viz) as saved, with its caption, and apart from it
@@ -106,13 +110,15 @@ Usage:
       (VIVAMARK_CHROME, else google-chrome, google-chrome-stable, chromium or
       chromium-browser on PATH; never downloaded) and write PNGs of the page
       and of each figure, whole even where it scrolls sideways (default: a
-      folder under the system temp directory; width 1000, light). Reports what the drawing shows: a shape painted
-      black and text cut off by its figure (errors), text out of its box and
-      a page that scrolls sideways (warnings), and any request for something
-      other than a local file (an error; refused). The browser is kept off the
-      network by its flags and by refusing every such request, and page
-      script does not run. Never writes the page; open never runs it. Exit 0 clean, 1 errors (or no browser),
-      2 warnings only.
+      folder under the system temp directory; width 1000, light). Reports
+      what the drawing shows, and is the judge of paint where lint is not
+      sure: a shape painted black and text cut off by its figure (errors),
+      text out of its box and a page that scrolls sideways (warnings), and
+      any request for something other than a local file (an error; refused).
+      The browser is kept off the network by its flags and by refusing every
+      such request, and page script does not run. Never writes the page;
+      open never runs it. Exit 0 clean, 1 errors (or no browser), 2 warnings
+      only.
   vivamark stop
       Stop the background review server.
 
