@@ -457,8 +457,9 @@ test('unfilled-shape counts every way the page sets fill: element, descendant an
   assert.deepEqual(unfilled(page.replace('LATER', '')), [], 'every shape here is filled');
   // Still caught: an id rule reaches only its own figure, a :hover rule is not the drawing at rest.
   const caught = unfilled(page.replace('LATER', '<g id="viz-d-more"><title>more</title><path d="M1 1 H9"/><ellipse cx="5" cy="5" rx="3" ry="2"/></g>'));
-  assert.deepEqual(caught.map((p) => p.message.slice(0, 10)), ['<path> is ', '<ellipse> '], JSON.stringify(caught));
-  assert.ok(caught.every((p) => p.severity === 'error' && p.figure === 'viz-d'));
+  assert.deepEqual(caught.map((p) => p.message.split('>')[0]), ['<path', '<ellipse'], JSON.stringify(caught));
+  // This page fills through :not() and :hover, which lint cannot fully read: so a warning, and render decides.
+  assert.ok(caught.every((p) => p.severity === 'warning' && p.figure === 'viz-d' && /may be painted solid black.*vivamark render/.test(p.message)), JSON.stringify(caught));
 });
 
 test('text-overflow: a label below its box is not judged against the box; .strong text runs 7% wider', () => {
@@ -496,9 +497,43 @@ test('unfilled-shape reads selector lists at their top-level commas: :is(a, b) a
     assert.deepEqual(r.problems.filter((p) => p.rule === 'unfilled-shape'), [], `${name}: ${JSON.stringify(r.problems)}`);
     // A shape no rule reaches is still painted black.
     const bare = lintPage(html.replace('<path class="p1" d="M1 1 H90 V50"/>', '<path class="p1" d="M1 1 H90 V50"/><g id="viz-1-more"><title>more</title><polygon class="other" points="1,1 9,1 5,9"/></g>'));
-    assert.deepEqual(bare.problems.filter((p) => p.rule === 'unfilled-shape').map((p) => p.element), ['viz-1-more'], name);
+    assert.deepEqual(bare.problems.filter((p) => p.rule === 'unfilled-shape').map((p) => [p.element, p.severity]), [['viz-1-more', 'warning']], name);
   }
   // A list inside :is() whose every member is a compound of its own.
   const both = lintPage(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'fill-is.html'), 'utf8').replace('.viz svg :is(path, rect).p1', '.viz svg :is(path, rect)'));
   assert.deepEqual(both.problems.filter((p) => p.rule === 'unfilled-shape'), []);
+});
+
+test('unfilled-shape is an error only when lint read every fill rule; a rule it cannot fully read makes it a warning that points to render', () => {
+  // Pages from an independent check: :root and :first-child rules fill these paths, which lint does not read.
+  for (const [name, sel] of [['fill-root.html', ':root .viz svg path'], ['fill-pseudo.html', '.viz svg :first-child']]) {
+    const r = lintPage(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', name), 'utf8'));
+    const u = r.problems.filter((p) => p.rule === 'unfilled-shape');
+    assert.equal(r.errors, 0, `${name}: never an error: ${JSON.stringify(r.problems)}`);
+    assert.equal(u.length, 1, name);
+    assert.equal(u[0].severity, 'warning');
+    assert.match(u[0].message, new RegExp(`may be painted solid black: nothing lint can read fills it, but the page sets fill through CSS lint cannot fully read \\("${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\)\\. Check it with vivamark render <file>, which is sure`));
+  }
+  // The same paths with only rules lint reads: sure, so an error.
+  const sure = lintPage(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'fill-root.html'), 'utf8').replace(':root .viz svg path { fill: none;', '.viz svg .q { fill: none;'));
+  assert.deepEqual(sure.problems.filter((p) => p.rule === 'unfilled-shape').map((p) => p.severity), ['error']);
+  // fill-opacity and all are fill rules too: read or not, they make it unsure.
+  for (const decl of ['fill-opacity: 0', 'all: unset']) {
+    const r = lintPage(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'fill-root.html'), 'utf8').replace(':root .viz svg path { fill: none;', `.viz svg .q { ${decl};`));
+    assert.deepEqual(r.problems.filter((p) => p.rule === 'unfilled-shape').map((p) => p.severity), ['warning'], decl);
+  }
+});
+
+test('superseded-term: figure text matches across a line break or double space, and only as a whole word at both ends', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'amend-after.html'), 'utf8');
+  const label = (text) => {
+    const from = '>to one SQLite database</text>';
+    assert.equal(html.split(from).length, 2);
+    return lintPage(html.replace(from, `>${text}</text>`)).problems.filter((p) => p.rule === 'superseded-term');
+  };
+  assert.equal(label('to JSON  files').length, 1, 'a double space');
+  assert.equal(label('to JSON\n        files').length, 1, 'a line break');
+  assert.equal(label('to XJSON files').length, 0, 'a word that only ends in the term');
+  assert.equal(label('to nonJSON files').length, 0, 'nor this');
+  assert.equal(label('to JSON filesystem').length, 0, 'nor one that only starts with it');
 });

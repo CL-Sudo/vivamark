@@ -415,14 +415,28 @@ function splitTop(s: string, sep: (ch: string) => boolean): string[] {
  * from outermost to the element. Combinators all count as "inside": a
  * looser match, so a fill the page really sets is never missed.
  */
-function cssFillSelectors(root: Node): Compound[][] {
-  const out: Compound[][] = [];
+interface FillRules {
+  /** Selectors of rules that set fill, as compounds; matched loosely, so a fill the page sets is not missed. */
+  rules: Compound[][];
+  /** Selectors of rules that set fill, fill-opacity or all that lint cannot fully read (:root, :first-child, :is(...), [x="y"]). */
+  unread: string[];
+}
+
+// A compound lint reads exactly: a type or *, then ids, classes and [attribute] presence only.
+const READABLE_COMPOUND = /^(?:[\w-]+|\*)?(?:#[\w-]+|\.[\w-]+|\[\s*[\w:-]+\s*\])*$/;
+
+function cssFillRules(root: Node): FillRules {
+  const out: FillRules = { rules: [], unread: [] };
   const css = all(root, (el) => el.tagName === 'style').map(rawText).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (!/(?:^|;)\s*fill\s*:/i.test(m[2])) continue;
+    const fill = /(?:^|;)\s*fill\s*:/i.test(m[2]);
+    if (!fill && !/(?:^|;)\s*(?:fill-opacity|all)\s*:/i.test(m[2])) continue;
     for (const sel of splitTop(m[1], (ch) => ch === ',')) {
-      const parts = splitTop(sel, (ch) => /[\s>+~]/.test(ch)).map(compound);
-      if (parts.length && parts.every((p): p is Compound => p !== null)) out.push(parts);
+      const raw = splitTop(sel, (ch) => /[\s>+~]/.test(ch));
+      if (!fill || !raw.length || !raw.every((c) => READABLE_COMPOUND.test(c))) out.unread.push(squash(sel));
+      if (!fill) continue;
+      const parts = raw.map(compound);
+      if (parts.length && parts.every((p): p is Compound => p !== null)) out.rules.push(parts);
     }
   }
   return out;
@@ -443,6 +457,7 @@ function matchesSelector(el: Element, sel: Compound[]): boolean {
  * and beyond) counts.
  */
 function unfilled(el: Element, svg: Element, fillRules: Compound[][]): boolean {
+  // Sure only of what it can read: see FillRules.unread for when this becomes a warning.
   if (!SHAPES.includes(el.tagName) || hasAncestor(el, svg, (p) => NOT_DRAWN.includes(p.tagName))) return false;
   for (let p: Element | null = el; p; p = parentOf(p)) {
     if (setsFill(p) || classes(p).some((c) => FILLED.includes(c))) return false;
@@ -548,7 +563,7 @@ export function lintPage(html: string): LintResult {
     for (const m of css.matchAll(CSS_EXTERNAL)) add('error', 'no-external-url', null, el, `${(m[0].split(/[\s(]/)[0] || 'url').trim()} ${m[1] ?? m[2]}: an outbound request; inline it instead`);
   }
 
-  const fillRules = cssFillSelectors(page.root);
+  const fill = cssFillRules(page.root);
 
   // Captions anywhere on the page.
   const captions = all(page.root, (el) => hasClass(el, 'viz-caption'));
@@ -596,13 +611,21 @@ export function lintPage(html: string): LintResult {
         add('warning', 'edge-ends', fid, e, 'an arrow outside any <g id>: wrap it in <g id="edge-..." data-from="..." data-to="..."> so it names its ends');
       }
 
-      // Paint: a shape nothing fills is drawn solid black.
-      for (const s of all(svg, (x) => unfilled(x, svg, fillRules))) {
+      // Paint: a shape nothing fills is drawn solid black. An error only when lint read every rule
+      // that could fill it; otherwise a warning, and vivamark render is the judge.
+      for (const s of all(svg, (x) => unfilled(x, svg, fill.rules))) {
         const cls = classes(s).join(' ');
-        const why = classes(s).some((c) => LINE_ONLY.includes(c))
-          ? `.${classes(s).find((c) => LINE_ONLY.includes(c))} is for <line> only`
-          : 'nothing sets its fill';
-        add('error', 'unfilled-shape', fid, ownerGroup(s, svg) ?? s, `<${s.tagName}${cls ? ` class="${cls}"` : ''}> is painted solid black: ${why}. Draw a line, bracket or connector as an .edge path; give a shape a filled class (.box, .bar) or fill="none"`);
+        const shape = `<${s.tagName}${cls ? ` class="${cls}"` : ''}>`;
+        const fix = 'Draw a line, bracket or connector as an .edge path; give a shape a filled class (.box, .bar) or fill="none"';
+        if (fill.unread.length) {
+          const shown = fill.unread.slice(0, 2).map((u) => `"${u.slice(0, 40)}"`).join(', ');
+          add('warning', 'unfilled-shape', fid, ownerGroup(s, svg) ?? s, `${shape} may be painted solid black: nothing lint can read fills it, but the page sets fill through CSS lint cannot fully read (${shown}${fill.unread.length > 2 ? ', ...' : ''}). Check it with vivamark render <file>, which is sure. ${fix}`);
+        } else {
+          const why = classes(s).some((c) => LINE_ONLY.includes(c))
+            ? `.${classes(s).find((c) => LINE_ONLY.includes(c))} is for <line> only`
+            : 'nothing sets its fill';
+          add('error', 'unfilled-shape', fid, ownerGroup(s, svg) ?? s, `${shape} is painted solid black: ${why}. ${fix}`);
+        }
       }
 
       // Size: text that likely runs past the viewBox or out of its box.
