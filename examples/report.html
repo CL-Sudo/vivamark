@@ -67,6 +67,8 @@ a { color: var(--accent-strong); }
 .pill.q { background: var(--q-soft); color: var(--q); }
 .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: var(--r-sm); padding: var(--s2) var(--s3); margin: 0 0 var(--s3); }
 .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.superseded { border-left: 3px solid var(--muted); padding-left: var(--s3); margin: 0 0 var(--s3); color: var(--muted); }
+.superseded::before { content: "Superseded"; display: block; font: 600 12px/20px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
 .options { list-style: none; padding: 0; display: grid; gap: var(--s2); }
 .option { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px var(--s3); margin: 0; }
 .option.recommended { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -107,8 +109,8 @@ p code, li code, p a, li a { overflow-wrap: anywhere; }
 .viz svg .box.q { fill: var(--q-soft); stroke: var(--q); }
 .viz svg .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
 .viz svg .arrow { fill: var(--muted); }
-.viz svg .gridline { stroke: var(--line); stroke-width: 1; }
-.viz svg .refline { stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 4 3; }
+.viz svg .gridline { fill: none; stroke: var(--line); stroke-width: 1; }
+.viz svg .refline { fill: none; stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 4 3; }
 .viz svg .bar { fill: var(--accent); }
 .viz svg .bar.ok { fill: var(--ok); }
 .viz svg .bar.warn { fill: var(--warn); }

@@ -82,6 +82,8 @@ a { color: var(--accent-strong); }
 .pill.q { background: var(--q-soft); color: var(--q); }
 .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: var(--r-sm); padding: var(--s2) var(--s3); margin: 0 0 var(--s3); }
 .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
+.superseded { border-left: 3px solid var(--muted); padding-left: var(--s3); margin: 0 0 var(--s3); color: var(--muted); }
+.superseded::before { content: "Superseded"; display: block; font: 600 12px/20px var(--ui); letter-spacing: .06em; text-transform: uppercase; }
 .options { list-style: none; padding: 0; display: grid; gap: var(--s2); }
 .option { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px var(--s3); margin: 0; }
 .option.recommended { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -122,8 +124,8 @@ p code, li code, p a, li a { overflow-wrap: anywhere; }
 .viz svg .box.q { fill: var(--q-soft); stroke: var(--q); }
 .viz svg .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
 .viz svg .arrow { fill: var(--muted); }
-.viz svg .gridline { stroke: var(--line); stroke-width: 1; }
-.viz svg .refline { stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 4 3; }
+.viz svg .gridline { fill: none; stroke: var(--line); stroke-width: 1; }
+.viz svg .refline { fill: none; stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 4 3; }
 .viz svg .bar { fill: var(--accent); }
 .viz svg .bar.ok { fill: var(--ok); }
 .viz svg .bar.warn { fill: var(--warn); }
@@ -153,6 +155,7 @@ The loop
   2. vivamark open <file>             opens it in the reviewer's browser
   3. vivamark wait <file>             blocks until the reviewer sends or decides
   4. Edit the saved file. The page reloads in place; notes re-attach.
+     After a decision, change everything it changes (see: vivamark guide amend).
   5. Say what became of each note:
        vivamark reply <file> --note n_0001 --status addressed -m "Split step 2."
        vivamark reply <file> --note n_0002 --status declined -m "Out of scope: why."
@@ -247,6 +250,8 @@ Classes
   .card     a frosted panel; .grid lays cards out in columns that wrap
   .pill     a status chip; .ok .warn .bad .q for done, at risk, blocked, open
   .callout  an aside; .callout.warn for a warning
+  .superseded  text a decision replaced, kept for its reasoning, labelled
+            "Superseded" (see: vivamark guide amend)
   .your-input  a card that asks the reviewer for something: every decision.
             Unmistakable on purpose, labelled "Your input" (see: decisions)
   .options  a list of .option blocks to choose from; .recommended marks yours.
@@ -259,8 +264,9 @@ Classes for visuals (how to use them: vivamark guide report)
             on a narrow screen it scrolls sideways by itself
             In the SVG: text.muted, text.strong; .box (.accent, .q) for a flow
             box, .edge and .arrow for its arrows; .bar (.ok .warn .bad);
-            .dot and .range for a dot or range chart; .gridline, .refline;
-            <g class="axis"> around tick labels and an axis title.
+            .dot and .range for a dot or range chart; .gridline and
+            .refline on <line> only (a bracket or connector is an .edge
+            path); <g class="axis"> around tick labels and an axis title.
             Never a hard-coded colour: these follow light and dark
   .viz-caption  the line under a visual: whose summary, of which section,
             and what it leaves out (see: vivamark guide figures)
@@ -353,6 +359,8 @@ How the reviewer answers
     anchor.control {role: "radio", name: ...}.
   - Approve with nothing chosen: your recommendation stands. Say so on the
     page ("Approving accepts the recommended options").
+  - Once decided, the page shows the decision everywhere it said otherwise
+    (see: vivamark guide amend).
 
 The attribute
   data-vivamark-suggest="<intent>" on an <input type="radio">, an
@@ -417,10 +425,12 @@ a survey of tools, or a long piece of work the reviewer did not watch.
 
 A report is visual by default
   Keep the full text: every finding, table, command and source stays on the
-  page. Nothing is summarised away. Then add visuals where they carry meaning,
-  each just above the section it summarises, so the reviewer sees the shape
-  first and the detail under it. A visual is your summary of a named section,
-  never a replacement for it. Where no visual fits, write none. Before you
+  page. Nothing is summarised away. When a decision changes what the page
+  says, change the text too, marked, as vivamark guide amend says. Then add
+  visuals where they carry meaning, each just above the section it
+  summarises, so the reviewer sees the shape first and the detail under it.
+  A visual is your summary of a named section, never a replacement for it,
+  and shows what is true now. Where no visual fits, write none. Before you
   draw, read vivamark guide figures: the fidelity checklist, which diagram
   fits which text, and the checks to run before opening.
 
@@ -556,6 +566,8 @@ The checklist
       step (row-canary, viz-canary). An arrow is a group naming its ends:
         <g id="edge-api-writes-db" data-from="node-api" data-to="node-db">
           <path class="edge" d="..."/><text ...>writes</text></g>
+  15. Show what is true now. After a decision, change the section and the
+      figure together, never just the caption (see: vivamark guide amend).
 
 Pick the diagram by the shape of the text
   Steps in order          a flow, in rows past 4 boxes: the verb on every
@@ -606,10 +618,14 @@ Checks, before vivamark open
     duplicate part id; fill="#..." or stroke="#..."; a script; an external
     URL; a number of two or more digits in a figure that is not in the
     linked section's text (or worked out in the caption, rule 4); bars not
-    drawn to one scale from the value in their <title>. Warnings: label
-    words not in the section; no coverage line where the section has more
-    items than the figure has parts; an arrow group without data-from and
-    data-to. Fix every error; fix each warning or know why it is wrong.
+    drawn to one scale from the value in their <title>; a shape nothing
+    fills, which SVG paints solid black. Warnings: label words not in the
+    section; no coverage line where the section has more items than the
+    figure has parts; an arrow group without data-from and data-to; text
+    that likely runs out of its box or the viewBox (an estimate from its
+    length: a rendered look beats it); a term a decision supersedes still
+    in the lede, a card or a figure (see: vivamark guide amend). Fix every
+    error; fix each warning or know why it is wrong.
   The read-back (rule 13), for flow, sequence, state and architecture
   figures (vivamark figures marks them "read back: yes"):
     1. vivamark figures <file> prints each figure with its caption and,
@@ -622,8 +638,58 @@ Checks, before vivamark open
        neither drawn nor named in the coverage line.
     4. Fix each unsupported or overstated claim and each unnamed gap; lint
        again. No subagent: list the claims yourself before rereading.
+  Look at it rendered: lint and the read-back see the source, not the
+  drawing. Open the page in a browser, light and dark, at desktop and phone
+  width, and look for solid black shapes, cut-off text and overlaps.
   vivamark open runs lint too and prints what it finds; it never stops the
   page from opening.
+`;
+
+const AMEND = `amend: changing a page after the reviewer decides
+
+A decision changes what the page says. Afterwards the page shows the
+decided state wherever a reader looks first, and what it replaced is
+marked, not left standing. Nothing is lost: vivamark keeps every version of
+the page (vivamark versions <file>), so the page need not keep the old
+design on show.
+
+The steps
+  1. Find every place that states what the decision replaced: the lede, the
+     .meta line, the cards, every figure (labels, <title>s, aria-label,
+     caption), tables, body text and the options of other decisions. Search
+     the file for the old words and go through every hit.
+  2. Record the decision once, dated, near the top, naming what it
+     supersedes:
+       <section id="decided-storage" data-vivamark-supersedes="JSON files">
+         <h2>Decided 2026-10-09: drafts are stored in SQLite</h2>
+         <p>What was asked, what was chosen, what it replaces.</p>
+       </section>
+     data-vivamark-supersedes takes the old terms, separated by ";".
+     vivamark lint then warns wherever the lede, a card or a figure still
+     says one of them.
+  3. Bring the lede, the cards and every figure to the decided state. A
+     figure never shows a superseded design as the current one. A caption
+     saying the figure is out of date does not fix it: readers take the
+     picture first and the caption last, if at all.
+  4. Change the text each figure links to, so figure and text agree. Edit
+     the passage and say so:
+       <p class="callout warn" id="changed-storage">Changed 2026-10-09
+         (see <a href="#decided-storage">the decision</a>): ...</p>
+     or, where the old reasoning still matters, keep it marked:
+       <div class="superseded" id="old-json-storage">...</div>
+     A figure's caption may then link the decision as well as the section.
+     Never old text unmarked under a new figure, nor a new figure over old
+     text: lint's label and number checks pass on either.
+  5. Before and after side by side only when the comparison is the point:
+     two small figures on one scale, "Before (superseded)" and "Decided",
+     the old one never first and never alone.
+  6. Lint, read back and look at the page rendered (see: vivamark guide
+     figures, Checks). Then reply on the note that asked.
+
+Pitfalls
+  - A new figure for the decision beside the old figure left as it was.
+  - A promise that the text is "unchanged" kept after a decision broke it.
+  - Fixing the figure and leaving the lede or the cards saying the old thing.
 `;
 
 const COMPARISON = `comparison: options side by side, so the reviewer can choose
@@ -741,6 +807,7 @@ export const TOPICS: readonly GuideTopic[] = [
   { name: 'design', summary: 'the Smooth glass look: a ready CSS block, light and dark, and layout rules', text: DESIGN },
   { name: 'ids', summary: 'stable ids on everything worth a note, so notes survive edits', text: IDS },
   { name: 'decisions', summary: 'ask for choices in a "Your input" card with real controls; open questions to point at', text: DECISIONS },
+  { name: 'amend', summary: 'after a decision: the decided state everywhere, what it replaced marked', text: AMEND },
   { name: 'plan', summary: 'playbook: a plan to approve before building, ending on decisions', text: PLAN },
   { name: 'report', summary: 'playbook: results, findings with evidence, what was not done; visual by default', text: REPORT },
   { name: 'figures', summary: 'drawing a section without losing its facts: the checklist, which diagram, lint and read-back', text: FIGURES },
@@ -764,7 +831,8 @@ export function guideIndex(): string {
     `vivamark guide: how to write a page worth reviewing, and how to run the review.\n\n` +
     `Topics (vivamark guide <topic>):\n${topicList('  ')}\n\n` +
     `Start with workflow. Then read the playbook for your page (plan, report,\n` +
-    `comparison, explainer or diff), design and ids; figures before you draw one.\n` +
+    `comparison, explainer or diff), design and ids; figures before you draw one;\n` +
+    `amend after the reviewer decides something the page says.\n` +
     `--json gives the same as data.\n`
   );
 }

@@ -339,6 +339,101 @@ function vocabulary(text: string): Set<string> {
   return out;
 }
 
+// ---- paint and size -------------------------------------------------------------------
+
+// Closed shapes SVG fills black unless something sets their fill.
+const SHAPES = ['path', 'polyline', 'polygon', 'rect', 'circle', 'ellipse'];
+// The guide's classes that give a shape its fill (or fill: none).
+const FILLED = ['edge', 'arrow', 'box', 'bar', 'range', 'dot'];
+// The guide's classes for a <line> only; on a shape, only the page's CSS can fill them.
+const LINE_ONLY = ['gridline', 'refline'];
+// Drawn only where something refers to them, not as they stand.
+const NOT_DRAWN = ['defs', 'marker', 'clipPath', 'clippath', 'mask', 'pattern', 'symbol'];
+
+function setsFill(el: Element): boolean {
+  return attr(el, 'fill') !== undefined || /(?:^|;)\s*fill\s*:/i.test(attr(el, 'style') ?? '');
+}
+
+/** Classes the page's own CSS gives a fill: the classes in the last part of a selector whose rule sets fill. */
+function cssFilledClasses(root: Node): Set<string> {
+  const out = new Set<string>();
+  const css = all(root, (el) => el.tagName === 'style').map(rawText).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!/(?:^|;)\s*fill\s*:/i.test(m[2])) continue;
+    for (const sel of m[1].split(',')) {
+      const last = sel.trim().split(/[\s>+~]+/).pop() ?? '';
+      for (const c of last.matchAll(/\.([\w-]+)/g)) out.add(c[1]);
+    }
+  }
+  return out;
+}
+
+/** A shape with nothing setting its fill, so SVG paints it black. */
+function unfilled(el: Element, svg: Element, filled: Set<string>): boolean {
+  if (!SHAPES.includes(el.tagName) || hasAncestor(el, svg, (p) => NOT_DRAWN.includes(p.tagName))) return false;
+  if (setsFill(el) || hasAncestor(el, svg, setsFill)) return false;
+  return !classes(el).some((c) => FILLED.includes(c) || filled.has(c));
+}
+
+// Average glyph width in em for the page's sans-serif, a little over the median
+// measured in Chromium; .strong text (600) runs about 7% wider. An estimate: a
+// warning, never an error.
+const EM_PER_CHAR = 0.55;
+const STRONG = 1.07;
+const PAGE_FONT_PX = 12;
+
+function num(v: string | undefined): number | null {
+  if (v === undefined || v.trim() === '') return null;
+  const n = Number(v.trim().replace(/px$/, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function fontPx(el: Element, svg: Element): number {
+  for (let p: Element | null = el; p && p !== svg; p = parentOf(p)) {
+    const n = num(attr(p, 'font-size')) ?? num(/(?:^|;)\s*font-size\s*:\s*([\d.]+)px/i.exec(attr(p, 'style') ?? '')?.[1]);
+    if (n) return n;
+  }
+  return PAGE_FONT_PX;
+}
+
+interface TextLine {
+  el: Element;
+  text: string;
+  x0: number;
+  x1: number;
+  y: number;
+  width: number;
+}
+
+/** Each line a <text> draws (one per <tspan> with its own x), placed by its x and text-anchor. */
+function textLines(t: Element, svg: Element): TextLine[] {
+  const spans = all(t, (e) => e.tagName === 'tspan' && attr(e, 'x') !== undefined);
+  const parts = spans.length ? spans : [t];
+  const out: TextLine[] = [];
+  for (const el of parts) {
+    const text = squash(rawText(el));
+    const x = num(attr(el, 'x')) ?? num(attr(t, 'x')) ?? 0;
+    const y = num(attr(el, 'y')) ?? num(attr(t, 'y')) ?? 0;
+    if (!text) continue;
+    const width = [...text].length * fontPx(el, svg) * EM_PER_CHAR * (classes(t).includes('strong') || classes(el).includes('strong') ? STRONG : 1);
+    const anchor = attr(el, 'text-anchor') ?? attr(t, 'text-anchor') ?? 'start';
+    const x0 = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x;
+    out.push({ el, text, x0, x1: x0 + width, y, width });
+  }
+  return out;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The terms a decision supersedes: data-vivamark-supersedes="trust; company layer". */
+function supersededTerms(el: Element): { term: string; re: RegExp }[] {
+  return (attr(el, 'data-vivamark-supersedes') ?? '')
+    .split(';')
+    .map((t) => squash(t))
+    .filter(Boolean)
+    .map((term) => ({ term, re: new RegExp(`(?<![\\p{L}\\p{N}_])${term.split(' ').map(escapeRe).join('\\s+')}(?![\\p{L}\\p{N}_])`, 'iu') }));
+}
+
 // ---- lint ---------------------------------------------------------------------------
 
 const EXTERNAL = /^\s*(?:(?:https?|ftp|wss?):)?\/\//i;
@@ -376,6 +471,8 @@ export function lintPage(html: string): LintResult {
     const css = el.tagName === 'style' ? rawText(el) : style ?? '';
     for (const m of css.matchAll(CSS_EXTERNAL)) add('error', 'no-external-url', null, el, `${(m[0].split(/[\s(]/)[0] || 'url').trim()} ${m[1] ?? m[2]}: an outbound request; inline it instead`);
   }
+
+  const filled = cssFilledClasses(page.root);
 
   // Captions anywhere on the page.
   const captions = all(page.root, (el) => hasClass(el, 'viz-caption'));
@@ -421,6 +518,36 @@ export function lintPage(html: string): LintResult {
 
       for (const e of all(svg, (x) => hasClass(x, 'edge') && !ownerGroup(x, svg))) {
         add('warning', 'edge-ends', fid, e, 'an arrow outside any <g id>: wrap it in <g id="edge-..." data-from="..." data-to="..."> so it names its ends');
+      }
+
+      // Paint: a shape nothing fills is drawn solid black.
+      for (const s of all(svg, (x) => unfilled(x, svg, filled))) {
+        const cls = classes(s).join(' ');
+        const why = classes(s).some((c) => LINE_ONLY.includes(c))
+          ? `.${classes(s).find((c) => LINE_ONLY.includes(c))} is for <line> only`
+          : 'nothing sets its fill';
+        add('error', 'unfilled-shape', fid, ownerGroup(s, svg) ?? s, `<${s.tagName}${cls ? ` class="${cls}"` : ''}> is painted solid black: ${why}. Draw a line, bracket or connector as an .edge path; give a shape a filled class (.box, .bar) or fill="none"`);
+      }
+
+      // Size: text that likely runs past the viewBox or out of its box.
+      const vb = (attr(svg, 'viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
+      const view = vb.length === 4 && vb.every(Number.isFinite) && vb[2] > 0 ? { x0: vb[0], x1: vb[0] + vb[2] } : null;
+      for (const t of all(svg, (e) => e.tagName === 'text')) {
+        if (attr(t, 'textLength') !== undefined || hasAncestor(t, svg, (p) => p.tagName === 'text' || NOT_DRAWN.includes(p.tagName))) continue;
+        if ([t, ...all(t)].some((e) => attr(e, 'transform') !== undefined) || hasAncestor(t, svg, (p) => attr(p, 'transform') !== undefined)) continue;
+        const parent = parentOf(t);
+        const box = parent && parent !== svg ? childElements(parent).find((r) => r.tagName === 'rect' && hasClass(r, 'box')) : undefined;
+        const b = box ? { x: num(attr(box, 'x')) ?? 0, y: num(attr(box, 'y')) ?? 0, w: num(attr(box, 'width')), h: num(attr(box, 'height')) } : null;
+        for (const l of textLines(t, svg)) {
+          const owner = ownerGroup(t, svg) ?? t;
+          const about = `"${l.text.slice(0, 60)}" is about ${Math.round(l.width)} wide`;
+          if (b && b.w && b.h && l.y >= b.y && l.y <= b.y + b.h && (l.x0 < b.x - 0.5 || l.x1 > b.x + b.w + 0.5)) {
+            add('warning', 'text-overflow', fid, owner, `${about}; its box is ${b.w} (x ${b.x}..${b.x + b.w}): shorten it, wrap it into two <text> lines, or widen the box`);
+          } else if (view && (l.x0 < view.x0 - 0.5 || l.x1 > view.x1 + 0.5)) {
+            const end = l.x1 > view.x1 ? `to about x=${Math.round(l.x1)}` : `from about x=${Math.round(l.x0)}`;
+            add('warning', 'text-overflow', fid, owner, `${about} and runs ${end}, past the viewBox (${view.x0}..${view.x1}): shorten it, wrap it into two <text> lines, or move it`);
+          }
+        }
       }
 
       // Number provenance: every number of two or more digits the figure shows.
@@ -513,6 +640,36 @@ export function lintPage(html: string): LintResult {
       }
     }
   });
+
+  // Superseded terms: after a decision, the lede, the cards and the figures show the decided state.
+  for (const decision of all(page.root, (el) => attr(el, 'data-vivamark-supersedes') !== undefined)) {
+    const terms = supersededTerms(decision);
+    const did = attr(decision, 'id');
+    const by = did ? `#${did}` : `the decision on line ${lineOf(decision)}`;
+    const exempt = (el: Element) => el === decision || hasClass(el, 'superseded') || hasAncestor(el, page.root as unknown as Element, (p) => p === decision || hasClass(p, 'superseded'));
+    const says = (fid: string | null, el: Element, where: string, text: string) => {
+      for (const { term, re } of terms) {
+        if (re.test(text)) add('warning', 'superseded-term', fid, el, `${where} still says "${term}", which ${by} supersedes: bring it to the decided state, or mark the passage .superseded (see: vivamark guide amend)`);
+      }
+    };
+    for (const el of all(page.root, (e) => (hasClass(e, 'lede') || hasClass(e, 'card')) && !hasClass(e, 'viz') && !insideFigure(e))) {
+      if (exempt(el) || all(el, (e) => e !== el && hasClass(e, 'card')).length) continue;
+      const id = attr(el, 'id');
+      says(null, el, `the ${hasClass(el, 'lede') ? 'lede' : 'card'}${id ? ` #${id}` : ''}`, readable([el], (e) => hasClass(e, 'superseded') || isFigurePart(e)));
+    }
+    page.figures.forEach((fig, k) => {
+      if (exempt(fig)) return;
+      const fid = figureId(fig, k);
+      for (const svg of svgsOf(fig)) {
+        says(fid, svg, `#${fid}'s aria-label`, attr(svg, 'aria-label') ?? '');
+        for (const e of svgTextElements(svg)) {
+          if (exempt(e)) continue;
+          const owner = e.tagName === 'title' ? parentOf(e) ?? e : ownerGroup(e, svg) ?? e;
+          says(fid, owner, `#${fid}, <${e.tagName}> "${squash(rawText(e)).slice(0, 50)}",`, rawText(e));
+        }
+      }
+    });
+  }
 
   const errors = problems.filter((p) => p.severity === 'error').length;
   return { schema: LINT_SCHEMA, figures: page.figures.length, errors, warnings: problems.length - errors, problems };

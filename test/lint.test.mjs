@@ -315,3 +315,91 @@ test('the figures guide: the checklist, the coverage line, the map, the checks',
   assert.match(report, /coverage line/);
   assert.match(TOPICS.find((t) => t.name === 'workflow').text, /vivamark lint <file>/);
 });
+
+// ---- paint, size and superseded terms ----------------------------------------------
+
+const fixture = (name) => fs.readFileSync(path.join(ROOT, 'test', 'fixtures', name), 'utf8');
+
+test('a shape nothing fills is painted black: an error, unless a class, an attribute or the page CSS fills it', () => {
+  const svgEnd = '</svg>\n      <figcaption class="viz-caption">Author\'s summary of <a href="#orders">';
+  const page = (shapes, css = '') => mutate([svgEnd, `${shapes}${svgEnd}`], ['</style>', `${css}</style>`]);
+  const unfilled = (r) => r.problems.filter((p) => p.rule === 'unfilled-shape');
+  // A bracket drawn as a .gridline path, a bare polygon and a bare rect: each painted black.
+  const bad = lintPage(page('<path class="gridline" d="M10 10 H18 V90 H10"/><polygon points="1,1 9,1 5,9"/><rect x="1" y="1" width="9" height="9"/>'));
+  assert.deepEqual(unfilled(bad).map((p) => p.severity), ['error', 'error', 'error'], JSON.stringify(bad.problems));
+  assert.match(unfilled(bad)[0].message, /<path class="gridline"> is painted solid black: \.gridline is for <line> only.*\.edge path/);
+  assert.equal(unfilled(bad)[0].figure, 'viz-orders');
+  // Filled by the guide's classes, by an attribute or style (on it or a group), or by the page's own CSS; drawn only by reference.
+  const ok = lintPage(
+    page(
+      '<path class="edge" d="M1 1 H9"/><path fill="none" d="M1 1 H9"/><g fill="none"><path d="M1 1 H9"/></g><path style="fill: none" d="M1 1 H9"/>' +
+        '<circle class="blob" cx="5" cy="5" r="3"/><defs><marker id="m"><path d="M0 0 L9 5 L0 9 z"/></marker></defs><line class="gridline" x1="1" y1="1" x2="1" y2="9"/>',
+      '.viz svg .blob { fill: var(--accent); }',
+    ),
+  );
+  assert.deepEqual(unfilled(ok), [], JSON.stringify(ok.problems));
+  // Once the page's CSS fills .gridline (as the design CSS now does), a gridline path is not black.
+  const fixedCss = lintPage(page('<path class="gridline" d="M10 10 H18 V90 H10"/>', '.viz svg .gridline { fill: none; stroke: var(--line); }'));
+  assert.deepEqual(unfilled(fixedCss), []);
+});
+
+test('text that likely runs out of its box or the viewBox is a warning, estimated from its length', () => {
+  const svgEnd = '</svg>\n      <figcaption class="viz-caption">Author\'s summary of <a href="#orders">';
+  const page = (parts) => mutate([svgEnd, `${parts}${svgEnd}`]);
+  const over = (r) => r.problems.filter((p) => p.rule === 'text-overflow');
+  // 12px at about 0.55 em a character: 40 characters are about 264 wide.
+  const forty = 'Wednesday orders Wednesday orders Wedne';
+  const r = lintPage(
+    page(
+      `<g id="viz-box"><title>Wednesday</title><rect class="box" x="10" y="100" width="200" height="40"/><text x="110" y="124" text-anchor="middle">${forty}</text></g>` +
+        `<text x="500" y="140">${forty}</text><text x="630" y="150" text-anchor="end">${forty}</text>`,
+    ),
+  );
+  const ws = over(r);
+  assert.equal(ws.length, 2, JSON.stringify(r.problems));
+  assert.ok(ws.every((p) => p.severity === 'warning'));
+  assert.match(ws[0].message, /is about \d+ wide; its box is 200 \(x 10\.\.210\)/);
+  assert.equal(ws[0].element, 'viz-box');
+  assert.match(ws[1].message, /about \d+ wide and runs to about x=\d+, past the viewBox \(0\.\.640\)/);
+  // Under a transform it is not estimated; each <tspan> line is measured on its own.
+  const skipped = lintPage(page(`<g transform="translate(600 0)"><text x="0" y="140">${forty}</text></g><text x="600" y="140" transform="rotate(90)">${forty}</text>`));
+  assert.deepEqual(over(skipped), []);
+  const spans = lintPage(page(`<text y="140"><tspan x="500">Wednesday</tspan><tspan x="500" dy="14">${forty}</tspan></text>`));
+  assert.equal(over(spans).length, 1);
+  assert.match(over(spans)[0].message, /^"Wednesday orders/);
+});
+
+test('a term a decision supersedes, still in the lede, a card or a figure, is a warning; marked or inside the decision it is not', () => {
+  const html = fixture('amend-after.html');
+  const terms = (h) => lintPage(h).problems.filter((p) => p.rule === 'superseded-term');
+  // The decision itself and the .superseded block say "JSON files" and pass.
+  assert.match(html, /class="superseded"[^>]*><p>The store kept drafts in JSON files/);
+  assert.deepEqual(terms(html), []);
+  const stale = (from, to) => {
+    assert.equal(html.split(from).length, 2, from);
+    return terms(html.replace(from, to));
+  };
+  assert.match(stale('one SQLite database by the store', 'JSON files by the store')[0].message, /^the lede #lede still says "JSON files", which #decided-storage supersedes.*vivamark guide amend/);
+  const card = stale('<section id="design">', '<div class="card" id="glance-store"><p>Drafts live in json   files.</p></div><section id="design">');
+  assert.match(card[0].message, /^the card #glance-store still says "JSON files"/, 'any case, any spacing');
+  const fig = stale('>to one SQLite database</text>', '>to JSON files</text>');
+  assert.equal(fig[0].figure, 'viz-store');
+  assert.equal(fig[0].element, 'node-store');
+  // Whole words only, several terms split on ";".
+  assert.deepEqual(stale('one SQLite database by the store', 'JSON filesystem by the store'), []);
+  const two = terms(html.replace('data-vivamark-supersedes="JSON files"', 'data-vivamark-supersedes="JSON files; one per draft"').replace('>to one SQLite database</text>', '>one per draft</text>'));
+  assert.deepEqual(two.map((p) => p.message.match(/"([^"]+)", which/)[1]), ['one per draft']);
+});
+
+test('a page amended badly fails as the guide says; amended as vivamark guide amend says, it is clean', async () => {
+  const before = await lint('amend-before.html', fixture('amend-before.html'));
+  assert.equal(before.code, 1);
+  assert.deepEqual(rules(before, 'error'), ['unfilled-shape']);
+  const over = before.problems.filter((p) => p.rule === 'text-overflow');
+  assert.deepEqual(over.map((p) => /^"([^"]+)"/.exec(p.message)[1]), ['writes each draft to one of the JSON files on save', 'keeps drafts in JSON files, one per draft']);
+  const terms = before.problems.filter((p) => p.rule === 'superseded-term');
+  assert.ok(terms.some((p) => p.element === 'lede'), 'the lede');
+  assert.ok(terms.some((p) => p.figure === 'viz-store' && p.element === 'node-store'), 'the figure');
+  const after = await lint('amend-after.html', fixture('amend-after.html'));
+  assert.equal(after.code, 0, JSON.stringify(after.problems));
+});

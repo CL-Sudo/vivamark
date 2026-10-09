@@ -105,3 +105,22 @@ and whether to check it.
 | Which rules govern | vivamark pages follow vivamark's own guide (inline SVG, tokens, offline, no script), not the conventions of other diagram tools or skills. | Tools that produce image files or need a server cannot give inline, pointable, offline figures. |
 
 This supersedes nothing. It extends "Reports are visual by default".
+
+## 2026-10-09: After a decision, the page shows the decided state
+
+A report page recorded a decision in a new dated section and its own small
+figure, but left the main figure drawing the design the decision replaced,
+with only a caption note. The reviewer read the main figure as the current
+design. The same figure had a bracket drawn as a `.gridline` path, which
+the page CSS left unfilled, so it rendered as a solid black bar, and two
+labels ran out of their box and the viewBox. Lint passed the page clean.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Amending a page | After a decision, the page shows the decided state wherever a reader looks first: the lede, the cards and every figure. The text a figure links to changes with it, each change marked (a dated "Changed" callout, or the old passage kept in a `.superseded` block). A figure never shows a superseded design as the current one; a caption note is not a fix. Old and new side by side only when the comparison is the point. `vivamark guide amend` has the steps; `workflow`, `decisions`, `report` and `figures` (rule 15) point to it. | "The full text stays" and "a figure adds no claim its section lacks" together kept the old figure, because the old section text could not change. Version history keeps every version of the page, so the page itself need not keep a superseded design on show. |
+| The 2026-10-05 "full text stays" rule | Qualified: the full text stays, but a decision may change it, marked. | The record of what the page said before lives in `vivamark versions`. |
+| Lines in figures | `.gridline` and `.refline` get `fill: none` and are for `<line>` only; a bracket or connector is an `.edge` path. | A path with no fill is painted black. |
+| Lint | Three new rules. `unfilled-shape` (error): a path, polyline, polygon, rect, circle or ellipse that nothing fills (no fill attribute or style on it or a group, no `.edge .arrow .box .bar .range .dot`, no class the page's own CSS fills), outside defs, markers, masks and the like. `text-overflow` (warning): a `<text>` or `<tspan>` line whose estimated width (characters × font size × 0.55, × 1.07 for `.strong`) runs past the viewBox, or out of the `rect.box` beside it in its group at its height; text under a transform is skipped. `superseded-term` (warning): a term listed in `data-vivamark-supersedes` on the decision ("old term; another") still in the lede, a card, or a figure's text, `<title>`s or aria-label, outside the decision and outside `.superseded`. | Measured against Chromium on 332 labels from 29 real pages, 0.55 caught every real overflow, with 4 near misses warned (within 12 px). The width is an estimate, so it is a warning and says "about". Captions are not searched for superseded terms: a caption may say what changed. |
+
+This supersedes nothing. It qualifies "Reports are visual by default"
+(2026-10-05) and extends "Figures that keep the text's facts" (2026-10-08).

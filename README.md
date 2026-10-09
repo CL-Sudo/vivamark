@@ -165,8 +165,13 @@ node dist/cli.js figures examples/report.html  # each figure, then the text it s
 `lint` checks the markup (role, aria-label, captions that link a section on
 the page, no script, no external URL, no hard-coded colour), that every number
 of two or more digits in a figure is in the text it summarises, and that bars
-are drawn to one scale; it warns about label words not in that text, a missing
-coverage line, and arrows that do not name their ends. `open` runs it too and
+are drawn to one scale, and that no shape is left unfilled (SVG paints it
+black); it warns about label words not in that text, a missing coverage line,
+arrows that do not name their ends, text that likely runs out of its box or
+the figure (an estimate from its length), and terms a decision on the page
+supersedes (`data-vivamark-supersedes`) still in the lede, a card or a figure.
+After a decision, `vivamark guide amend` says how to bring the page to the
+decided state. `open` runs it too and
 prints what it finds, without stopping the page from opening. `figures` is for
 a read-back: give a fresh reader the figure alone, have it list what the figure
 claims, then compare with the section. vivamark makes no model calls itself.

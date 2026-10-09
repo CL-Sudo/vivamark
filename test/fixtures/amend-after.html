@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Draft storage: report, amended as vivamark guide amend says</title>
+<!-- amend-before.html fixed: the bracket is an .edge path, the long labels
+     are wrapped or gone, and the lede, the figure and the text it links show
+     the decided state, with the old text marked .superseded. -->
+<style>
+  .viz svg text { fill: var(--fg2); }
+  .viz svg .box { fill: var(--panel); stroke: var(--muted); }
+  .viz svg .edge { fill: none; stroke: var(--muted); }
+  .viz svg .gridline { fill: none; stroke: var(--line); stroke-width: 1; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Report</p>
+  <h1 id="title">Where drafts are stored</h1>
+  <p class="lede" id="lede">Drafts are written to one SQLite database by the store, which the editor reads at start.</p>
+
+  <section id="decided-storage" data-vivamark-supersedes="JSON files">
+    <h2 id="decided-heading">Decided 2026-10-09: drafts are stored in SQLite</h2>
+    <p id="decided-text">The reviewer chose SQLite over JSON files: one file, transactions.</p>
+  </section>
+
+  <figure class="viz card" id="viz-store">
+    <svg viewBox="0 0 640 200" role="img" aria-label="The editor and the sync job both read drafts from the store, which keeps them in one SQLite database.">
+      <g id="node-editor"><title>editor</title>
+        <rect class="box" x="8" y="20" width="200" height="44" rx="8"/>
+        <text x="108" y="47" text-anchor="middle">editor</text></g>
+      <g id="node-sync"><title>sync job</title>
+        <rect class="box" x="8" y="120" width="200" height="44" rx="8"/>
+        <text x="108" y="147" text-anchor="middle">sync job</text></g>
+      <g id="edge-readers-read-store" data-from="node-editor" data-to="node-store"><path class="edge" d="M208 42 H216 V142 H208"/><path class="edge" d="M216 92 H380"/><text class="muted" x="300" y="84" text-anchor="middle">read</text></g>
+      <g id="node-store"><title>the store: drafts in one SQLite database</title>
+        <rect class="box" x="380" y="70" width="252" height="56" rx="8"/>
+        <text x="506" y="89" text-anchor="middle">store</text><text class="muted" x="506" y="106" text-anchor="middle">writes each draft on save</text><text class="muted" x="506" y="121" text-anchor="middle">to one SQLite database</text></g>
+    </svg>
+    <figcaption class="viz-caption">Author's summary of <a href="#design">Design</a>, updated to <a href="#decided-storage">the decision</a>: who reads drafts and where the store keeps them.</figcaption>
+  </figure>
+
+  <section id="design">
+    <h2>Design</h2>
+    <p>The editor reads drafts from the store at start. The sync job reads drafts from the store too.</p>
+    <p class="callout warn" id="changed-storage">Changed 2026-10-09 (see <a href="#decided-storage">the decision</a>): the store keeps drafts in one SQLite database and writes each draft on save.</p>
+    <div class="superseded" id="old-json-storage"><p>The store kept drafts in JSON files, one per draft, and wrote each draft to one of them on save.</p></div>
+  </section>
+</main>
+</body>
+</html>

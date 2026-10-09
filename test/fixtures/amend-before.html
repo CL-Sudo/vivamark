@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Draft storage: report, amended badly</title>
+<!-- A decision recorded on the page, with the old figure left standing: a
+     bracket drawn as a .gridline path (painted black under the old CSS),
+     two labels too long for their box and the viewBox, and the lede and the
+     figure still saying what the decision replaced. -->
+<style>
+  .viz svg text { fill: var(--fg2); }
+  .viz svg .box { fill: var(--panel); stroke: var(--muted); }
+  .viz svg .edge { fill: none; stroke: var(--muted); }
+  .viz svg .gridline { stroke: var(--line); stroke-width: 1; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Report</p>
+  <h1 id="title">Where drafts are stored</h1>
+  <p class="lede" id="lede">Drafts are written to JSON files by the store, which the editor reads at start.</p>
+
+  <section id="decided-storage" data-vivamark-supersedes="JSON files">
+    <h2 id="decided-heading">Decided 2026-10-09: drafts are stored in SQLite</h2>
+    <p id="decided-text">The reviewer chose SQLite over JSON files: one file, transactions.</p>
+  </section>
+
+  <figure class="viz card" id="viz-store">
+    <svg viewBox="0 0 640 200" role="img" aria-label="The editor and the sync job both read drafts from the store, which keeps them in JSON files.">
+      <g id="node-editor"><title>editor</title>
+        <rect class="box" x="8" y="20" width="200" height="44" rx="8"/>
+        <text x="108" y="47" text-anchor="middle">editor</text></g>
+      <g id="node-sync"><title>sync job</title>
+        <rect class="box" x="8" y="120" width="200" height="44" rx="8"/>
+        <text x="108" y="147" text-anchor="middle">sync job</text></g>
+      <g id="bracket-readers"><title>the editor and the sync job both read</title><path class="gridline" d="M212 20 H220 V164 H212"/></g>
+      <g id="edge-readers-read-store" data-from="bracket-readers" data-to="node-store"><path class="edge" d="M220 92 H380"/><text class="muted" x="300" y="84" text-anchor="middle">read</text></g>
+      <g id="node-store"><title>the store: drafts in JSON files</title>
+        <rect class="box" x="380" y="70" width="252" height="44" rx="8"/>
+        <text x="506" y="89" text-anchor="middle">store</text><text class="muted" x="506" y="106" text-anchor="middle">writes each draft to one of the JSON files on save</text></g>
+      <text class="muted" x="514" y="150">keeps drafts in JSON files, one per draft</text>
+    </svg>
+    <figcaption class="viz-caption">Author's summary of <a href="#design">Design</a>: who reads drafts and where the store keeps them.</figcaption>
+  </figure>
+
+  <section id="design">
+    <h2>Design</h2>
+    <p>The editor reads drafts from the store at start. The sync job reads drafts from the store too. The store keeps drafts in JSON files, one per draft, and writes each draft to one of the JSON files on save.</p>
+  </section>
+</main>
+</body>
+</html>

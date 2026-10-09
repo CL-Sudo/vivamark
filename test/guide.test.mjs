@@ -12,7 +12,7 @@ import { ROOT, makeWorld, runCli } from './helpers/harness.mjs';
 
 const NO_STATE = '/nonexistent/vivamark-guide-should-not-be-created';
 const env = { ...process.env, VIVAMARK_STATE_DIR: NO_STATE };
-const REQUIRED = ['workflow', 'design', 'ids', 'plan', 'report', 'figures', 'comparison', 'explainer', 'diff', 'markdown'];
+const REQUIRED = ['workflow', 'design', 'ids', 'decisions', 'amend', 'plan', 'report', 'figures', 'comparison', 'explainer', 'diff', 'markdown'];
 
 test('guide prints an index of every topic, without a server or state', async () => {
   const r = await runCli(['guide'], env);
@@ -240,4 +240,38 @@ test('examples/plan.html follows the plan playbook and carries the design CSS', 
   assert.doesNotMatch(html, /<input[^>]*\bchecked\b/, 'nothing pre-selected');
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
   assert.equal(new Set(ids).size, ids.length, 'ids are unique');
+});
+
+test('the amend topic: the decided state everywhere, what it replaced marked, and every topic that leads to it', () => {
+  const topic = (name) => TOPICS.find((t) => t.name === name).text;
+  const a = topic('amend');
+  assert.match(a, /shows the\s+decided state wherever a reader looks first/);
+  assert.match(a, /vivamark versions <file>/, 'history keeps the original');
+  assert.match(a, /the lede, the\s+\.meta line, the cards, every figure/);
+  assert.match(a, /data-vivamark-supersedes="JSON files"/);
+  assert.match(a, /never shows a superseded design as the current one/);
+  assert.match(a, /A caption\s+saying the figure is out of date does not fix it/);
+  assert.match(a, /class="superseded"/);
+  assert.match(a, /"Before \(superseded\)" and "Decided"/);
+  assert.match(a, /look at the page rendered/);
+  // Each place an author edits a page after a decision points here.
+  assert.match(topic('workflow'), /After a decision, change everything it changes \(see: vivamark guide amend\)/);
+  assert.match(topic('decisions'), /Once decided, the page shows the decision[\s\S]*vivamark guide amend/);
+  assert.match(topic('report'), /When a decision changes what the page\s+says, change the text too, marked, as vivamark guide amend says/);
+  const figures = topic('figures');
+  assert.match(figures, /^ +15\. Show what is true now\. After a decision, change the section and the\s+figure together, never just the caption \(see: vivamark guide amend\)/m);
+  assert.match(figures, /a shape nothing\s+fills, which SVG paints solid black/);
+  assert.match(figures, /text\s+that likely runs out of its box or the viewBox \(an estimate/);
+  assert.match(figures, /a term a decision supersedes still\s+in the lede, a card or a figure/);
+  assert.match(figures, /Look at it rendered/);
+});
+
+test('the design CSS keeps lines unfilled and marks superseded text; the class list says so', () => {
+  assert.match(PAGE_CSS, /\.viz svg \.gridline \{ fill: none;/);
+  assert.match(PAGE_CSS, /\.viz svg \.refline \{ fill: none;/);
+  assert.match(PAGE_CSS, /\.superseded \{[^}]*border-left: 3px solid var\(--muted\)/);
+  assert.match(PAGE_CSS, /\.superseded::before \{ content: "Superseded";/);
+  const design = TOPICS.find((t) => t.name === 'design').text;
+  assert.match(design, /\.gridline and\s+\.refline on <line> only \(a bracket or connector is an \.edge\s+path\)/);
+  assert.match(design, /\.superseded  text a decision replaced/);
 });
