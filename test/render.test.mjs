@@ -252,7 +252,8 @@ test('a figure that scrolls sideways on a narrow page is drawn whole, then put b
   assert.deepEqual(r.figure_pngs.map((f) => [f.figure, f.whole]), [['viz-one', true]]);
   const [w] = pngSize(r.figure_pngs[0].path);
   assert.ok(w >= 640, `the whole 640-wide SVG, not the 390 px slice: ${w}`);
-  assert.ok(pngSize(r.page_png)[0] <= 400, 'the page itself drawn as the reviewer sees it');
+  // The page PNG is taken after the figures, measured again: a figure left widened would make it wider.
+  assert.equal(pngSize(r.page_png)[0], 390, 'the figure put back: the page drawn as the reviewer sees it');
   const wide = await render(file, ['--width', '1000']);
   assert.deepEqual(wide.figure_pngs.map((f) => f.whole), [false], 'a figure that fits is drawn as it is');
 });

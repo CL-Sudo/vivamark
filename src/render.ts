@@ -424,8 +424,6 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
       fs.writeFileSync(out, Buffer.from(r.data, 'base64'));
       return out;
     };
-    const pageHeight = Math.min(Math.ceil(m.height), MAX_SHOT_PX);
-    const page_png = await shot({ x: 0, y: 0, width: Math.ceil(m.width), height: pageHeight }, `${base}.${mode}.${width}.png`);
     const figure_pngs: RenderResult['figure_pngs'] = [];
     for (const [k, f] of m.figures.entries()) {
       if (f.width < 1 || f.height < 1) continue;
@@ -438,6 +436,13 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
       figure_pngs.push({ figure: f.id, path: await shot(clip, `${base}.${safeName(f.id)}.${mode}.${width}.png`), whole: b.whole });
       if (b.whole) await send('Runtime.evaluate', { expression: `(${unwiden.toString()})(${k})` });
     }
+    // The page last, measured again: had a figure not been put back, the page would show it.
+    const size = (await send('Runtime.evaluate', {
+      expression: '({ width: Math.max(document.documentElement.scrollWidth, window.innerWidth), height: document.documentElement.scrollHeight })',
+      returnByValue: true,
+    })) as { result?: { value?: { width: number; height: number } } };
+    const now = size.result?.value ?? { width: m.width, height: m.height };
+    const page_png = await shot({ x: 0, y: 0, width: Math.ceil(now.width), height: Math.min(Math.ceil(now.height), MAX_SHOT_PX) }, `${base}.${mode}.${width}.png`);
 
     const problems: Problem[] = m.problems.map((p) => ({ ...p, line: lineOfId(html, p.element) }));
     for (const url of [...new Set(blocked)]) {
@@ -451,7 +456,7 @@ export async function renderPage(file: string, opts: RenderOptions = {}): Promis
       mode,
       width,
       page_png,
-      page_complete: m.height <= MAX_SHOT_PX,
+      page_complete: now.height <= MAX_SHOT_PX,
       figure_pngs,
       blocked: [...new Set(blocked)],
       failed,
