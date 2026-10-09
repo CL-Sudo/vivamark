@@ -11,3 +11,4 @@ export { diffText, editScript, tokenize } from './diff.js';
 export { GUIDE_SCHEMA, PAGE_CSS, TOPICS, guideIndex, skillMarkdown } from './guide.js';
 export { browserCommands, browserEntry, defaultBrowser, openBrowser, splitBrowserList } from './browser.js';
 export { lintPage, lintExitCode, pageFigures, renderLint, renderFigures, LINT_SCHEMA, FIGURES_SCHEMA } from './lint.js';
+export { chromeArgs, findChrome, isWsl, renderPage, renderExitCode, defaultOutDir, CHROME_NAMES, RENDER_SCHEMA, RenderError } from './render.js';

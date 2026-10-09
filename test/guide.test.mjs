@@ -253,7 +253,7 @@ test('the amend topic: the decided state everywhere, what it replaced marked, an
   assert.match(a, /A caption\s+saying the figure is out of date does not fix it/);
   assert.match(a, /class="superseded"/);
   assert.match(a, /"Before \(superseded\)" and "Decided"/);
-  assert.match(a, /look at the page rendered/);
+  assert.match(a, /run vivamark render <file> and look at the PNGs/);
   // Each place an author edits a page after a decision points here.
   assert.match(topic('workflow'), /After a decision, change everything it changes \(see: vivamark guide amend\)/);
   assert.match(topic('decisions'), /Once decided, the page shows the decision[\s\S]*vivamark guide amend/);
@@ -263,7 +263,9 @@ test('the amend topic: the decided state everywhere, what it replaced marked, an
   assert.match(figures, /a shape nothing\s+fills, which SVG paints solid black/);
   assert.match(figures, /text\s+that likely runs out of its box or the viewBox \(an estimate/);
   assert.match(figures, /a term a decision supersedes still\s+in the lede, a card or a figure/);
-  assert.match(figures, /Look at it rendered/);
+  assert.match(figures, /Look at it rendered[\s\S]*vivamark render <file> \(and --dark --width 390\) measures it and\s+writes PNGs/);
+  assert.match(topic('report'), /vivamark render <file> to look\s+at what the reviewer will see/);
+  assert.match(topic('workflow'), /look at vivamark render <file>/);
 });
 
 test('the design CSS keeps lines unfilled and marks superseded text; the class list says so', () => {

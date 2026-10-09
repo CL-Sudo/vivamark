@@ -124,3 +124,21 @@ labels ran out of their box and the viewBox. Lint passed the page clean.
 
 This supersedes nothing. It qualifies "Reports are visual by default"
 (2026-10-05) and extends "Figures that keep the text's facts" (2026-10-08).
+
+## 2026-10-09: vivamark render, with a browser already on the machine
+
+Asked (after the three checks above): "yes, build vivamark render after the
+three checks". Lint estimates; only a real drawing shows a black shape or a
+cut-off label for certain, and the author had not looked before opening.
+
+| Topic | Decision | Why |
+|---|---|---|
+| What it does | `vivamark render <page.html> [--out dir] [--dark] [--width N] [--json]` draws the saved page headless and writes PNGs: the page (the top 16384 px of a longer one) and each figure. It measures in each SVG's own units: a shape drawn black that nothing fills and text outside the viewBox are errors; text out of the `rect.box` beside it and a page that scrolls sideways are warnings. Exit 0, 1, 2 as lint. | The author looks at what the reviewer will see; the measurements are exact where lint's are estimates. |
+| Which browser | One already installed: `VIVAMARK_CHROME` (a path, or a name on PATH), else `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser` on PATH (and the usual app paths on macOS). None: a clear error, exit 1. Never a download. | A tool that fetches a browser makes outbound requests and grows by hundreds of megabytes. |
+| How it drives it | The DevTools protocol over `--remote-debugging-pipe` on the child's own file descriptors, in a throwaway profile removed afterwards. No debugging port, no new dependency. | A pipe cannot be reached by anything else on the machine; playwright stays a test-only dependency. |
+| The network | Off twice. Launch flags: every host name fails to resolve (`--host-resolver-rules=MAP * ~NOTFOUND`), everything else goes to a proxy that is not there, loopback included, and the browser's own background traffic (updates, sync, metrics, safe browsing) is disabled. In the page, the DevTools Fetch domain refuses every request that is not for a local file, and each refused URL is reported as an error. A test proves a page with external and loopback images, stylesheets and frames makes no request, with the refusal and with the flags alone. | Non-negotiable 2: vivamark makes no outbound requests, including through a browser it starts. |
+| WSL | A browser installed inside WSL. A Windows `chrome.exe` is refused with a message saying so. | The pipe's file descriptors do not cross from WSL to a Windows process, and a debugging port would be reachable by other programs. |
+| Where it runs | Only when asked. `open` never runs it and never waits for it; the guide (`figures` Checks, `amend`, `report`, `workflow`) tells the author to run it and look at the PNGs before opening. | A browser start takes seconds and needs a browser; nothing may stand between the reviewer and the page. |
+| Where the PNGs go | `--out`, else a folder per page under the system temp directory. Never beside the page, never the page itself. | Non-negotiable 4. |
+
+This supersedes nothing.

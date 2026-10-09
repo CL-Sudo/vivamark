@@ -11,6 +11,7 @@ import type { VivamarkEvent } from './events.js';
 import { GUIDE_SCHEMA, TAGLINE, TOPICS, findTopic, guideIndex } from './guide.js';
 import { FIGURES_SCHEMA, lintExitCode, lintPage, pageFigures, renderFigures, renderLint } from './lint.js';
 import type { LintResult } from './lint.js';
+import { RenderError, renderExitCode, renderPage, renderRenderResult } from './render.js';
 import { FEEDBACK_SCHEMA } from './schema.js';
 import type { Anchor, Decision, Note, NoteKind } from './schema.js';
 import { findSession, readServerInfo, stateDir } from './store.js';
@@ -100,6 +101,18 @@ Usage:
       Print each figure (.viz) as saved, with its caption, and apart from it
       the text of the section(s) its caption links to: for a read-back check,
       give a fresh reader the figure alone first, the section after.
+  vivamark render <page.html> [--out <dir>] [--dark] [--width <px>] [--json]
+      Draw the page in a headless Chrome or Chromium already on this machine
+      (VIVAMARK_CHROME, else google-chrome, google-chrome-stable, chromium or
+      chromium-browser on PATH; never downloaded) and write PNGs of the page
+      and of each figure (default: a folder under the system temp directory;
+      width 1000, light). Reports what the drawing shows: a shape painted
+      black and text cut off by its figure (errors), text out of its box and
+      a page that scrolls sideways (warnings), and any request for something
+      other than a local file (an error; refused). The browser is kept off the
+      network by its flags and by refusing every such request. Never writes
+      the page; open never runs it. Exit 0 clean, 1 errors (or no browser),
+      2 warnings only.
   vivamark stop
       Stop the background review server.
 
@@ -149,6 +162,8 @@ Environment:
                                   BROWSER="firefox --new-window %s"
                                 Run without a shell. If none starts, the system's
                                 default opens it.
+  VIVAMARK_CHROME               the Chrome or Chromium render draws with (a path,
+                                or a name on PATH); on WSL, one installed in WSL
   VIVAMARK_STATE_DIR            state directory (default $XDG_STATE_HOME/vivamark
                                 or ~/.local/state/vivamark)
   VIVAMARK_DISCONNECT_GRACE_MS  how long wait goes on after the review page went
@@ -756,6 +771,30 @@ function cmdLint(argv: string[]): void {
   process.exitCode = lintExitCode(r);
 }
 
+async function cmdRender(argv: string[]): Promise<void> {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { json: { type: 'boolean' }, dark: { type: 'boolean' }, out: { type: 'string' }, width: { type: 'string' } } });
+  } catch (err) {
+    fail(`${(err as Error).message}\nRun vivamark --help for usage.`);
+  }
+  const { values, positionals } = parsed;
+  if (positionals.length !== 1) fail('render takes exactly one .html file\nRun vivamark --help for usage.');
+  const file = path.resolve(positionals[0]);
+  if (!/\.html?$/i.test(file)) fail('render reads .html and .htm pages');
+  if (!fs.existsSync(file)) fail(`cannot read ${file}: no such file`);
+  const width = values.width === undefined ? undefined : Number(values.width);
+  if (width !== undefined && !(Number.isInteger(width) && width >= 200 && width <= 4000)) fail('--width takes a whole number of pixels from 200 to 4000');
+  try {
+    const r = await renderPage(file, { outDir: values.out, dark: !!values.dark, width });
+    process.stdout.write(values.json ? JSON.stringify(r) + '\n' : renderRenderResult(r));
+    process.exitCode = renderExitCode(r);
+  } catch (err) {
+    if (err instanceof RenderError) fail(err.message);
+    throw err;
+  }
+}
+
 function cmdFigures(argv: string[]): void {
   const { file, html, json } = readPage('figures', argv);
   const figures = pageFigures(html);
@@ -831,6 +870,8 @@ export async function main(argv: string[]): Promise<void> {
         return cmdLint(rest);
       case 'figures':
         return cmdFigures(rest);
+      case 'render':
+        return await cmdRender(rest);
       case 'stop':
         return await cmdStop();
       case '__daemon': {

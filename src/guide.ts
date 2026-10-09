@@ -151,7 +151,8 @@ const WORKFLOW = `workflow: running a review
 The loop
   1. Write the page (see: vivamark guide <playbook>, design, ids) and save it.
      Check it with vivamark lint <file>; for a page with figures, read them
-     back too (see: vivamark guide figures).
+     back and look at vivamark render <file> too (see: vivamark guide
+     figures).
   2. vivamark open <file>             opens it in the reviewer's browser
   3. vivamark wait <file>             blocks until the reviewer sends or decides
   4. Edit the saved file. The page reloads in place; notes re-attach.
@@ -498,8 +499,9 @@ Rules for every visual
   - Phone width: a viewBox about 640 wide, short labels; the .viz box scrolls
     by itself if it must, the page never sideways.
   - Inline only: no chart library, no script, no external image or font.
-  - Before vivamark open: vivamark lint <file>, and for a flow, sequence,
-    state or architecture figure the read-back (see: vivamark guide figures).
+  - Before vivamark open: vivamark lint <file>, for a flow, sequence, state
+    or architecture figure the read-back, and vivamark render <file> to look
+    at what the reviewer will see (see: vivamark guide figures).
 
 What to make pointable
   Every finding, every card item, every table row, every piece of evidence,
@@ -639,8 +641,8 @@ Checks, before vivamark open
     4. Fix each unsupported or overstated claim and each unnamed gap; lint
        again. No subagent: list the claims yourself before rereading.
   Look at it rendered: lint and the read-back see the source, not the
-  drawing. Open the page in a browser, light and dark, at desktop and phone
-  width, and look for solid black shapes, cut-off text and overlaps.
+  drawing. vivamark render <file> (and --dark --width 390) measures it and
+  writes PNGs; look at them for black shapes, cut-off text and overlaps.
   vivamark open runs lint too and prints what it finds; it never stops the
   page from opening.
 `;
@@ -683,8 +685,8 @@ The steps
   5. Before and after side by side only when the comparison is the point:
      two small figures on one scale, "Before (superseded)" and "Decided",
      the old one never first and never alone.
-  6. Lint, read back and look at the page rendered (see: vivamark guide
-     figures, Checks). Then reply on the note that asked.
+  6. Lint, read back, run vivamark render <file> and look at the PNGs (see:
+     vivamark guide figures, Checks). Then reply on the note that asked.
 
 Pitfalls
   - A new figure for the decision beside the old figure left as it was.
