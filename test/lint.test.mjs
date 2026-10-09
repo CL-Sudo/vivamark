@@ -487,3 +487,18 @@ test('superseded-term: an aria-label counts; a figure inside the decision (a bef
   assert.notEqual(inside, html);
   assert.deepEqual(terms(inside), [], 'inside the decision: its own before and after');
 });
+
+test('unfilled-shape reads selector lists at their top-level commas: :is(a, b) and :not(.x, .y) stay whole', () => {
+  // Pages from an independent check: valid fills that a split at every comma read wrongly.
+  for (const name of ['fill-is.html', 'fill-not.html']) {
+    const html = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', name), 'utf8');
+    const r = lintPage(html);
+    assert.deepEqual(r.problems.filter((p) => p.rule === 'unfilled-shape'), [], `${name}: ${JSON.stringify(r.problems)}`);
+    // A shape no rule reaches is still painted black.
+    const bare = lintPage(html.replace('<path class="p1" d="M1 1 H90 V50"/>', '<path class="p1" d="M1 1 H90 V50"/><g id="viz-1-more"><title>more</title><polygon class="other" points="1,1 9,1 5,9"/></g>'));
+    assert.deepEqual(bare.problems.filter((p) => p.rule === 'unfilled-shape').map((p) => p.element), ['viz-1-more'], name);
+  }
+  // A list inside :is() whose every member is a compound of its own.
+  const both = lintPage(fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'fill-is.html'), 'utf8').replace('.viz svg :is(path, rect).p1', '.viz svg :is(path, rect)'));
+  assert.deepEqual(both.problems.filter((p) => p.rule === 'unfilled-shape'), []);
+});

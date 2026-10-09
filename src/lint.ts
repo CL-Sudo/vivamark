@@ -365,8 +365,9 @@ interface Compound {
 }
 
 function compound(raw: string): Compound | null {
-  // :not(.x), :is(...) and the like say nothing an element must have here.
-  const s = raw.replace(/:[\w-]+\([^)]*\)/g, '');
+  // :not(.x), :is(...) and the like say nothing an element must have here (nested parentheses included).
+  let s = raw;
+  for (let prev = ''; prev !== s; ) [prev, s] = [s, s.replace(/:[\w-]+\([^()]*\)/g, '')];
   const c: Compound = { tag: null, id: null, classes: [], attrs: [], never: false };
   const tag = /^(?:[\w-]+\|)?([\w-]+|\*)/.exec(s);
   if (tag && tag[1] !== '*') c.tag = tag[1].toLowerCase();
@@ -374,7 +375,8 @@ function compound(raw: string): Compound | null {
   for (const m of s.matchAll(/\.([\w-]+)/g)) c.classes.push(m[1]);
   for (const m of s.matchAll(/\[\s*([\w:-]+)/g)) c.attrs.push(m[1].toLowerCase());
   if (/:(?:hover|focus|focus-within|focus-visible|active|target|checked|visited)\b/i.test(s)) c.never = true;
-  return c.tag || c.id || c.classes.length || c.attrs.length || s.startsWith('*') ? c : null;
+  // Only a :is(...) or the like, or *: any element.
+  return c.tag || c.id || c.classes.length || c.attrs.length || s.startsWith('*') || s !== raw ? c : null;
 }
 
 function matchesCompound(el: Element, c: Compound): boolean {
@@ -383,6 +385,29 @@ function matchesCompound(el: Element, c: Compound): boolean {
   if (c.id && attr(el, 'id') !== c.id) return false;
   if (c.classes.some((k) => !hasClass(el, k))) return false;
   return c.attrs.every((a) => el.attrs.some((x) => x.name.toLowerCase() === a));
+}
+
+/** Splits at the characters `sep` accepts outside (), [] and quotes: :is(a, b) and [x="a b"] stay whole. Drops empty pieces. */
+function splitTop(s: string, sep: (ch: string) => boolean): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quote = '';
+  let cur = '';
+  for (const ch of s) {
+    if (quote) {
+      if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[') depth++;
+    else if ((ch === ')' || ch === ']') && depth > 0) depth--;
+    else if (depth === 0 && sep(ch)) {
+      if (cur.trim()) out.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
 }
 
 /**
@@ -395,8 +420,8 @@ function cssFillSelectors(root: Node): Compound[][] {
   const css = all(root, (el) => el.tagName === 'style').map(rawText).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!/(?:^|;)\s*fill\s*:/i.test(m[2])) continue;
-    for (const sel of m[1].split(',')) {
-      const parts = sel.trim().split(/\s*[>+~]\s*|\s+/).filter(Boolean).map(compound);
+    for (const sel of splitTop(m[1], (ch) => ch === ',')) {
+      const parts = splitTop(sel, (ch) => /[\s>+~]/.test(ch)).map(compound);
       if (parts.length && parts.every((p): p is Compound => p !== null)) out.push(parts);
     }
   }
