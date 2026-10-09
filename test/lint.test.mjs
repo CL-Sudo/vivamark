@@ -460,3 +460,30 @@ test('unfilled-shape counts every way the page sets fill: element, descendant an
   assert.deepEqual(caught.map((p) => p.message.slice(0, 10)), ['<path> is ', '<ellipse> '], JSON.stringify(caught));
   assert.ok(caught.every((p) => p.severity === 'error' && p.figure === 'viz-d'));
 });
+
+test('text-overflow: a label below its box is not judged against the box; .strong text runs 7% wider', () => {
+  // 30 characters, about 198 wide, under a 100-wide box: a label of the drawing, not of the box.
+  const below = lintPage(withParts('<g id="viz-below"><title>Wednesday</title><rect class="box" x="10" y="100" width="100" height="40"/><text x="10" y="160">Wednesday orders Wednesday ord</text></g>'));
+  assert.deepEqual(ruleOf(below, 'text-overflow'), [], JSON.stringify(below.problems));
+  // 16 characters: about 106 plain, about 113 as .strong; the box is 110.
+  const label = 'Wednesday orders';
+  const inBox = (cls) => ruleOf(lintPage(withParts(`<g id="viz-strong"><title>Wednesday</title><rect class="box" x="10" y="100" width="110" height="40"/><text${cls} x="10" y="124">${label}</text></g>`)), 'text-overflow');
+  assert.equal(inBox('').length, 0, 'plain text fits');
+  assert.equal(inBox(' class="strong"').length, 1, '.strong text does not');
+  assert.match(inBox(' class="strong"')[0].message, /is about 113 wide/);
+});
+
+test('superseded-term: an aria-label counts; a figure inside the decision (a before and after) does not', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'amend-after.html'), 'utf8');
+  const terms = (h) => lintPage(h).problems.filter((p) => p.rule === 'superseded-term');
+  const aria = terms(html.replace('which keeps them in one SQLite database.">', 'which keeps them in JSON files.">'));
+  assert.equal(aria.length, 1, JSON.stringify(aria));
+  assert.match(aria[0].message, /^#viz-store's aria-label still says "JSON files"/);
+  const before =
+    '<figure class="viz card" id="viz-before"><svg viewBox="0 0 640 60" role="img" aria-label="Before: drafts in JSON files.">' +
+    '<g id="before-store"><title>Before: JSON files</title><text x="8" y="30">JSON files</text></g></svg>' +
+    '<figcaption class="viz-caption">Author\'s summary of <a href="#decided-heading">the decision</a>: before. Shows the old store only.</figcaption></figure>';
+  const inside = html.replace('<p id="decided-text">', `${before}<p id="decided-text">`);
+  assert.notEqual(inside, html);
+  assert.deepEqual(terms(inside), [], 'inside the decision: its own before and after');
+});
