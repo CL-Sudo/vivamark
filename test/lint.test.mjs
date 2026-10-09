@@ -403,3 +403,60 @@ test('a page amended badly fails as the guide says; amended as vivamark guide am
   const after = await lint('amend-after.html', fixture('amend-after.html'));
   assert.equal(after.code, 0, JSON.stringify(after.problems));
 });
+
+// ---- what pins each new condition (each case fails under the mutation named) -------
+
+const SVG_END = '</svg>\n      <figcaption class="viz-caption">Author\'s summary of <a href="#orders">';
+const withParts = (parts, css = '') => mutate([SVG_END, `${parts}${SVG_END}`], ['</style>', `${css}</style>`]);
+const ruleOf = (r, rule) => r.problems.filter((p) => p.rule === rule);
+
+test('text-overflow: text that leaves its box on the right only is caught (not just text overflowing both sides)', () => {
+  // Starts inside the box, ends past its right edge and well inside the viewBox: only the box's right check sees it.
+  const r = lintPage(withParts('<g id="viz-right"><title>Wednesday</title><rect class="box" x="10" y="100" width="200" height="40"/><text x="20" y="124">Wednesday orders Wednesday ord</text></g>'));
+  const w = ruleOf(r, 'text-overflow');
+  assert.equal(w.length, 1, JSON.stringify(r.problems));
+  assert.match(w[0].message, /its box is 200 \(x 10\.\.210\)/);
+});
+
+test('text-overflow: the width is 0.55 em a character, pinned from both sides', () => {
+  // 17 characters at 12px: 0.55 gives 112.2. Over a 100-wide box (needs k > 0.49); inside a 115-wide one (needs k <= 0.56).
+  const label = 'Wednesday orders.';
+  assert.equal(label.length, 17);
+  const inBox = (w) => ruleOf(lintPage(withParts(`<g id="viz-k"><title>Wednesday</title><rect class="box" x="10" y="100" width="${w}" height="40"/><text x="10" y="124">${label}</text></g>`)), 'text-overflow');
+  assert.equal(inBox(100).length, 1, 'over a 100-wide box');
+  assert.match(inBox(100)[0].message, /is about 112 wide/);
+  assert.equal(inBox(115).length, 0, 'inside a 115-wide box');
+});
+
+test('superseded-term: a .superseded card or figure group holding the term is exempt; the same without the class is not', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'amend-after.html'), 'utf8');
+  const terms = (from, to) => {
+    assert.equal(html.split(from).length, 2, from);
+    return lintPage(html.replace(from, to)).problems.filter((p) => p.rule === 'superseded-term');
+  };
+  const card = (cls) => terms('<section id="design">', `<div class="${cls}" id="glance-old"><p>Drafts lived in JSON files.</p></div><section id="design">`);
+  assert.equal(card('card').length, 1, 'a card saying it');
+  assert.deepEqual(card('card superseded'), [], 'a .card.superseded saying it');
+  const group = (cls) => terms('</svg>', `<g${cls ? ` class="${cls}"` : ''}><text class="muted" x="8" y="190">JSON files</text></g></svg>`);
+  assert.equal(group('').length, 1, 'a figure group saying it');
+  assert.deepEqual(group('superseded'), [], 'a .superseded figure group saying it');
+});
+
+test('unfilled-shape counts every way the page sets fill: element, descendant and id selectors, the <svg> and its groups', () => {
+  // The idioms of a valid page that drew no black shape (found by an independent check against a real render).
+  const page =
+    '<!doctype html><html><head><meta charset="utf-8"><title>t</title><style>:root{--a:#123}\n' +
+    '.viz svg rect.el { } .viz svg rect { fill: var(--a); } .viz svg .legend circle { fill: var(--a); } #viz-c path { fill: none; stroke: var(--a); }' +
+    ' figure.plain svg g:not(.x) polygon { fill: none; } .viz svg g[id]:hover ellipse { fill: none; }</style></head><body><main>\n' +
+    '<figure class="viz" id="viz-a"><svg viewBox="0 0 640 100" role="img" aria-label="a"><rect x="1" y="1" width="9" height="9"/><g class="legend"><circle cx="30" cy="5" r="4"/></g></svg><figcaption class="viz-caption">Author\'s summary of <a href="#s">S</a>.</figcaption></figure>\n' +
+    '<figure class="viz" id="viz-b"><svg viewBox="0 0 640 100" role="img" aria-label="b" fill="none"><path d="M1 1 H90 V50" stroke="currentColor"/></svg><figcaption class="viz-caption">Author\'s summary of <a href="#s">S</a>.</figcaption></figure>\n' +
+    '<figure class="viz" id="viz-c"><svg viewBox="0 0 640 100" role="img" aria-label="c"><path d="M1 1 H90 V50"/></svg><figcaption class="viz-caption">Author\'s summary of <a href="#s">S</a>.</figcaption></figure>\n' +
+    '<figure class="viz plain" id="viz-d"><svg viewBox="0 0 640 100" role="img" aria-label="d"><g fill="none"><path d="M1 1 H9"/></g><g><polygon points="1,1 9,1 5,9"/></g>LATER</svg><figcaption class="viz-caption">Author\'s summary of <a href="#s">S</a>.</figcaption></figure>\n' +
+    '<section id="s"><h2>S</h2><p>a</p></section></main></body></html>';
+  const unfilled = (h) => lintPage(h).problems.filter((p) => p.rule === 'unfilled-shape');
+  assert.deepEqual(unfilled(page.replace('LATER', '')), [], 'every shape here is filled');
+  // Still caught: an id rule reaches only its own figure, a :hover rule is not the drawing at rest.
+  const caught = unfilled(page.replace('LATER', '<g id="viz-d-more"><title>more</title><path d="M1 1 H9"/><ellipse cx="5" cy="5" rx="3" ry="2"/></g>'));
+  assert.deepEqual(caught.map((p) => p.message.slice(0, 10)), ['<path> is ', '<ellipse> '], JSON.stringify(caught));
+  assert.ok(caught.every((p) => p.severity === 'error' && p.figure === 'viz-d'));
+});

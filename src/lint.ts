@@ -354,25 +354,76 @@ function setsFill(el: Element): boolean {
   return attr(el, 'fill') !== undefined || /(?:^|;)\s*fill\s*:/i.test(attr(el, 'style') ?? '');
 }
 
-/** Classes the page's own CSS gives a fill: the classes in the last part of a selector whose rule sets fill. */
-function cssFilledClasses(root: Node): Set<string> {
-  const out = new Set<string>();
+/** One compound selector (rect.box, #viz-c, g[id]): what an element must have. */
+interface Compound {
+  tag: string | null;
+  id: string | null;
+  classes: string[];
+  attrs: string[];
+  /** A state the page is not in at rest (:hover, :focus): the rule does not apply as drawn. */
+  never: boolean;
+}
+
+function compound(raw: string): Compound | null {
+  // :not(.x), :is(...) and the like say nothing an element must have here.
+  const s = raw.replace(/:[\w-]+\([^)]*\)/g, '');
+  const c: Compound = { tag: null, id: null, classes: [], attrs: [], never: false };
+  const tag = /^(?:[\w-]+\|)?([\w-]+|\*)/.exec(s);
+  if (tag && tag[1] !== '*') c.tag = tag[1].toLowerCase();
+  for (const m of s.matchAll(/#([\w-]+)/g)) c.id = m[1];
+  for (const m of s.matchAll(/\.([\w-]+)/g)) c.classes.push(m[1]);
+  for (const m of s.matchAll(/\[\s*([\w:-]+)/g)) c.attrs.push(m[1].toLowerCase());
+  if (/:(?:hover|focus|focus-within|focus-visible|active|target|checked|visited)\b/i.test(s)) c.never = true;
+  return c.tag || c.id || c.classes.length || c.attrs.length || s.startsWith('*') ? c : null;
+}
+
+function matchesCompound(el: Element, c: Compound): boolean {
+  if (c.never) return false;
+  if (c.tag && el.tagName.toLowerCase() !== c.tag) return false;
+  if (c.id && attr(el, 'id') !== c.id) return false;
+  if (c.classes.some((k) => !hasClass(el, k))) return false;
+  return c.attrs.every((a) => el.attrs.some((x) => x.name.toLowerCase() === a));
+}
+
+/**
+ * The selectors of the page's own CSS rules that set fill, each as compounds
+ * from outermost to the element. Combinators all count as "inside": a
+ * looser match, so a fill the page really sets is never missed.
+ */
+function cssFillSelectors(root: Node): Compound[][] {
+  const out: Compound[][] = [];
   const css = all(root, (el) => el.tagName === 'style').map(rawText).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!/(?:^|;)\s*fill\s*:/i.test(m[2])) continue;
     for (const sel of m[1].split(',')) {
-      const last = sel.trim().split(/[\s>+~]+/).pop() ?? '';
-      for (const c of last.matchAll(/\.([\w-]+)/g)) out.add(c[1]);
+      const parts = sel.trim().split(/\s*[>+~]\s*|\s+/).filter(Boolean).map(compound);
+      if (parts.length && parts.every((p): p is Compound => p !== null)) out.push(parts);
     }
   }
   return out;
 }
 
-/** A shape with nothing setting its fill, so SVG paints it black. */
-function unfilled(el: Element, svg: Element, filled: Set<string>): boolean {
+/** Does a selector (compounds, outermost first) match el, each earlier compound on some ancestor in order? */
+function matchesSelector(el: Element, sel: Compound[]): boolean {
+  if (!matchesCompound(el, sel[sel.length - 1])) return false;
+  let k = sel.length - 2;
+  for (let p = parentOf(el); p && k >= 0; p = parentOf(p)) if (matchesCompound(p, sel[k])) k--;
+  return k < 0;
+}
+
+/**
+ * A shape with nothing setting its fill, so SVG paints it black. Fill is
+ * inherited, so a fill attribute, a style, one of the guide's classes or a
+ * rule of the page's CSS on the shape or on any element around it (the <svg>
+ * and beyond) counts.
+ */
+function unfilled(el: Element, svg: Element, fillRules: Compound[][]): boolean {
   if (!SHAPES.includes(el.tagName) || hasAncestor(el, svg, (p) => NOT_DRAWN.includes(p.tagName))) return false;
-  if (setsFill(el) || hasAncestor(el, svg, setsFill)) return false;
-  return !classes(el).some((c) => FILLED.includes(c) || filled.has(c));
+  for (let p: Element | null = el; p; p = parentOf(p)) {
+    if (setsFill(p) || classes(p).some((c) => FILLED.includes(c))) return false;
+    if (fillRules.some((sel) => matchesSelector(p!, sel))) return false;
+  }
+  return true;
 }
 
 // Average glyph width in em for the page's sans-serif, a little over the median
@@ -472,7 +523,7 @@ export function lintPage(html: string): LintResult {
     for (const m of css.matchAll(CSS_EXTERNAL)) add('error', 'no-external-url', null, el, `${(m[0].split(/[\s(]/)[0] || 'url').trim()} ${m[1] ?? m[2]}: an outbound request; inline it instead`);
   }
 
-  const filled = cssFilledClasses(page.root);
+  const fillRules = cssFillSelectors(page.root);
 
   // Captions anywhere on the page.
   const captions = all(page.root, (el) => hasClass(el, 'viz-caption'));
@@ -521,7 +572,7 @@ export function lintPage(html: string): LintResult {
       }
 
       // Paint: a shape nothing fills is drawn solid black.
-      for (const s of all(svg, (x) => unfilled(x, svg, filled))) {
+      for (const s of all(svg, (x) => unfilled(x, svg, fillRules))) {
         const cls = classes(s).join(' ');
         const why = classes(s).some((c) => LINE_ONLY.includes(c))
           ? `.${classes(s).find((c) => LINE_ONLY.includes(c))} is for <line> only`
