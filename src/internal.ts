@@ -1,7 +1,7 @@
 // Pure helpers re-exported for the unit tests (built to dist/internal.js).
 export { injectScript, sourceLine } from './html.js';
 export { sniffImage } from './image.js';
-export { parseDraft, FEEDBACK_SCHEMA, LIMITS } from './schema.js';
+export { attachmentName, parseDraft, FEEDBACK_SCHEMA, LIMITS } from './schema.js';
 export { loopbackAuthority, hostAllowed, originAllowed, tokenProof, tokensEqual, wsToken, bearer } from './guard.js';
 export { renderReply } from './daemon.js';
 export { Daemon, imageLimits } from './daemon.js';
