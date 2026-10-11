@@ -1,25 +1,46 @@
-// Regenerates docs/screenshots/review-ui.png: drives the review UI in headless
-// Chromium to a state that shows intents and severities, an approval, a note
-// from the agent, and Show changes. Run after npm run build:
-//   node scripts/screenshot.mjs [out.png]
+// Regenerates the README screenshots by driving the review UI in headless
+// Chromium. review-ui.png shows intents and severities, an approval, a note
+// from the agent, and Show changes. attach-answer.png shows a queued note with
+// an attached screenshot, and a decision answered by clicking a radio button.
+// Run after npm run build:
+//   node scripts/screenshot.mjs [out-dir]
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { makeWorld, ROOT } from '../test/helpers/harness.mjs';
 
-const out = process.argv[2] ?? path.join(ROOT, 'docs', 'screenshots', 'review-ui.png');
-const world = makeWorld();
-const file = path.join(world.pageDir, 'plan.html');
+const outDir = process.argv[2] ?? path.join(ROOT, 'docs', 'screenshots');
 const original = fs.readFileSync(path.join(ROOT, 'examples', 'plan.html'), 'utf8');
-fs.writeFileSync(file, original);
 const browser = await chromium.launch({ headless: true });
 try {
-  const opened = JSON.parse((await world.cli(['open', file, '--no-browser', '--json'])).stdout);
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  await page.route('**/*', (r) => (['127.0.0.1', 'localhost'].includes(new URL(r.request().url()).hostname) ? r.continue() : r.abort()));
-  await page.goto(opened.url);
-  const doc = page.frameLocator('#page');
-  await doc.locator('#step-2').waitFor();
+  await shoot('review-ui.png', { width: 1280, height: 800 }, reviewUi);
+  await shoot('attach-answer.png', { width: 1360, height: 860 }, attachAnswer);
+} finally {
+  await browser.close();
+}
+
+/** Opens a fresh copy of examples/plan.html for review, runs scene, and saves the page. */
+async function shoot(name, viewport, scene) {
+  const world = makeWorld();
+  const file = path.join(world.pageDir, 'plan.html');
+  fs.writeFileSync(file, original);
+  try {
+    const opened = JSON.parse((await world.cli(['open', file, '--no-browser', '--json'])).stdout);
+    const page = await browser.newPage({ viewport });
+    await page.route('**/*', (r) => (['127.0.0.1', 'localhost'].includes(new URL(r.request().url()).hostname) ? r.continue() : r.abort()));
+    await page.goto(opened.url);
+    const doc = page.frameLocator('#page');
+    await doc.locator('#step-2').waitFor();
+    await scene(page, doc, world, file);
+    const out = path.join(outDir, name);
+    await page.screenshot({ path: out });
+    console.log('saved', out);
+  } finally {
+    await world.cleanup();
+  }
+}
+
+async function reviewUi(page, doc, world, file) {
   const note = async (locator, text, intent, severity, position) => {
     await page.click('#point');
     await locator.click(position ? { position } : undefined);
@@ -58,9 +79,24 @@ try {
     t.scrollTop = t.scrollHeight;
   });
   await page.waitForTimeout(300);
-  await page.screenshot({ path: out });
-  console.log('saved', out);
-} finally {
-  await browser.close();
-  await world.cleanup();
+}
+
+async function attachAnswer(page, doc) {
+  // A note on the canary owner, with a screenshot of the owner column attached.
+  await page.click('#point');
+  await doc.locator('#rollout td', { hasText: 'Shadow traffic' }).click();
+  await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'element');
+  await page.click('#tags [data-intent="change"]');
+  await page.fill('#comment', 'Name a person, not a team: see the highlighted owner column in the screenshot.');
+  const box = await doc.locator('#rollout th', { hasText: 'Owner' }).boundingBox();
+  const table = await doc.locator('#rollout').boundingBox();
+  const shot = await page.screenshot({ clip: { x: box.x - 24, y: table.y, width: box.width + 120, height: table.height } });
+  await page.setInputFiles('#file-input', { name: 'owners.png', mimeType: 'image/png', buffer: shot });
+  await page.waitForSelector('#composer img');
+  await page.click('#add');
+  // The reviewer answers a decision by clicking its radio button.
+  await doc.locator('#decision-rollout-staged').click();
+  await page.waitForSelector('.note.queued >> text=From the page');
+  await doc.locator('#decision-placement').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await page.waitForTimeout(300);
 }
