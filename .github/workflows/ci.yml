@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # The browser tests skip themselves without a Chromium, so install the
+      # one playwright-core expects and point the render tests at it too.
+      # vivamark render keeps Chromium's sandbox on, which Ubuntu 24.04 blocks
+      # by default (unprivileged user namespaces), so allow them on the runner.
+      - name: Install Chromium for the browser tests
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          npx playwright-core install --with-deps chromium
+          echo "VIVAMARK_CHROME=$(node -e "import('playwright-core').then(m => console.log(m.chromium.executablePath()))")" >> "$GITHUB_ENV"
+      - name: Test
+        shell: bash
+        run: |
+          npm test 2>&1 | tee test.log
+          # A browser test that skipped would pass silently; fail instead.
+          grep -q '^# skipped 0$' test.log || { echo "::error::some tests were skipped"; grep -E 'SKIP|skipped' test.log; exit 1; }
