@@ -5,7 +5,7 @@
 //
 // Metadata only. An event names sessions, notes, counts and decisions, never
 // what anyone wrote: no note comment, quote, reply text, agent note text or
-// end message, and no image or image path. A reader fetches words through `vivamark wait`. Every event is
+// end message, and no attached file, its name or its path. A reader fetches words through `vivamark wait`. Every event is
 // built from the whitelisted fields below, so new text cannot leak in by a
 // spread of some larger object.
 
@@ -15,7 +15,7 @@ import type { AgentStatus, Decision, NoteKind, NoteStatus, VersionCause } from '
 
 export interface EventDetails {
   'session.opened': Record<string, never>;
-  /** A Send: its decision, how many notes, their seq range in the session's feedback log, and how many images they carry. */
+  /** A Send: its decision, how many notes, their seq range in the session's feedback log, and how many attachments they carry. */
   'feedback.sent': { decision: Decision; notes: number; feedback_seq: { from: number; to: number }; attachments: number };
   /** An agent reply; `note` when it is about one note. */
   'reply.posted': { reply_seq: number; note?: string; status?: AgentStatus };
