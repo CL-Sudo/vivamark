@@ -35,7 +35,8 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 [hidden] { display: none !important; }
 .app { height: 100%; display: flex; flex-direction: column; }
 
-.bar { display: flex; align-items: center; gap: 24px; padding: 12px 24px; background: var(--bar); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+/* The bar wraps rather than squeezing out the file name or running off a narrow window. */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; padding: 12px 24px; background: var(--bar); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .logo { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); display: inline-block; box-shadow: 0 0 0 4px var(--accent-soft); }
 .file { color: var(--muted); display: flex; gap: 8px; align-items: center; min-width: 0; }
@@ -46,7 +47,9 @@ body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--ui); -webki
 .toggle[aria-pressed="true"] { background: rgba(16, 185, 129, .1); color: #047857; border-color: rgba(16, 185, 129, .45); }
 .toggle:disabled { opacity: .45; cursor: default; }
 .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.turn { margin-left: auto; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--q-soft); color: var(--q); white-space: nowrap; }
+/* Whose turn and the agent's presence keep together at the right, on the last row when the bar wraps. */
+.status { margin-left: auto; display: flex; align-items: center; gap: 24px; }
+.turn { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--q-soft); color: var(--q); white-space: nowrap; }
 .turn[data-turn="agent"] { background: var(--chip); color: var(--chip-fg); }
 .presence { color: var(--muted); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; display: inline-block; transition: background .2s; }
@@ -179,6 +182,8 @@ textarea:focus { border-color: rgba(14, 165, 233, .5); box-shadow: 0 0 0 4px var
 .hint { margin: 0; font-size: 12px; color: var(--muted); }
 
 @media (max-width: 860px) {
+  .bar, .status { gap: 8px 16px; }
+  .bar { padding: 10px 16px; }
   .body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
   .side { border-left: 0; border-top: 1px solid var(--line); max-height: 50vh; }
 }

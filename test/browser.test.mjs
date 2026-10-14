@@ -477,6 +477,21 @@ test('Show marks hides the note marks and shows them again, remembered in this b
   await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === 'A1'));
   assert.deepEqual(await badges(), ['1', '2', '3', 'A1']);
 
+  // An earlier version draws the notes sent on it, and hides them with the rest.
+  const earlier = () => page.frames().find((f) => f.url().includes('/v/'));
+  await page.click('#versions-btn');
+  await page.click('.version-row.send');
+  await page.waitForFunction(() => !document.getElementById('version-bar').hidden);
+  await page.waitForFunction(() => [...document.querySelectorAll('iframe')].some((f) => f.src.includes('/v/')));
+  await page.keyboard.press('Escape');
+  await doc.locator('#step-2').waitFor();
+  await earlier().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === '1'));
+  await page.click('#show-marks');
+  assert.equal(await page.getAttribute('#show-marks', 'aria-pressed'), 'false');
+  await earlier().waitForFunction(() => document.getElementById('__vivamark_layer')?.children.length === 0);
+  await page.click('#back-current');
+  await page.waitForFunction(() => document.getElementById('version-bar').hidden);
+
   // With storage blocked the marks start shown and the toggle still works.
   const blocked = await reviewPage(url, {
     init: () => {
@@ -499,6 +514,60 @@ test('Show marks hides the note marks and shows them again, remembered in this b
   await page.close();
   await blocked.page.close();
   assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
+});
+
+test('the header bar fits at every width, the file name whole and no control past the edge', { timeout: 90_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'certificate-plan.html');
+  const original = fs.readFileSync(FIXTURE, 'utf8');
+  fs.writeFileSync(file, original);
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { url } = JSON.parse(opened.stdout);
+  // A second version, so the labels carry their counts ("Versions · 2").
+  fs.writeFileSync(file, original.replace('Applet scaffold, save handler and container page.', 'Applet scaffold and container page.'));
+  for (const width of [1280, 900, 760, 650, 390]) {
+    const { page, offLoopback, problems } = await reviewPage(url);
+    await page.setViewportSize({ width, height: 800 });
+    await page.frameLocator('#page').locator('#step-2').waitFor();
+    await page.waitForFunction(() => /· \d/.test(document.getElementById('versions-btn').textContent));
+    const m = await page.evaluate(() => {
+      const bar = document.querySelector('.bar');
+      const b = bar.getBoundingClientRect();
+      const name = document.getElementById('file-name');
+      return {
+        page: document.documentElement.scrollWidth,
+        bar: { scroll: bar.scrollWidth, client: bar.clientWidth, left: b.left, right: b.right },
+        name: { text: name.textContent, scroll: name.scrollWidth, client: name.clientWidth },
+        kids: [...bar.children]
+          .filter((c) => getComputedStyle(c).display !== 'none')
+          .map((c) => {
+            const r = c.getBoundingClientRect();
+            return { id: c.id || c.className, left: r.left, right: r.right, mid: r.top + r.height / 2, cut: c.scrollWidth > c.clientWidth + 1 };
+          }),
+      };
+    });
+    const at = `at ${width}px: ${JSON.stringify(m)}`;
+    assert.ok(m.page <= width, `the page does not scroll sideways ${at}`);
+    assert.ok(m.bar.scroll <= m.bar.client, `the bar does not overflow ${at}`);
+    for (const k of m.kids) {
+      assert.ok(k.left >= m.bar.left && k.right <= m.bar.right, `${k.id} is inside the bar ${at}`);
+      assert.ok(!k.cut, `${k.id} is not cut off ${at}`);
+    }
+    assert.equal(m.name.text, 'certificate-plan.html');
+    assert.ok(m.name.client > 0 && m.name.scroll <= m.name.client, `the file name is whole ${at}`);
+    if (width === 1280) {
+      const mids = m.kids.map((k) => k.mid);
+      assert.ok(Math.max(...mids) - Math.min(...mids) < 4, `one row on a wide window ${at}`);
+    }
+    if (process.env.VIVAMARK_SCREENSHOT_DIR) {
+      fs.mkdirSync(process.env.VIVAMARK_SCREENSHOT_DIR, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, `header-${width}.png`), clip: { x: 0, y: 0, width, height: 180 } });
+    }
+    assert.deepEqual(offLoopback, []);
+    assert.deepEqual(problems, []);
+    await page.close();
+  }
 });
 
 test('End review on the page ends the review: the agent is told and the page takes nothing more', { timeout: 60_000 }, async (t) => {
