@@ -87,9 +87,11 @@ reviewer resolves a note. The page and `wait` both say whose turn it is.
 Edit `examples/plan.html` and the page reloads in place. Every note is
 re-attached to the new file: `anchored`, `moved` (with where it is now), or
 `orphaned` when what it pointed at is gone, listed apart and never pinned to a
-guess. **Show changes** highlights what changed since you last sent. Running
-`wait` again returns the same notes; `wait examples/plan.html --after <seq>`
-waits for newer ones.
+guess. **Show changes** highlights what changed since you last sent. **Show
+marks**, beside it, hides or shows the outlines and numbers drawn on noted
+places, so you can read the page clean; the notes stay in the panel, and this
+browser remembers the choice. Running `wait` again returns the same notes;
+`wait examples/plan.html --after <seq>` waits for newer ones.
 
 The agent, or a tool, can point things out to the reviewer. Such a note is
 shown labelled with its source and reaches `wait` only if the reviewer

@@ -41,8 +41,9 @@ after(async () => {
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /** A review page with the loopback-only guard and error collection the tests share. */
-async function reviewPage(url) {
+async function reviewPage(url, { init } = {}) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  if (init) await page.addInitScript(init);
   const offLoopback = [];
   const problems = [];
   await page.route('**/*', (route) => {
@@ -366,6 +367,137 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   assert.deepEqual(offLoopback, [], 'the browser only talked to loopback');
   assert.deepEqual(problems, [], 'no script errors or CSP violations');
   await page.close();
+  assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
+});
+
+test('Show marks hides the note marks and shows them again, remembered in this browser', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'marks.html');
+  const original = fs.readFileSync(FIXTURE, 'utf8');
+  fs.writeFileSync(file, original);
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { url } = JSON.parse(opened.stdout);
+  const { page, offLoopback, problems, frame } = await reviewPage(url);
+  const doc = page.frameLocator('#page');
+  await doc.locator('#step-2').waitFor();
+  assert.equal(await page.getAttribute('#show-marks', 'aria-pressed'), 'true', 'marks are shown by default');
+  assert.equal(await page.textContent('#show-marks'), 'Show marks');
+
+  const layer = () =>
+    frame().evaluate(() =>
+      [...(document.getElementById('__vivamark_layer')?.children ?? [])].map((c) => ({ text: c.textContent, change: c.dataset.vivamarkChange ?? null })),
+    );
+  const badges = async () => (await layer()).map((c) => c.text).filter(Boolean).sort();
+  // Messages to the frame are handled before two animation frames have passed, so the layer is current.
+  const settled = () => frame().evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+  // One mark of each kind: a sent element note, a queued text note, and a note from a tool.
+  await page.click('#point');
+  await doc.locator('#step-2').click();
+  await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'element');
+  await page.fill('#comment', 'Split this step.');
+  await page.click('#add');
+  await page.click('#send');
+  await page.waitForSelector('.note:not(.queued) >> text=Sent');
+  const frameBox = await page.locator('#page').boundingBox();
+  const r = await frame().evaluate(() => {
+    const text = document.getElementById('summary').firstChild;
+    const at = text.data.indexOf('Director or Attestor');
+    const range = document.createRange();
+    range.setStart(text, at);
+    range.setEnd(text, at + 'Director or Attestor'.length);
+    const rects = range.getClientRects();
+    const a = rects[0];
+    const b = rects[rects.length - 1];
+    return { x1: a.left + 1, y1: a.top + a.height / 2, x2: b.right - 1, y2: b.top + b.height / 2 };
+  });
+  await page.mouse.move(frameBox.x + r.x1, frameBox.y + r.y1);
+  await page.mouse.down();
+  await page.mouse.move(frameBox.x + r.x2, frameBox.y + r.y2, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'text');
+  await page.fill('#comment', 'Who may enrol?');
+  await page.click('#add');
+  assert.equal((await world.cli(['note', 'add', file, '--target', '#step-1', '--text', 'Autoload refresh is untested.', '--source', 'lint'])).code, 0);
+  await page.waitForSelector('.note.agent[data-agent-id="a_0001"]');
+  await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === 'A1'));
+  assert.deepEqual(await badges(), ['1', '2', 'A1']);
+  const cards = await page.locator('#thread .note').count();
+
+  // Off, from the keyboard: nothing is drawn for any note, and every note stays in the panel.
+  await page.focus('#show-marks');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.getAttribute('#show-marks', 'aria-pressed'), 'false');
+  await frame().waitForFunction(() => document.getElementById('__vivamark_layer')?.children.length === 0);
+  assert.equal(await page.locator('#thread .note').count(), cards);
+  assert.equal(await page.textContent('#note-count'), '2');
+  assert.equal(await page.locator('.note.queued').count(), 1);
+  assert.equal(await page.evaluate(() => localStorage.getItem('vivamark:show-marks')), 'off');
+
+  // Picking still works, with its hover outline; the note it makes is queued and not drawn.
+  await page.click('#point');
+  await doc.locator('#step-3').hover();
+  await frame().waitForFunction(() => document.getElementById('__vivamark_layer')?.children.length === 1);
+  await doc.locator('#step-3').click();
+  await page.waitForFunction(() => document.getElementById('target-text')?.textContent?.includes('li#step-3'));
+  await page.fill('#comment', 'Name the rollback owner.');
+  await page.click('#add');
+  await page.waitForFunction(() => document.getElementById('send')?.textContent === 'Send 2');
+  await settled();
+  assert.deepEqual(await layer(), []);
+
+  // Show changes still highlights while the marks are hidden, and draws only the changes.
+  fs.writeFileSync(file, original.replace('Enrolment class and unit tests, autoload refresh.', 'Enrolment class and unit tests.'));
+  await page.waitForFunction(() => !document.getElementById('show-changes').disabled, null, { timeout: 10_000 });
+  await page.click('#show-changes');
+  await frame().locator('[data-vivamark-change]').first().waitFor();
+  await settled();
+  const shown = await layer();
+  assert.ok(shown.length > 0 && shown.every((c) => c.change), JSON.stringify(shown));
+  await page.click('#show-changes');
+  await frame().waitForFunction(() => document.getElementById('__vivamark_layer')?.children.length === 0);
+
+  // Remembered: a reload keeps the marks hidden.
+  await page.reload();
+  await doc.locator('#step-2').waitFor();
+  await page.waitForSelector('.note.agent[data-agent-id="a_0001"]');
+  assert.equal(await page.getAttribute('#show-marks', 'aria-pressed'), 'false');
+  await settled();
+  assert.deepEqual(await layer(), []);
+
+  // On again: every mark is drawn as before, and that is remembered too.
+  await page.click('#show-marks');
+  assert.equal(await page.getAttribute('#show-marks', 'aria-pressed'), 'true');
+  await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === 'A1'));
+  assert.deepEqual(await badges(), ['1', '2', '3', 'A1']);
+  await page.reload();
+  await doc.locator('#step-2').waitFor();
+  assert.equal(await page.getAttribute('#show-marks', 'aria-pressed'), 'true');
+  await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === 'A1'));
+  assert.deepEqual(await badges(), ['1', '2', '3', 'A1']);
+
+  // With storage blocked the marks start shown and the toggle still works.
+  const blocked = await reviewPage(url, {
+    init: () => {
+      Object.defineProperty(window, 'localStorage', {
+        get() {
+          throw new DOMException('blocked', 'SecurityError');
+        },
+      });
+    },
+  });
+  await blocked.page.frameLocator('#page').locator('#step-2').waitFor();
+  assert.equal(await blocked.page.getAttribute('#show-marks', 'aria-pressed'), 'true');
+  await blocked.frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === 'A1'));
+  await blocked.page.click('#show-marks');
+  assert.equal(await blocked.page.getAttribute('#show-marks', 'aria-pressed'), 'false');
+  await blocked.frame().waitForFunction(() => document.getElementById('__vivamark_layer')?.children.length === 0);
+
+  assert.deepEqual([...offLoopback, ...blocked.offLoopback], [], 'the browser only talked to loopback');
+  assert.deepEqual([...problems, ...blocked.problems], [], 'no script errors or CSP violations');
+  await page.close();
+  await blocked.page.close();
   assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
 });
 

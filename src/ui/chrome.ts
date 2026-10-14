@@ -143,6 +143,8 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const sessionId = location.pathname.split('/').pop() ?? '';
 const tokenKey = `vivamark:token:${sessionId}`;
 const queueKey = `vivamark:queue:${sessionId}`;
+/** A viewing preference, not part of a review: kept for every review in this browser. */
+const showMarksKey = 'vivamark:show-marks';
 
 function readToken(): string | null {
   const m = /(?:^#|&)t=([0-9a-f]{64})(?:&|$)/.exec(location.hash);
@@ -184,6 +186,8 @@ let turn: 'agent' | 'reviewer' = 'reviewer';
 let linking: { field: 'answers' | 'replies_to'; id: string; label: string } | null = null;
 let agentNotes: AgentNoteView[] = [];
 let showChanges = false;
+/** Whether note marks are drawn on the page. Hiding them changes no note. */
+let showMarks = loadShowMarks();
 let queue: Draft[] = loadQueue();
 let target: { kind: Kind; anchor: Anchor | null } = { kind: 'page', anchor: null };
 let tags: { intent?: Intent; severity?: Severity } = {};
@@ -218,6 +222,22 @@ function saveQueue(): void {
     sessionStorage.setItem(queueKey, JSON.stringify(queue));
   } catch {
     // Queue survives in memory only.
+  }
+}
+
+function loadShowMarks(): boolean {
+  try {
+    return localStorage.getItem(showMarksKey) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+function saveShowMarks(): void {
+  try {
+    localStorage.setItem(showMarksKey, showMarks ? 'on' : 'off');
+  } catch {
+    // Storage blocked: the choice lasts as long as this page.
   }
 }
 
@@ -813,6 +833,14 @@ function renderChanges(): void {
   else btn.title = n && changes ? `What changed since you last sent, at ${new Date(changes.since).toLocaleTimeString()}` : 'Nothing has changed since you last sent';
 }
 
+function renderMarksToggle(): void {
+  const btn = $<HTMLButtonElement>('show-marks');
+  btn.setAttribute('aria-pressed', String(showMarks));
+  btn.title = showMarks
+    ? 'Hide the outlines and numbers on noted places; the notes stay in the panel'
+    : 'Show the outlines and numbers on noted places';
+}
+
 function postChanges(): void {
   const c = shownChanges();
   toFrame({ type: 'changes', show: showChanges, inserts: c?.inserts ?? [], removals: c?.removals ?? [] });
@@ -836,7 +864,7 @@ function postMarks(): void {
   if (viewing) {
     // An earlier version shows only the notes sent on it, where they were when sent.
     const marks = viewing.notes.map((n) => ({ n: Number(n.id.slice(2)), kind: n.kind, anchor: n.anchor, queued: false }));
-    toFrame({ type: 'marks', marks });
+    toFrame({ type: 'marks', marks, show: showMarks });
     return;
   }
   const marks = [
@@ -854,7 +882,7 @@ function postMarks(): void {
       return [{ n: agentLabel(a.id), kind: a.kind, anchor, queued: false, agent: true }];
     }),
   ];
-  toFrame({ type: 'marks', marks });
+  toFrame({ type: 'marks', marks, show: showMarks });
 }
 
 function setPicking(on: boolean): void {
@@ -986,6 +1014,13 @@ $('show-changes').addEventListener('click', () => {
   showChanges = !showChanges;
   renderChanges();
   postChanges();
+});
+renderMarksToggle();
+$('show-marks').addEventListener('click', () => {
+  showMarks = !showMarks;
+  saveShowMarks();
+  renderMarksToggle();
+  postMarks();
 });
 
 const SENT_TEXT: Record<Decision, string> = {

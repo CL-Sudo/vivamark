@@ -353,6 +353,8 @@
   }
 
   let marks: Mark[] = [];
+  /** Off when the reviewer hides the note marks: the notes stay, only their drawing goes. */
+  let showMarks = true;
   let hoverEl: Element | null = null;
   let picking = false;
 
@@ -360,7 +362,7 @@
     const l = layer();
     l.replaceChildren();
     drawChanges(l);
-    for (const m of marks) {
+    for (const m of showMarks ? marks : []) {
       if (!m.anchor) continue;
       const accent = m.agent ? 'rgba(139,92,246,.7)' : m.queued ? 'rgba(14,165,233,.55)' : '#0ea5e9';
       const line = m.agent ? 'dotted' : m.queued ? 'dashed' : 'solid';
@@ -535,6 +537,7 @@
       redraw();
     } else if (d.type === 'marks') {
       marks = Array.isArray(d.marks) ? (d.marks as Mark[]) : [];
+      showMarks = d.show !== false;
       redraw();
     } else if (d.type === 'changes') {
       const list = (v: unknown): Change[] =>
