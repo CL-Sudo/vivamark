@@ -110,7 +110,7 @@ test('the plan playbook ends on decisions, and decisions are answered with real 
   assert.ok(controls > 0 && fallback > controls, 'controls lead, pointing follows');
   assert.match(d, /class="your-input"/);
   assert.match(d, /type="radio"/);
-  assert.match(d, /"looks-good"/);
+  assert.match(d, /needs no value; a value is ignored/);
   assert.match(d, /Nothing is sent by the click/);
   // Every radiogroup gets a field for the reviewer's own words, and the guide says how they arrive.
   assert.match(d, /text field under every decision\s+group/);
@@ -118,6 +118,14 @@ test('the plan playbook ends on decisions, and decisions are answered with real 
   assert.doesNotMatch(d, /Text fields are not supported/);
   assert.match(d, /Press Point, clicks it and writes a note|presses Point, clicks it and writes a note/);
   assert.match(PAGE_CSS, /\.your-input::before \{ content: "Your input";/);
+});
+
+test('neither the guide nor the skill stub mentions note intent, severity or page versions', () => {
+  const skill = fs.readFileSync(path.join(ROOT, 'skills', 'vivamark', 'SKILL.md'), 'utf8');
+  for (const [name, text] of [...TOPICS.map((t) => [t.name, t.text]), ['SKILL.md', skill]]) {
+    assert.doesNotMatch(text, /\bintents?\b|\bseverit|looks-good|\bmotivation\b/i, name);
+    assert.doesNotMatch(text, /vivamark (versions|show)\b|--version <|restore (this|a) version|every version/i, name);
+  }
 });
 
 test('the workflow topic says where images and other files arrive in wait output', () => {
@@ -223,7 +231,7 @@ test('examples/report.html follows the report playbook: every visual kind, capti
   for (const g of html.match(/<g id="[^"]+">(?!<title>)/g) ?? []) assert.fail(`an SVG part without a <title>: ${g}`);
   // Ends on decisions, in Your input cards with marked radio buttons, nothing pre-selected.
   assert.ok(html.lastIndexOf('class="your-input"') > html.indexOf('id="sources"'), 'decisions last');
-  const radios = html.match(/<input type="radio" name="decision-[a-z-]+" id="decision-[a-z-]+" data-vivamark-suggest="looks-good">/g) ?? [];
+  const radios = html.match(/<input type="radio" name="decision-[a-z-]+" id="decision-[a-z-]+" data-vivamark-suggest>/g) ?? [];
   assert.ok(radios.length >= 4);
   assert.doesNotMatch(html, /<input[^>]*\bchecked\b/);
 });
@@ -240,7 +248,7 @@ test('examples/plan.html follows the plan playbook and carries the design CSS', 
   // Decisions: each in a Your input card, answered with marked radio buttons.
   const cards = html.match(/<section id="decision-[a-z-]+" class="your-input">/g) ?? [];
   assert.ok(cards.length >= 2, 'decisions in Your input cards');
-  const radios = html.match(/<input type="radio" name="decision-[a-z-]+" id="decision-[a-z-]+"[^>]*data-vivamark-suggest="looks-good">/g) ?? [];
+  const radios = html.match(/<input type="radio" name="decision-[a-z-]+" id="decision-[a-z-]+"[^>]*data-vivamark-suggest>/g) ?? [];
   assert.ok(radios.length >= 4, 'options as radio buttons marked data-vivamark-suggest');
   assert.doesNotMatch(html, /<input[^>]*\bchecked\b/, 'nothing pre-selected');
   const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
@@ -251,7 +259,6 @@ test('the amend topic: the decided state everywhere, what it replaced marked, an
   const topic = (name) => TOPICS.find((t) => t.name === name).text;
   const a = topic('amend');
   assert.match(a, /shows the\s+decided state wherever a reader looks first/);
-  assert.match(a, /vivamark versions <file>/, 'history keeps the original');
   assert.match(a, /the lede, the\s+\.meta line, the cards, every figure/);
   assert.match(a, /data-vivamark-supersedes="JSON files"/);
   assert.match(a, /never shows a superseded design as the current one/);

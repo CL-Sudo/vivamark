@@ -199,11 +199,11 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
       <h3>Where should the screen live?</h3>
       <div class="options" role="radiogroup" aria-label="Where should the screen live?">
         <label class="option recommended">
-          <input type="radio" name="decision-placement" id="decision-placement-setup" value="setup" data-vivamark-suggest="looks-good">
+          <input type="radio" name="decision-placement" id="decision-placement-setup" value="setup" data-vivamark-suggest>
           <span><strong>Setup menu</strong> (recommended): next to the other self-service screens. Cost: Setup needs a new permission check.</span>
         </label>
         <label class="option">
-          <input type="radio" name="decision-placement" id="decision-placement-profile" value="profile" data-vivamark-suggest="looks-good">
+          <input type="radio" name="decision-placement" id="decision-placement-profile" value="profile" data-vivamark-suggest>
           <span><strong>User profile</strong>: where people look for their own settings. Cost: the profile page has no applet container yet.</span>
         </label>
       </div>
@@ -213,11 +213,11 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
       <h3>How should it roll out?</h3>
       <div class="options" role="radiogroup" aria-label="How should it roll out?">
         <label class="option recommended">
-          <input type="radio" name="decision-rollout" id="decision-rollout-staged" value="staged" data-vivamark-suggest="looks-good">
+          <input type="radio" name="decision-rollout" id="decision-rollout-staged" value="staged" data-vivamark-suggest>
           <span><strong>Shadow, then canary, then everyone</strong> (recommended): as in the table above. Cost: about a week longer.</span>
         </label>
         <label class="option">
-          <input type="radio" name="decision-rollout" id="decision-rollout-direct" value="direct" data-vivamark-suggest="looks-good">
+          <input type="radio" name="decision-rollout" id="decision-rollout-direct" value="direct" data-vivamark-suggest>
           <span><strong>Straight to everyone</strong>, behind a feature flag. Cost: a failed enrolment would reach every Director at once.</span>
         </label>
       </div>

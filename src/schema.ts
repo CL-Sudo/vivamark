@@ -4,16 +4,16 @@
 // output still keeps what the person said.
 //
 // Features add fields here without changing existing ones: a batch
-// `decision` (F1), `target_changed` (F2), `anchor.state` (F3), `note.intent`
-// and `note.severity` (F4), `anchor.lines` (F5), a per-note `status` carried
+// `decision` (F1), `target_changed` (F2), `anchor.state` (F3), `anchor.lines`
+// (F5), a per-note `status` carried
 // by replies and `answers` on notes (F6), notes from the agent or tools in a
 // log of their own (F7), `anchor.cell`, `control` and `point` (F8),
 // images in `note.attachments`, which was always there and always empty before,
 // and other files there too: an attachment with mime application/octet-stream
 // and no width or height, and an optional `name` on every attachment, and
 // `note.choice`: the reviewer's own words on a decision, apart from the
-// option's label.
-// Version history (VersionEntry) is a log of its own, per reviewed file.
+// option's label. F4's `note.intent`, `note.severity` and `note.motivation`
+// were removed (2026-11-13); notes logged before then are read without them.
 // Readers must ignore fields they do not know.
 
 export const FEEDBACK_SCHEMA = 'vivamark.feedback/1';
@@ -21,24 +21,6 @@ export const REPLY_SCHEMA = 'vivamark.reply/1';
 export const STATUS_SCHEMA = 'vivamark.status/1';
 
 export type NoteKind = 'element' | 'text' | 'page';
-
-/** What the reviewer wants done (F4). */
-export const INTENTS = ['change', 'question', 'delete', 'looks-good'] as const;
-export type Intent = (typeof INTENTS)[number];
-/** How much it matters (F4). */
-export const SEVERITIES = ['blocking', 'important', 'nit'] as const;
-export type Severity = (typeof SEVERITIES)[number];
-
-/**
- * The W3C Web Annotation `motivation` for each intent, so a reader that knows
- * that vocabulary needs no table of ours. A note with no intent is `commenting`.
- */
-export const MOTIVATION: Record<Intent, string> = {
-  change: 'editing',
-  question: 'questioning',
-  delete: 'editing',
-  'looks-good': 'assessing',
-};
 
 export interface Anchor {
   /** The element's own `id` or `data-vivamark-id`, when it has one. */
@@ -119,10 +101,6 @@ export interface Note {
   comment: string;
   /** The reviewer's own words on a decision, apart from the option's label. */
   choice?: Choice;
-  intent?: Intent;
-  severity?: Severity;
-  /** W3C Web Annotation motivation, derived from the intent. */
-  motivation: string;
   anchor: Anchor | null;
   /** F6: the reviewer's answer to the agent's question on this note. */
   answers?: string;
@@ -158,35 +136,6 @@ export interface NoteEntry {
   decision?: Decision;
   /** F2: the file as it was at this Send, by the sha256 of its snapshot. */
   snapshot?: string;
-}
-
-export const VERSIONS_SCHEMA = 'vivamark.versions/1';
-export const VERSION_SCHEMA = 'vivamark.version/1';
-
-/** Why a version of the reviewed file was kept. */
-export const VERSION_CAUSES = ['open', 'save', 'send', 'end', 'read'] as const;
-export type VersionCause = (typeof VERSION_CAUSES)[number];
-
-/**
- * One line of `versions/<file key>/index.jsonl`: a version of the reviewed
- * file that vivamark saw, across every review of that file. `n` counts from 1
- * in the order they were seen. The content is kept once per distinct `hash`.
- */
-export interface VersionEntry {
-  n: number;
-  hash: string;
-  at: string;
-  cause: VersionCause;
-  /** Bytes of the file at this version. */
-  size: number;
-  /** The review it was seen in. */
-  session: string;
-  /** For a Send: which batch, its decision and how many notes it carried. */
-  batch?: string;
-  decision?: Decision;
-  notes?: number;
-  /** Kept before version history existed: the content is the Send snapshot in snapshots/<session>/. */
-  legacy?: true;
 }
 
 /** A Send with no notes (approve or dismiss) is logged as one decision entry. */
@@ -279,8 +228,6 @@ export interface DraftNote {
   kind: NoteKind;
   comment: string;
   choice?: Choice;
-  intent?: Intent;
-  severity?: Severity;
   answers?: string;
   endorses?: string;
   replies_to?: string;
@@ -399,20 +346,12 @@ export function parseDraft(input: unknown): DraftNote | string {
   const comment = typeof x.comment === 'string' ? x.comment.trim() : '';
   if (!comment) return 'note.comment is required';
   if (comment.length > LIMITS.comment) return `note.comment is longer than ${LIMITS.comment} characters`;
-  const tags: Pick<DraftNote, 'choice' | 'intent' | 'severity' | 'answers' | 'endorses' | 'replies_to' | 'attachments'> = {};
+  const tags: Pick<DraftNote, 'choice' | 'answers' | 'endorses' | 'replies_to' | 'attachments'> = {};
   if (x.choice !== undefined && x.choice !== null) {
     if (kind !== 'element') return 'note.choice belongs on an element note';
     const choice = parseChoice(x.choice);
     if (typeof choice === 'string') return choice;
     tags.choice = choice;
-  }
-  if (x.intent !== undefined && x.intent !== null) {
-    if (!(INTENTS as readonly unknown[]).includes(x.intent)) return `note.intent must be one of ${INTENTS.join(', ')}`;
-    tags.intent = x.intent as Intent;
-  }
-  if (x.severity !== undefined && x.severity !== null) {
-    if (!(SEVERITIES as readonly unknown[]).includes(x.severity)) return `note.severity must be one of ${SEVERITIES.join(', ')}`;
-    tags.severity = x.severity as Severity;
   }
   if (x.answers !== undefined && x.answers !== null) {
     if (typeof x.answers !== 'string' || !NOTE_ID.test(x.answers)) return 'note.answers must be a note id';

@@ -372,15 +372,15 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
     <h3>Keep the cache?</h3>
     <div class="options" role="radiogroup" aria-label="Keep the cache?">
       <label class="option recommended">
-        <input type="radio" name="decision-rollout" id="decision-rollout-all" data-vivamark-suggest="looks-good">
+        <input type="radio" name="decision-rollout" id="decision-rollout-all" data-vivamark-suggest>
         <span><strong>Yes, on every branch, with the key fix</strong> (recommended): the gain is large and the fix is one line. Cost: a bigger bucket.</span>
       </label>
       <label class="option">
-        <input type="radio" name="decision-rollout" id="decision-rollout-main" data-vivamark-suggest="looks-good">
+        <input type="radio" name="decision-rollout" id="decision-rollout-main" data-vivamark-suggest>
         <span><strong>Main only, with the key fix</strong>: less storage. Cost: feature branches stay at about 9 min.</span>
       </label>
       <label class="option">
-        <input type="radio" name="decision-rollout" id="decision-rollout-off" data-vivamark-suggest="looks-good">
+        <input type="radio" name="decision-rollout" id="decision-rollout-off" data-vivamark-suggest>
         <span><strong>Turn it off</strong>: nothing to maintain. Cost: the 4.7 min a run saved.</span>
       </label>
     </div>
@@ -391,15 +391,15 @@ table.matrix th.vertical { writing-mode: vertical-rl; transform: rotate(180deg);
     <h3>Which idea next, after the key fix?</h3>
     <div class="options" role="radiogroup" aria-label="Which idea next, after the key fix?">
       <label class="option recommended">
-        <input type="radio" name="decision-next" id="decision-next-warm" data-vivamark-suggest="looks-good">
+        <input type="radio" name="decision-next" id="decision-next-warm" data-vivamark-suggest>
         <span><strong>Nightly warm-up</strong> (recommended): removes the cold runs. Cost: one scheduled run a night.</span>
       </label>
       <label class="option">
-        <input type="radio" name="decision-next" id="decision-next-split" data-vivamark-suggest="looks-good">
+        <input type="radio" name="decision-next" id="decision-next-split" data-vivamark-suggest>
         <span><strong>Split the cache</strong>: fewer full misses. Cost: two keys to keep right.</span>
       </label>
       <label class="option">
-        <input type="radio" name="decision-next" id="decision-next-none" data-vivamark-suggest="looks-good">
+        <input type="radio" name="decision-next" id="decision-next-none" data-vivamark-suggest>
         <span><strong>Nothing yet</strong>: watch a month of runs first. Cost: cold runs continue.</span>
       </label>
     </div>

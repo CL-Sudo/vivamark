@@ -20,8 +20,6 @@ interface Anchor {
   state?: 'anchored' | 'moved' | 'orphaned';
   current?: { stable_id: string | null; selector: string; source_line: number | null; lines: [number, number] | null };
 }
-type Intent = 'change' | 'question' | 'delete' | 'looks-good';
-type Severity = 'blocking' | 'important' | 'nit';
 /**
  * A file uploaded to this review for a note; sent notes also carry its local
  * `path`. A real image has its type and size; any other file is
@@ -52,8 +50,6 @@ interface Draft {
   kind: Kind;
   comment: string;
   choice?: Choice;
-  intent?: Intent;
-  severity?: Severity;
   answers?: string;
   endorses?: string;
   replies_to?: string;
@@ -129,28 +125,6 @@ interface SessionView {
   limits?: { image_bytes: number; note_image_bytes: number };
 }
 
-/** One version of the reviewed file, across all its reviews. */
-interface VersionRow {
-  n: number;
-  hash: string;
-  at: string;
-  cause: 'open' | 'save' | 'send' | 'end' | 'read';
-  size: number;
-  session: string;
-  batch?: string;
-  decision?: Decision;
-  notes?: number;
-  path: string;
-}
-interface VersionNote {
-  id: string;
-  kind: Kind;
-  comment: string;
-  intent?: Intent;
-  severity?: Severity;
-  anchor: Anchor | null;
-}
-
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const sessionId = location.pathname.split('/').pop() ?? '';
@@ -203,7 +177,6 @@ let showChanges = false;
 let showMarks = loadShowMarks();
 let queue: Draft[] = loadQueue();
 let target: { kind: Kind; anchor: Anchor | null } = { kind: 'page', anchor: null };
-let tags: { intent?: Intent; severity?: Severity } = {};
 let loadNonce = '';
 let lastScroll = { x: 0, y: 0 };
 let sending = false;
@@ -212,14 +185,6 @@ let ended: Ended | null = null;
 /** Files for the note being written, uploaded already, added to it on Add note. */
 let pendingFiles: Attached[] = [];
 let limits = { image_bytes: 10 * 1024 * 1024, note_image_bytes: 25 * 1024 * 1024 };
-/** Every version of the file, oldest first, and the one the file is at now. */
-let versions: VersionRow[] = [];
-let currentVersion: number | null = null;
-/** An earlier version shown read-only, with the notes sent on it; null shows the page as it is now. */
-let viewing: { row: VersionRow; notes: VersionNote[] } | null = null;
-/** "Compare with…": the version Show changes counts from, and what it found. */
-let compareBase: number | 'current' | null = null;
-let compareChanges: Changes | null = null;
 
 function loadQueue(): Draft[] {
   try {
@@ -434,11 +399,6 @@ function describe(kind: Kind, a: Anchor | null): string {
 }
 
 const KIND_LABEL: Record<Kind, string> = { element: 'Element', text: 'Text', page: 'Page' };
-const INTENT_LABEL: Record<Intent, string> = { change: 'Change', question: 'Question', delete: 'Delete', 'looks-good': 'Looks good' };
-const SEVERITY_LABEL: Record<Severity, string> = { blocking: 'Blocking', important: 'Important', nit: 'Nit' };
-/** One keystroke on a queued note card sets its intent or severity; the same key again clears it. */
-const INTENT_KEYS: Record<string, Intent> = { c: 'change', q: 'question', d: 'delete', g: 'looks-good' };
-const SEVERITY_KEYS: Record<string, Severity> = { b: 'blocking', i: 'important', n: 'nit' };
 
 // ---- rendering -----------------------------------------------------------------------
 
@@ -461,7 +421,7 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   head.append(where);
   if (queuedIndex !== null) {
     card.tabIndex = 0;
-    card.title = 'Keys: C Q D G set the intent, B I N the severity, Delete removes';
+    card.title = 'Delete removes this note';
     card.addEventListener('keydown', (e) => onQueuedKey(e, queuedIndex));
     if (d.suggested) {
       card.classList.add('suggested');
@@ -486,8 +446,6 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   if ((d as Partial<Note>).target_changed && state !== 'orphaned') {
     tagRow.append(Object.assign(el('span', 'pill flag changed', 'Changed'), { title: 'What this note points at has changed since you sent it' }));
   }
-  if (d.intent) tagRow.append(el('span', `pill intent ${d.intent}`, INTENT_LABEL[d.intent]));
-  if (d.severity) tagRow.append(el('span', `pill sev ${d.severity}`, SEVERITY_LABEL[d.severity]));
   if (d.answers) tagRow.append(el('span', 'pill flag', `Answer to ${noteNumber(d.answers) ?? d.answers}`));
   if (d.endorses) tagRow.append(el('span', 'pill flag agent', `Endorses ${agentLabel(d.endorses)}`));
   if (d.replies_to) tagRow.append(el('span', 'pill flag agent', `Reply to ${agentLabel(d.replies_to)}`));
@@ -644,7 +602,6 @@ function editQueued(i: number): void {
   queue.splice(i, 1);
   saveQueue();
   target = { kind: d.kind, anchor: d.anchor };
-  tags = { ...(d.intent ? { intent: d.intent } : {}), ...(d.severity ? { severity: d.severity } : {}) };
   pendingFiles = [...pendingFiles, ...(d.attachments ?? [])];
   linking = null;
   comment.value = d.comment;
@@ -652,7 +609,6 @@ function editQueued(i: number): void {
   comment.focus();
 }
 
-const SUGGEST_INTENTS: Intent[] = ['change', 'question', 'delete', 'looks-good'];
 /** The most a reviewer's own words on one decision may run to, as the page's field allows. */
 const MAX_WORDS = 4000;
 
@@ -667,7 +623,6 @@ function onSuggest(d: {
   remove?: unknown;
   kind?: unknown;
   anchor?: unknown;
-  intent?: unknown;
   text?: unknown;
   words?: unknown;
   decision?: unknown;
@@ -681,7 +636,6 @@ function onSuggest(d: {
     // The reviewer's own words on a decision: kept as typed, line breaks and all.
     const words = typeof d.words === 'string' ? d.words.trim().slice(0, MAX_WORDS) : '';
     if (d.kind !== 'element' || !d.anchor || typeof d.anchor !== 'object' || (!text && !words)) return;
-    const intent = SUGGEST_INTENTS.includes(d.intent as Intent) ? (d.intent as Intent) : undefined;
     const prev = at >= 0 ? queue[at] : undefined;
     const anchor = d.anchor as Anchor;
     const decision = (d.decision && typeof d.decision === 'object' ? d.decision : {}) as { name?: unknown; id?: unknown };
@@ -699,9 +653,7 @@ function onSuggest(d: {
       // The option's label as today, then the reviewer's words on a line of their own.
       comment: text && words ? `${text}\n${words}` : text || words,
       ...(choice ? { choice } : {}),
-      ...(intent ? { intent } : {}),
-      // A severity or files the reviewer added stay with the new choice.
-      ...(prev?.severity ? { severity: prev.severity } : {}),
+      // Files the reviewer added stay with the new choice.
       ...(prev?.attachments?.length ? { attachments: prev.attachments } : {}),
       anchor,
       suggested: d.key,
@@ -718,29 +670,16 @@ function onQueuedKey(e: KeyboardEvent, i: number): void {
   const d = queue[i];
   if (!d) return;
   const key = e.key.toLowerCase();
-  if (INTENT_KEYS[key]) d.intent = d.intent === INTENT_KEYS[key] ? undefined : INTENT_KEYS[key];
-  else if (SEVERITY_KEYS[key]) d.severity = d.severity === SEVERITY_KEYS[key] ? undefined : SEVERITY_KEYS[key];
-  else if (key === 'delete' || key === 'backspace') {
-    queue.splice(i, 1);
-    saveQueue();
-    render();
-    comment.focus();
-    e.preventDefault();
-    return;
-  } else return;
-  e.preventDefault();
+  if (key !== 'delete' && key !== 'backspace') return;
+  queue.splice(i, 1);
   saveQueue();
   render();
-  focusQueued(i);
+  comment.focus();
+  e.preventDefault();
 }
 
 function focusQueued(i: number): void {
   thread.querySelector<HTMLElement>(`.note.queued[data-n="${sent.length + i + 1}"]`)?.focus();
-}
-
-function renderTags(): void {
-  for (const b of document.querySelectorAll<HTMLButtonElement>('#tags [data-intent]')) b.setAttribute('aria-pressed', String(tags.intent === b.dataset.intent));
-  for (const b of document.querySelectorAll<HTMLButtonElement>('#tags [data-severity]')) b.setAttribute('aria-pressed', String(tags.severity === b.dataset.severity));
 }
 
 function replyCard(r: ReplyView): HTMLElement {
@@ -800,12 +739,12 @@ function render(): void {
 
   $('note-count').textContent = String(sent.length + queue.length);
   renderEnded();
-  sendBtn.disabled = sending || queue.length === 0 || !!viewing;
+  sendBtn.disabled = sending || queue.length === 0;
   sendBtn.textContent = queue.length ? `Send ${queue.length}` : 'Send';
-  approveBtn.disabled = sending || !!viewing;
+  approveBtn.disabled = sending;
   approveBtn.textContent = queue.length ? 'Approve with notes' : 'Approve';
   approveBtn.title = queue.length ? 'Approve, and send the queued notes as guidance' : 'Approve: no further revision needed';
-  dismissBtn.disabled = sending || queue.length > 0 || !!viewing;
+  dismissBtn.disabled = sending || queue.length > 0;
   dismissBtn.title = queue.length ? 'Send or remove the queued notes first' : 'Close this review without feedback';
   addBtn.disabled = !comment.value.trim();
   const composerImages = $('composer-images');
@@ -832,9 +771,7 @@ function render(): void {
   turnEl.title = turn === 'agent' ? 'Notes are waiting on the agent' : 'Nothing is waiting on the agent';
   // The how-to hint is for an empty review; once there are notes the thread needs the room.
   $('hint').hidden = sent.length + queue.length > 0;
-  renderTags();
   renderChanges();
-  renderVersions();
   postMarks();
   postFields();
 }
@@ -843,7 +780,7 @@ function render(): void {
 function renderEnded(): void {
   const box = $('ended');
   box.hidden = !ended;
-  $('composer').hidden = !!ended || !!viewing;
+  $('composer').hidden = !!ended;
   if (!ended) return;
   const who = ended.by === 'agent' ? 'The agent' : 'You';
   $('ended-head').textContent = `${who} ended this review at ${new Date(ended.at).toLocaleTimeString()}`;
@@ -854,23 +791,14 @@ function renderEnded(): void {
   if (pointBtn.getAttribute('aria-pressed') === 'true') setPicking(false);
 }
 
-/** What Show changes highlights: since the last Send, or between two versions picked with "Compare with…". */
-function shownChanges(): Changes | null {
-  if (compareBase !== null) return compareChanges;
-  // Changes since the last Send are offsets into the page as it is now.
-  return viewing ? null : changes;
-}
-
 function renderChanges(): void {
   const btn = $<HTMLButtonElement>('show-changes');
-  const c = shownChanges();
-  const n = c ? c.inserts.length + c.removals.length : 0;
+  const n = changes ? changes.inserts.length + changes.removals.length : 0;
   btn.disabled = n === 0;
   if (!n) showChanges = false;
   btn.setAttribute('aria-pressed', String(showChanges));
   btn.textContent = n ? `Show changes · ${n}` : 'Show changes';
-  if (compareBase !== null) btn.title = n ? `What changed from ${versionName(compareBase)} to ${viewing ? `v${viewing.row.n}` : 'Current'}` : 'No difference in the text between these versions';
-  else btn.title = n && changes ? `What changed since you last sent, at ${new Date(changes.since).toLocaleTimeString()}` : 'Nothing has changed since you last sent';
+  btn.title = n && changes ? `What changed since you last sent, at ${new Date(changes.since).toLocaleTimeString()}` : 'Nothing has changed since you last sent';
 }
 
 function renderMarksToggle(): void {
@@ -882,8 +810,7 @@ function renderMarksToggle(): void {
 }
 
 function postChanges(): void {
-  const c = shownChanges();
-  toFrame({ type: 'changes', show: showChanges, inserts: c?.inserts ?? [], removals: c?.removals ?? [] });
+  toFrame({ type: 'changes', show: showChanges, inserts: changes?.inserts ?? [], removals: changes?.removals ?? [] });
 }
 
 function setPresence(state: 'listening' | 'away'): void {
@@ -902,12 +829,6 @@ function toFrame(msg: Record<string, unknown>): void {
 }
 
 function postMarks(): void {
-  if (viewing) {
-    // An earlier version shows only the notes sent on it, where they were when sent.
-    const marks = viewing.notes.map((n) => ({ n: Number(n.id.slice(2)), kind: n.kind, anchor: n.anchor, queued: false }));
-    toFrame({ type: 'marks', marks, show: showMarks });
-    return;
-  }
   const marks = [
     ...sent.flatMap((e, i) => {
       const a = e.note.anchor;
@@ -934,14 +855,12 @@ function postMarks(): void {
  */
 let postedFields = '';
 function postFields(force = false): void {
-  const fields = viewing
-    ? []
-    : queue.flatMap((d) =>
-        d.suggested?.startsWith('group:')
-          ? [{ key: d.suggested, text: d.choice?.text ?? '', option: !d.choice || d.choice.option !== null ? d.anchor : null }]
-          : [],
-      );
-  const msg = { type: 'fields', fields, readOnly: !!viewing || !!ended };
+  const fields = queue.flatMap((d) =>
+    d.suggested?.startsWith('group:')
+      ? [{ key: d.suggested, text: d.choice?.text ?? '', option: !d.choice || d.choice.option !== null ? d.anchor : null }]
+      : [],
+  );
+  const msg = { type: 'fields', fields, readOnly: !!ended };
   const json = JSON.stringify(msg);
   if (!force && json === postedFields) return;
   postedFields = json;
@@ -956,10 +875,7 @@ function setPicking(on: boolean): void {
 function loadFrame(): void {
   if (!session) return;
   loadNonce = Math.random().toString(36).slice(2, 12);
-  // /a/<session>/<key>/<name> is the page now; /v/<session>/<key>/<hash>/<name> an earlier version of it.
-  const [, , id, key, ...name] = session.artifact_url.split('/');
-  const url = viewing ? `/v/${id}/${key}/${viewing.row.hash}/${name.join('/')}` : session.artifact_url;
-  frame.src = `${url}?vmload=${loadNonce}`;
+  frame.src = `${session.artifact_url}?vmload=${loadNonce}`;
 }
 
 window.addEventListener('message', (e) => {
@@ -976,8 +892,6 @@ window.addEventListener('message', (e) => {
       postFields(true);
       break;
     case 'pick':
-      // An earlier version is read-only: nothing on it becomes a note.
-      if (viewing) break;
       if ((d.kind === 'element' || d.kind === 'text') && d.anchor) {
         // A page can only propose a target. Nothing is queued or sent without the reviewer.
         target = { kind: d.kind, anchor: d.anchor };
@@ -987,7 +901,7 @@ window.addEventListener('message', (e) => {
       }
       break;
     case 'suggest':
-      if (!viewing) onSuggest(d as Parameters<typeof onSuggest>[0]);
+      onSuggest(d as Parameters<typeof onSuggest>[0]);
       break;
     case 'pick-cancelled':
       pointBtn.setAttribute('aria-pressed', 'false');
@@ -1002,11 +916,10 @@ window.addEventListener('message', (e) => {
 
 function addNote(): void {
   const text = comment.value.trim();
-  if (!text || viewing) return;
+  if (!text) return;
   queue.push({
     kind: target.kind,
     comment: text,
-    ...tags,
     ...(linking ? { [linking.field]: linking.id } : {}),
     ...(pendingFiles.length ? { attachments: pendingFiles } : {}),
     anchor: target.anchor,
@@ -1015,25 +928,11 @@ function addNote(): void {
   comment.value = '';
   pendingFiles = [];
   target = { kind: 'page', anchor: null };
-  tags = {};
   linking = null;
   render();
-  // The new card takes the focus, so one key can still set its intent or severity.
+  // The new card takes the focus, so Delete can still take it back out.
   focusQueued(queue.length - 1);
 }
-
-$('tags').addEventListener('click', (e) => {
-  const b = (e.target as Element).closest<HTMLButtonElement>('button.tag');
-  if (!b) return;
-  if (b.dataset.intent) {
-    const v = b.dataset.intent as Intent;
-    tags.intent = tags.intent === v ? undefined : v;
-  } else if (b.dataset.severity) {
-    const v = b.dataset.severity as Severity;
-    tags.severity = tags.severity === v ? undefined : v;
-  }
-  renderTags();
-});
 
 $('composer').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1096,8 +995,7 @@ const SENT_TEXT: Record<Decision, string> = {
 
 /** The only way anything reaches the agent: one of the reviewer's Send buttons. */
 async function sendDecision(decision: Decision): Promise<void> {
-  // Notes are sent against the page as it is now, never an earlier version.
-  if (sending || viewing) return;
+  if (sending) return;
   const notes = decision === 'approve' || decision === 'dismiss' ? [] : queue;
   if ((decision === 'request-changes' || decision === 'approve-with-notes') && !notes.length) return;
   sending = true;
@@ -1152,188 +1050,6 @@ function mergeReply(r: ReplyView): void {
   if (!replies.some((x) => x.seq === r.seq)) replies.push(r);
 }
 
-// ---- versions ---------------------------------------------------------------------------------
-
-const CAUSE_LABEL: Record<VersionRow['cause'], string> = { open: 'Opened', save: 'Saved', send: 'Sent', end: 'Ended', read: 'Seen' };
-const CAUSE_TITLE: Record<VersionRow['cause'], string> = {
-  open: 'The file when a review of it was opened',
-  save: 'The file after a save, seen while the review page was open',
-  send: 'The file as it was when you pressed a Send button',
-  end: 'The file when the review ended',
-  read: 'The file as found the next time anything looked at the review (a save made while no review page was open)',
-};
-const DECISION_SHORT: Record<Decision, string> = { 'request-changes': 'Changes requested', approve: 'Approved', 'approve-with-notes': 'Approved with notes', dismiss: 'Dismissed' };
-
-function versionName(v: number | 'current'): string {
-  return v === 'current' ? 'Current' : `v${v}`;
-}
-
-function timeText(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date().toDateString() === d.toDateString();
-  return today ? d.toLocaleTimeString() : `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
-}
-
-async function loadVersions(): Promise<void> {
-  try {
-    const r = await api<{ current: number | null; versions: VersionRow[] }>('GET', '/versions');
-    versions = r.versions;
-    currentVersion = r.current;
-    renderVersions();
-  } catch {
-    // The server is restarting; the next event reloads the list.
-  }
-}
-
-function versionRowButton(v: VersionRow | null): HTMLElement {
-  const b = el('button', `version-row${v?.cause === 'send' ? ' send' : ''}`);
-  b.type = 'button';
-  b.setAttribute('aria-current', String(v ? viewing?.row.n === v.n : !viewing));
-  if (!v) {
-    b.dataset.version = 'current';
-    b.append(el('span', 'vnum', 'Now'), el('span', 'vcause', 'Current'), el('span', 'vtime', currentVersion ? `same as v${currentVersion}` : 'the file as it is'));
-    b.title = 'The page as it is now: notes are added and sent here';
-    b.addEventListener('click', () => void viewVersion(null));
-    return b;
-  }
-  b.dataset.version = String(v.n);
-  b.title = `${CAUSE_TITLE[v.cause]}\nsha256 ${v.hash}\n${v.path}`;
-  b.append(el('span', 'vnum', `v${v.n}`), el('span', 'vcause', CAUSE_LABEL[v.cause]), el('span', 'vtime', timeText(v.at)));
-  const meta = el('span', 'vmeta');
-  if (v.cause === 'send') {
-    const d = v.decision ?? 'request-changes';
-    meta.append(el('span', `pill decision-pill ${d}`, DECISION_SHORT[d]));
-    if (v.notes) meta.append(el('span', 'pill count-pill', `${v.notes} note${v.notes === 1 ? '' : 's'}`));
-  }
-  meta.append(el('span', 'vsize', sizeText(v.size)));
-  b.append(meta);
-  b.addEventListener('click', () => void viewVersion(v));
-  return b;
-}
-
-function renderVersions(): void {
-  const btn = $<HTMLButtonElement>('versions-btn');
-  btn.textContent = versions.length ? `Versions · ${versions.length}` : 'Versions';
-  // Newest first, under Current.
-  $('versions-list').replaceChildren(versionRowButton(null), ...[...versions].reverse().map((v) => versionRowButton(v)));
-  const select = $<HTMLSelectElement>('compare-select');
-  const shown = viewing ? viewing.row.n : 'current';
-  const options = [Object.assign(el('option', '', 'Nothing (since your last Send)'), { value: '' })];
-  if (shown !== 'current') options.push(Object.assign(el('option', '', 'Current'), { value: 'current' }));
-  for (const v of [...versions].reverse()) {
-    if (v.n === shown) continue;
-    options.push(Object.assign(el('option', '', `v${v.n} · ${CAUSE_LABEL[v.cause]} · ${timeText(v.at)}`), { value: String(v.n) }));
-  }
-  select.replaceChildren(...options);
-  select.value = compareBase === null ? '' : String(compareBase);
-
-  const bar = $('version-bar');
-  bar.hidden = !viewing;
-  $('readonly').hidden = !viewing;
-  if (!viewing) return;
-  const v = viewing.row;
-  $('version-text').textContent = `Viewing v${v.n} · ${CAUSE_LABEL[v.cause]} ${timeText(v.at)} · read-only`;
-  $<HTMLButtonElement>('restore').disabled = !!ended;
-  $<HTMLButtonElement>('restore').title = ended
-    ? 'This review has ended; open the file again to ask for a restore'
-    : 'Queue a note asking the agent to write this version back to the file; it is sent only with your next Send';
-  $('readonly-head').textContent = `v${v.n} is an earlier version, read-only`;
-  const list = $('readonly-notes');
-  const sentOn = viewing.notes.map((n) => {
-    const row = el('div', 'readonly-note');
-    row.append(el('span', 'num', String(Number(n.id.slice(2)))), document.createTextNode(`${describe(n.kind, n.anchor)}: ${clip(n.comment, 140)}`));
-    return row;
-  });
-  if (sentOn.length) sentOn.unshift(el('div', 'readonly-head', `Notes sent on v${v.n} · ${sentOn.length}`));
-  list.replaceChildren(...sentOn);
-}
-
-/** Shows an earlier version read-only, or (null) the page as it is now. */
-async function viewVersion(v: VersionRow | null): Promise<void> {
-  if (!v) viewing = null;
-  else {
-    let notes: VersionNote[] = [];
-    try {
-      notes = (await api<{ notes: VersionNote[] }>('GET', `/versions/${v.n}`)).notes;
-    } catch (err) {
-      banner(`Could not load v${v.n}: ${(err as Error).message}`, true, 5000);
-      return;
-    }
-    viewing = { row: v, notes };
-    if (pointBtn.getAttribute('aria-pressed') === 'true') setPicking(false);
-  }
-  // A comparison with the version now shown would be empty: drop it.
-  if (compareBase !== null && compareBase === (viewing ? viewing.row.n : 'current')) compareBase = null;
-  lastScroll = { x: 0, y: 0 };
-  setVersionsOpen(false);
-  if (compareBase !== null) await loadCompare();
-  render();
-  loadFrame();
-}
-
-async function loadCompare(): Promise<void> {
-  if (compareBase === null) {
-    compareChanges = null;
-    return;
-  }
-  try {
-    const to = viewing ? String(viewing.row.n) : 'current';
-    const r = await api<Changes & { from: number | 'current' }>('GET', `/compare?from=${compareBase}&to=${to}`);
-    compareChanges = { since: '', inserts: r.inserts, removals: r.removals };
-  } catch (err) {
-    compareChanges = null;
-    banner(`Could not compare: ${(err as Error).message}`, true, 5000);
-  }
-  renderChanges();
-  postChanges();
-}
-
-function setVersionsOpen(open: boolean): void {
-  $('versions-panel').hidden = !open;
-  $('versions-btn').setAttribute('aria-expanded', String(open));
-  if (open) void loadVersions();
-}
-
-$('versions-btn').addEventListener('click', () => setVersionsOpen($('versions-panel').hidden));
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('versions-panel').hidden) setVersionsOpen(false);
-});
-document.addEventListener('click', (e) => {
-  if (!(e.target as Element).closest('.versions-wrap')) setVersionsOpen(false);
-});
-$<HTMLSelectElement>('compare-select').addEventListener('change', async (e) => {
-  const v = (e.target as HTMLSelectElement).value;
-  compareBase = v === '' ? null : v === 'current' ? 'current' : Number(v);
-  await loadCompare();
-  // Picking a version to compare with is asking to see the changes.
-  showChanges = compareBase !== null;
-  renderChanges();
-  postChanges();
-});
-$('back-current').addEventListener('click', () => void viewVersion(null));
-
-/**
- * Asks the agent, through an ordinary queued note, to bring this version back.
- * Nothing is sent here: the note waits for the reviewer's next Send, and the
- * agent writes the file itself (vivamark never does).
- */
-$('restore').addEventListener('click', () => {
-  if (!viewing || ended) return;
-  const v = viewing.row;
-  queue.push({
-    kind: 'page',
-    intent: 'change',
-    comment:
-      `Please restore version ${v.n} of this page (${CAUSE_LABEL[v.cause].toLowerCase()} ${new Date(v.at).toLocaleString()}, sha256 ${v.hash}).\n` +
-      `Its content is kept at ${v.path}\n` +
-      `Get it with: vivamark show ${session?.file ?? '<file>'} --version ${v.n}\n` +
-      `then write it back to the file yourself.`,
-    anchor: null,
-  });
-  saveQueue();
-  void viewVersion(null).then(() => banner(`Queued a note asking the agent to restore v${v.n}. It is sent with your next Send.`, false, 4000));
-});
-
 // ---- live events ----------------------------------------------------------------------------
 
 let backoff = 500;
@@ -1361,14 +1077,10 @@ function connect(): void {
       render();
     } else if (ev.type === 'state') {
       void refresh();
-    } else if (ev.type === 'versions') {
-      void loadVersions();
     } else if (ev.type === 'reload') {
       // The file changed: the server has re-anchored every note against it.
       void refresh();
-      // An earlier version does not change; the page as it is now does.
-      if (!viewing) loadFrame();
-      if (compareBase !== null) void loadCompare();
+      loadFrame();
       const chip = $('reload-chip');
       chip.hidden = false;
       setTimeout(() => (chip.hidden = true), 4000);
@@ -1430,7 +1142,6 @@ async function start(): Promise<void> {
   render();
   loadFrame();
   connect();
-  void loadVersions();
 }
 
 void start();

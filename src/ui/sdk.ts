@@ -475,11 +475,6 @@
     }
   });
 
-  // ---- click-to-answer ------------------------------------------------------------
-
-  const SUGGEST_INTENTS = ['change', 'question', 'delete', 'looks-good'];
-  const suggestIntent = (v: string | null | undefined) => (v && SUGGEST_INTENTS.includes(v) ? v : undefined);
-
   // ---- own words on a decision ------------------------------------------------------
   //
   // Every decision group (a role=radiogroup holding radios marked
@@ -548,7 +543,6 @@
       key,
       kind: 'element',
       anchor: elementAnchor(target),
-      intent: picked ? suggestIntent(picked.getAttribute('data-vivamark-suggest')) : undefined,
       text: label,
       ...(words ? { words, decision } : {}),
     });
@@ -632,7 +626,7 @@
 
   /**
    * The reviewer ticked a radio or checkbox, or chose an option, that the
-   * author marked with data-vivamark-suggest="<intent>". It becomes a proposed
+   * author marked with data-vivamark-suggest (its value is ignored). It becomes a proposed
    * note: one per radio group, checkbox or select (`key`), so a new choice
    * replaces the old one, and unticking a checkbox withdraws it. Only a real
    * change by the reviewer counts: a script's dispatchEvent is not trusted.
@@ -658,7 +652,7 @@
           return;
         }
         const label = accessibleName(t) || t.value;
-        post({ type: 'suggest', key, kind: 'element', anchor: elementAnchor(t), intent: suggestIntent(t.getAttribute('data-vivamark-suggest')), text: clipText(label, 300) });
+        post({ type: 'suggest', key, kind: 'element', anchor: elementAnchor(t), text: clipText(label, 300) });
       } else if (t instanceof HTMLSelectElement) {
         const opt = t.selectedOptions[0];
         const marked = opt?.hasAttribute('data-vivamark-suggest') ? opt : t.hasAttribute('data-vivamark-suggest') ? t : null;
@@ -671,7 +665,7 @@
         const name = accessibleName(t);
         const choice = squash(opt.label || opt.text || opt.value);
         const anchor = elementAnchor(opt.id || opt.hasAttribute('data-vivamark-id') ? opt : t);
-        post({ type: 'suggest', key, kind: 'element', anchor, intent: suggestIntent(marked.getAttribute('data-vivamark-suggest')), text: clipText(name ? `${name}: ${choice}` : choice, 300) });
+        post({ type: 'suggest', key, kind: 'element', anchor, text: clipText(name ? `${name}: ${choice}` : choice, 300) });
       }
     },
     true,

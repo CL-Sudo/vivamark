@@ -181,8 +181,8 @@ What wait returns (exit code, then what to do)
                               wait again with the same --after.
   5  timeout (--timeout)      nothing yet; wait again with the same --after
   1  error                    read stderr
-Use --json to read the notes as data: each has id, comment, intent, severity,
-anchor (stable_id, selector, quote, lines) and state (anchored, moved, orphaned).
+Use --json to read the notes as data: each has id, comment, anchor
+(stable_id, selector, quote, lines) and state (anchored, moved, orphaned).
 A choice the reviewer clicked on the page (see: vivamark guide decisions)
 arrives as an ordinary note with the control's label as its comment.
 
@@ -214,19 +214,6 @@ Pointing things out yourself
   vivamark note add <file> --target '#risk-rollback' --text "I guessed this number."
   The reviewer sees it labelled as yours. It reaches wait only if the reviewer
   endorses it or replies to it. Use it for guesses and things you are unsure of.
-
-Versions and restore requests
-  vivamark keeps every version of the file it sees (at open, on saves, at
-  each Send, at the end, and whenever the review is read), across all
-  reviews of that file, forever. The reviewer can look at any of them
-  read-only and compare two.
-    vivamark versions <file>              the timeline: n, time, cause, size
-    vivamark show <file> --version <n>    that version's content, on stdout
-  A note starting "Please restore version <n>" is the reviewer asking for
-  that version back. It names the hash and a local path to the content. Run
-  vivamark show <file> --version <n> > <file> (or merge by hand if they asked
-  for part of it), reply on the note, and wait as usual. vivamark never
-  writes the file; you do.
 `;
 
 const DESIGN = `design: the Smooth glass look
@@ -342,12 +329,12 @@ data-vivamark-suggest:
     <div class="options" role="radiogroup" aria-label="Where should drafts be stored?">
       <label class="option recommended">
         <input type="radio" name="decision-storage" id="decision-storage-sqlite"
-               data-vivamark-suggest="looks-good">
+               data-vivamark-suggest>
         <span><strong>SQLite</strong> (recommended): one file, transactions. Cost: a native module.</span>
       </label>
       <label class="option">
         <input type="radio" name="decision-storage" id="decision-storage-json"
-               data-vivamark-suggest="looks-good">
+               data-vivamark-suggest>
         <span><strong>JSON files</strong>: no dependency. Cost: no atomic multi-file writes.</span>
       </label>
     </div>
@@ -355,14 +342,13 @@ data-vivamark-suggest:
 
 How the reviewer answers
   - They click an option. The review page queues a note for them, marked
-    "From the page": intent from the attribute (looks-good here), the option's
-    label as the text, its id as stable_id. Another choice in the same group
+    "From the page": the option's label as the text, its id as stable_id. Another choice in the same group
     replaces it; unticking a checkbox withdraws it.
   - Nothing is sent by the click. The reviewer sees the note, can edit or
     remove it, and sends it with their other notes. Only a real click counts:
     a script on your page cannot answer for them.
   - Wait returns it as an ordinary note: comment "SQLite (recommended): ...",
-    intent "looks-good", anchor.stable_id "decision-storage-sqlite",
+    anchor.stable_id "decision-storage-sqlite",
     anchor.control {role: "radio", name: ...}.
   - In their own words: vivamark puts a text field under every decision
     group (a role="radiogroup" holding radios marked data-vivamark-suggest),
@@ -382,10 +368,10 @@ How the reviewer answers
     (see: vivamark guide amend).
 
 The attribute
-  data-vivamark-suggest="<intent>" on an <input type="radio">, an
+  data-vivamark-suggest on an <input type="radio">, an
   <input type="checkbox">, or an <option> (or on the <select>, for all its
-  options). The intent is change, question, delete or looks-good; looks-good
-  means "this one". An option without the attribute withdraws the suggestion.
+  options). It needs no value; a value is ignored. An option without the
+  attribute withdraws the suggestion.
   Add no text field of your own for "other": vivamark adds one to every
   radiogroup. A checkbox or a <select> gets none; there the reviewer points
   and writes a note.
@@ -673,9 +659,7 @@ const AMEND = `amend: changing a page after the reviewer decides
 
 A decision changes what the page says. Afterwards the page shows the
 decided state wherever a reader looks first, and what it replaced is
-marked, not left standing. Nothing is lost: vivamark keeps every version of
-the page (vivamark versions <file>), so the page need not keep the old
-design on show.
+marked, not left standing.
 
 The steps
   1. Find every place that states what the decision replaced: the lede, the
@@ -827,7 +811,7 @@ the review, and carry the agreed changes back.
 `;
 
 export const TOPICS: readonly GuideTopic[] = [
-  { name: 'workflow', summary: 'the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected; versions and restore', text: WORKFLOW },
+  { name: 'workflow', summary: 'the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected', text: WORKFLOW },
   { name: 'design', summary: 'the Smooth glass look: a ready CSS block, light and dark, and layout rules', text: DESIGN },
   { name: 'ids', summary: 'stable ids on everything worth a note, so notes survive edits', text: IDS },
   { name: 'decisions', summary: 'ask for choices in a "Your input" card with real controls; open questions to point at', text: DECISIONS },

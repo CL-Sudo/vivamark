@@ -118,32 +118,77 @@ test('F1: --help documents the decision exit codes', async () => {
   assert.match(h.stdout, /7\s+dismissed/);
 });
 
-// ---- F4 ---------------------------------------------------------------------------
+// ---- removed: F4 and version history ------------------------------------------------
 
-test('F4: intent and severity travel with each note, with the W3C motivation', async () => {
-  const s = await openPage('f4.html');
-  const r = await send(s, [
-    { ...ELEMENT_NOTE, intent: 'change', severity: 'blocking' },
-    { ...TEXT_NOTE, intent: 'question' },
-    { kind: 'page', comment: 'The structure works.', intent: 'looks-good', severity: 'nit', anchor: null },
-    { kind: 'page', comment: 'Plain note.', anchor: null },
-  ]);
-  assert.equal(r.status, 201, r.text);
-  const w = await waitJson(s);
-  const [a, b, c, d] = w.out.notes;
-  assert.deepEqual([a.intent, a.severity, a.motivation], ['change', 'blocking', 'editing']);
-  assert.deepEqual([b.intent, b.severity, b.motivation], ['question', undefined, 'questioning']);
-  assert.deepEqual([c.intent, c.severity, c.motivation], ['looks-good', 'nit', 'assessing']);
-  assert.deepEqual([d.intent, d.severity, d.motivation], [undefined, undefined, 'commenting']);
-  const keys = Object.keys(a);
-  assert.ok(keys.indexOf('comment') < keys.indexOf('intent') && keys.indexOf('severity') < keys.indexOf('anchor'), 'small fields before the anchor');
-  const text = await world.cli(['wait', s.file]);
-  assert.match(text.stdout, /n_0001 \(change, blocking\) on <li#step-2>/);
+test('F4 is gone: intent, severity and motivation are dropped, from a page still sending them and from notes logged before', async () => {
+  const w2 = makeWorld();
+  try {
+    const file = path.join(w2.pageDir, 'f4-removed.html');
+    fs.writeFileSync(file, fs.readFileSync(FIXTURE, 'utf8'));
+    const opened = await w2.cli(['open', file, '--no-browser', '--json']);
+    assert.equal(opened.code, 0, opened.stderr);
+    const id = JSON.parse(opened.stdout).session.id;
+    const s = { port: w2.server().port, id, token: w2.session(id).token };
+    // A review page loaded before the removal may still send the fields: the notes are taken, the fields are not.
+    const r = await send(s, [
+      { ...ELEMENT_NOTE, intent: 'change', severity: 'blocking' },
+      { kind: 'page', comment: 'Plain note.', intent: 'shout', severity: 3, anchor: null },
+    ]);
+    assert.equal(r.status, 201, r.text);
 
-  for (const bad of [{ intent: 'shout' }, { severity: 'urgent' }, { intent: 3 }]) {
-    const res = await send(s, [{ kind: 'page', comment: 'x', anchor: null, ...bad }]);
-    assert.equal(res.status, 400, JSON.stringify(bad));
+    // Notes logged before the removal carry the fields on disk, beside the old version store and its events.
+    assert.equal((await w2.cli(['stop'])).code, 0);
+    const log = path.join(w2.stateDir, 'feedback', `${id}.jsonl`);
+    const old = fs
+      .readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const e = JSON.parse(line);
+        e.note = { ...e.note, intent: 'question', severity: 'nit', motivation: 'questioning' };
+        return JSON.stringify(e) + '\n';
+      })
+      .join('');
+    fs.writeFileSync(log, old);
+    const versions = path.join(w2.stateDir, 'versions', 'a'.repeat(32));
+    fs.mkdirSync(versions, { recursive: true });
+    fs.writeFileSync(path.join(versions, 'index.jsonl'), '{"n":1,"hash":"' + 'b'.repeat(64) + '","cause":"open"}\n');
+    const events = path.join(w2.stateDir, 'events.jsonl');
+    const lastSeq = Math.max(...fs.readFileSync(events, 'utf8').trim().split('\n').map((l) => JSON.parse(l).seq));
+    fs.appendFileSync(events, JSON.stringify({ seq: lastSeq + 1, at: new Date().toISOString(), type: 'version.saved', session: id, file, labels: {}, version: 1, hash: 'b'.repeat(64), size: 10, cause: 'open' }) + '\n');
+
+    const w = await w2.cli(['wait', file, '--json']);
+    assert.equal(w.code, 0, w.stderr);
+    const notes = JSON.parse(w.stdout).notes;
+    assert.equal(notes.length, 2);
+    for (const n of notes) for (const k of ['intent', 'severity', 'motivation']) assert.ok(!(k in n), `${n.id} has no ${k}`);
+    const text = await w2.cli(['wait', file]);
+    assert.match(text.stdout, /n_0001 on <li#step-2>/);
+    assert.doesNotMatch(text.stdout, /question|nit|blocking/);
+    // vivamark reads around the old data and changes none of it.
+    assert.equal(fs.readFileSync(log, 'utf8'), old);
+    assert.ok(fs.existsSync(path.join(versions, 'index.jsonl')));
+    const ev = await w2.cli(['events', '--json']);
+    assert.equal(ev.code, 0, ev.stderr);
+  } finally {
+    await w2.cleanup();
   }
+});
+
+test('version history is gone: no versions or show command, and no version store is written', async () => {
+  const s = await openPage('no-versions.html');
+  for (const args of [['versions', s.file], ['show', s.file, '--version', '1']]) {
+    const r = await world.cli(args);
+    assert.equal(r.code, 2, `${args[0]}: ${r.stderr}`);
+    assert.match(r.stderr, new RegExp(`unknown command: ${args[0]}`));
+  }
+  const help = await world.cli(['--help']);
+  assert.doesNotMatch(help.stdout, /versions|--version <|version\.saved/);
+  assert.equal((await send(s, [ELEMENT_NOTE])).status, 201);
+  assert.equal((await api(s.port, 'GET', `/api/s/${s.id}/versions`, { token: s.token })).status, 404);
+  assert.ok(!fs.existsSync(path.join(world.stateDir, 'versions')), 'no versions/ directory');
+  // F2 keeps the Send's snapshot where it always did.
+  assert.equal(fs.readdirSync(path.join(world.stateDir, 'snapshots', s.id)).length, 1);
 });
 
 // ---- F8 ---------------------------------------------------------------------------
@@ -310,11 +355,8 @@ test('F3: after an edit each note is anchored, moved or orphaned, in wait output
 test('F2: a snapshot at each Send; after an edit, what changed and which targets changed', async () => {
   const s = await openPage('f2.html');
   assert.equal((await send(s, [ELEMENT_NOTE, RISKS_NOTE, TEXT_NOTE])).status, 201);
-  // Snapshots live in the file's version store, named by content.
-  const versionsRoot = path.join(world.stateDir, 'versions');
-  const snapDir = path.join(versionsRoot, fs.readdirSync(versionsRoot).find((d) => fs.readFileSync(path.join(versionsRoot, d, 'file.json'), 'utf8').includes('f2.html')));
-  const blobs = () => fs.readdirSync(snapDir).filter((n) => /^[0-9a-f]{64}$/.test(n));
-  const snaps = blobs();
+  const snapDir = path.join(world.stateDir, 'snapshots', s.id);
+  const snaps = fs.readdirSync(snapDir);
   assert.equal(snaps.length, 1);
   assert.equal(fs.statSync(path.join(snapDir, snaps[0])).mode & 0o777, 0o600);
   assert.equal(fs.readFileSync(path.join(snapDir, snaps[0]), 'utf8'), fs.readFileSync(s.file, 'utf8'), 'the file as it was at Send');
@@ -336,7 +378,7 @@ test('F2: a snapshot at each Send; after an edit, what changed and which targets
 
   // A second Send takes a new snapshot; changes are now counted from it.
   assert.equal((await send(s, [], 'approve')).status, 201);
-  assert.equal(blobs().length, 2);
+  assert.equal(fs.readdirSync(snapDir).length, 2);
   const after = await view(s);
   assert.deepEqual([after.changes.inserts, after.changes.removals], [[], []]);
 });
@@ -379,7 +421,6 @@ test('F6: per-note status from the agent, answers from the reviewer, and whose t
   assert.equal((await send(s, [answer])).status, 201);
   w = await waitJson(s, ['--after', '2']);
   assert.equal(w.out.notes[0].answers, 'n_0002');
-  assert.equal(w.out.notes[0].motivation, 'commenting');
   assert.equal(w.out.turn, 'agent');
   assert.deepEqual(await statuses(), ['addressed', 'answered', 'open']);
   assert.match((await world.cli(['wait', s.file, '--after', '2'])).stdout, /n_0003 \(answers n_0002\)/);

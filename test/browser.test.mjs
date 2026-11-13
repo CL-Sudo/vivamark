@@ -192,7 +192,7 @@ test('element pick and text selection become notes only when Send is clicked', {
   assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
 });
 
-test('features: intents, targets, decisions, re-anchoring and changes in the review UI', { timeout: 120_000 }, async (t) => {
+test('features: notes, targets, decisions, re-anchoring and changes in the review UI', { timeout: 120_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = path.join(world.pageDir, 'features.html');
   const original = fs.readFileSync(FIXTURE, 'utf8');
@@ -210,21 +210,16 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
     await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'element');
   };
 
-  // F4: intent and severity chosen in the composer before adding.
+  // A note is its words and its target: the composer offers no intent or severity chips.
+  assert.equal(await page.locator('#tags, .tag, [data-intent], [data-severity]').count(), 0);
   await point(doc.locator('#step-2'));
-  await page.click('#tags [data-intent="change"]');
-  await page.click('#tags [data-severity="blocking"]');
   await page.fill('#comment', 'Split this step.');
   await page.click('#add');
-  // ...and with one keystroke on the queued card, which has the focus after adding.
   await point(doc.locator('#step-3'));
   await page.fill('#comment', 'Is browser verification manual?');
   await page.keyboard.press('Control+Enter');
-  await page.keyboard.press('q');
-  await page.keyboard.press('n');
-  await page.waitForSelector('.note.queued[data-n="2"] .pill.intent.question');
-  assert.equal(await page.locator('.note.queued[data-n="2"] .pill.sev.nit').count(), 1);
-  assert.equal(await page.locator('.note.queued[data-n="1"] .pill.intent.change').count(), 1);
+  await page.waitForSelector('.note.queued[data-n="2"]');
+  assert.equal(await page.locator('.pill.intent, .pill.sev').count(), 0);
 
   // F8: a table cell by row and column, controls by accessible name, a point on a chart.
   const pickAndAdd = async (locator, comment, position) => {
@@ -252,7 +247,7 @@ test('features: intents, targets, decisions, re-anchoring and changes in the rev
   assert.equal(first.code, 0, first.stderr);
   const out1 = JSON.parse(first.stdout);
   assert.equal(out1.decision, 'request-changes');
-  assert.deepEqual(out1.notes.slice(0, 2).map((n) => [n.intent, n.severity]), [['change', 'blocking'], ['question', 'nit']]);
+  assert.deepEqual(out1.notes.slice(0, 2).map((n) => ['intent' in n, 'severity' in n, 'motivation' in n]), [[false, false, false], [false, false, false]]);
   const [, , cell, button, select, merged, chart] = out1.notes;
   assert.deepEqual(cell.anchor.cell, { row: 'Shadow traffic', column: 'Owner' });
   assert.equal(cell.anchor.tag, 'td');
@@ -477,21 +472,6 @@ test('Show marks hides the note marks and shows them again, remembered in this b
   await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === 'A1'));
   assert.deepEqual(await badges(), ['1', '2', '3', 'A1']);
 
-  // An earlier version draws the notes sent on it, and hides them with the rest.
-  const earlier = () => page.frames().find((f) => f.url().includes('/v/'));
-  await page.click('#versions-btn');
-  await page.click('.version-row.send');
-  await page.waitForFunction(() => !document.getElementById('version-bar').hidden);
-  await page.waitForFunction(() => [...document.querySelectorAll('iframe')].some((f) => f.src.includes('/v/')));
-  await page.keyboard.press('Escape');
-  await doc.locator('#step-2').waitFor();
-  await earlier().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === '1'));
-  await page.click('#show-marks');
-  assert.equal(await page.getAttribute('#show-marks', 'aria-pressed'), 'false');
-  await earlier().waitForFunction(() => document.getElementById('__vivamark_layer')?.children.length === 0);
-  await page.click('#back-current');
-  await page.waitForFunction(() => document.getElementById('version-bar').hidden);
-
   // With storage blocked the marks start shown and the toggle still works.
   const blocked = await reviewPage(url, {
     init: () => {
@@ -524,13 +504,10 @@ test('the header bar fits at every width, the file name whole and no control pas
   const opened = await world.cli(['open', file, '--no-browser', '--json']);
   assert.equal(opened.code, 0, opened.stderr);
   const { url } = JSON.parse(opened.stdout);
-  // A second version, so the labels carry their counts ("Versions · 2").
-  fs.writeFileSync(file, original.replace('Applet scaffold, save handler and container page.', 'Applet scaffold and container page.'));
   for (const width of [1280, 900, 760, 650, 390]) {
     const { page, offLoopback, problems } = await reviewPage(url);
     await page.setViewportSize({ width, height: 800 });
     await page.frameLocator('#page').locator('#step-2').waitFor();
-    await page.waitForFunction(() => /· \d/.test(document.getElementById('versions-btn').textContent));
     const m = await page.evaluate(() => {
       const bar = document.querySelector('.bar');
       const b = bar.getBoundingClientRect();
@@ -710,14 +687,12 @@ test('own words: every decision group gets a text field; its words go with the c
   const picked = byId('idcheck-mykad');
   assert.equal(picked.comment, 'MyKad only (recommended)\nbut only for foreign staff');
   assert.deepEqual(picked.choice, { group: 'Which ID check?', group_id: 'decision-id', option: 'MyKad only (recommended)', option_id: 'idcheck-mykad', text: 'but only for foreign staff' });
-  assert.equal(picked.intent, 'looks-good');
   const keys = Object.keys(picked);
   assert.equal(keys.indexOf('choice'), keys.indexOf('comment') + 1, 'the words come right after the comment');
   const alone = byId('decision-region');
   assert.equal(alone.comment, 'Neither: Thailand first.');
   assert.deepEqual(alone.choice, { group: 'Which region first?', group_id: 'decision-region', option: null, option_id: null, text: 'Neither: Thailand first.' });
   assert.equal(alone.kind, 'element');
-  assert.equal(alone.intent, undefined);
   assert.ok(alone.anchor.source_line > 1);
   const plain = byId('ship-yes');
   assert.equal(plain.comment, 'Yes');
@@ -964,7 +939,6 @@ test('click-to-answer: a marked control queues one note per group, from the page
   await doc.locator('#idcheck-mykad').check();
   await page.waitForSelector('.note.queued.suggested >> text=From the page');
   assert.deepEqual(await suggested(), ['MyKad only (recommended)']);
-  assert.equal(await page.locator('.note.queued.suggested .pill.intent.looks-good').count(), 1);
   // Another choice in the same group replaces it.
   await doc.locator('#idcheck-passport').check();
   await page.waitForFunction(() => document.querySelector('.note.queued.suggested p.comment')?.textContent === 'MyKad or passport');
@@ -1013,7 +987,7 @@ test('click-to-answer: a marked control queues one note per group, from the page
   assert.equal(w.code, 0, w.stderr);
   const [radio, region] = JSON.parse(w.stdout).notes;
   assert.equal(radio.comment, 'MyKad or passport');
-  assert.equal(radio.intent, 'looks-good');
+  assert.equal('intent' in radio, false);
   assert.equal(radio.anchor.stable_id, 'idcheck-passport');
   assert.deepEqual(radio.anchor.control, { role: 'radio', name: 'MyKad or passport' });
   assert.ok(radio.anchor.source_line > 1);

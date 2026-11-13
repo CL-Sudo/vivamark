@@ -195,3 +195,26 @@ note, or editing the queued one.
 
 This supersedes the line of `vivamark guide decisions` that said text fields
 are not supported.
+
+## 2026-11-13: Note intent and severity, and page version history, removed
+
+Asked by the Boss: remove two features they no longer want.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Intent and severity (F4) | Gone. The composer has no Change, Question, Delete, Looks good or Blocking, Important, Nit chips, and a queued note no C Q D G or B I N keys (Delete still removes it). A note no longer has `intent`, `severity` or `motivation` (the W3C name derived from the intent) in the log, `wait --json`, the text form or the review page. A review page loaded earlier that still sends them is accepted and the fields are dropped. Notes logged before keep them on disk, untouched; vivamark reads those notes without them. | The Boss no longer wants them. A note is its words and what it points at. |
+| `data-vivamark-suggest` | Stays, and needs no value: its presence marks a control. A value (pages written before say `"looks-good"`) is ignored. | The value was an intent. The attribute itself is how a page offers click-to-answer and the field for the reviewer's own words. |
+| Version history | Gone: no snapshot of every version, no `versions/` timeline, no `vivamark versions` or `vivamark show --version`, no Versions picker, read-only earlier versions, Compare with or restore note, no `version.saved` event. | The Boss no longer wants it. |
+| What F2 keeps | Only what it had before version history: the file as it was at each Send, once per distinct content, in `snapshots/<session>/`. "What changed" counts from the latest one; each note's `target_changed` compares with the one taken when it was sent. | F2 stays. Its per-note `target_changed` needs the Send each note was sent with, not only the latest. |
+| Existing data | Read around, never deleted: the `versions/` folder in the state directory and `version.saved` lines in `events.jsonl` stay as they are and nothing reads `versions/` any more. A review whose last Send was taken while version history existed shows no changes until its next Send. | vivamark does not delete the user's data. Whoever wants the space back deletes `versions/` by hand. |
+
+This reverses F4 of the founding decisions (2026-10-04) and the five
+decisions of "Version history for a page" (2026-10-05): what is kept,
+scope, retention, restore and viewing. Send snapshots move back from
+`versions/` to `snapshots/<session>/`. In "After a decision, the page shows
+the decided state" (2026-10-09), the reasons that point to version history
+and `vivamark versions` no longer hold; the rule itself stands, and an old
+passage worth keeping goes in a `.superseded` block as before. In "Every
+decision has a field for the reviewer's own words" (2026-11-13), the fields
+are now disabled only on an ended review, as there are no earlier versions
+to show.

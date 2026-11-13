@@ -1,5 +1,5 @@
 // Regenerates the README screenshots by driving the review UI in headless
-// Chromium. review-ui.png shows intents and severities, an approval, a note
+// Chromium. review-ui.png shows sent notes, an approval, a note
 // from the agent, and Show changes. attach-answer.png shows a queued note with
 // an attached screenshot, and a decision answered by clicking a radio button.
 // Run after npm run build:
@@ -41,18 +41,16 @@ async function shoot(name, viewport, scene) {
 }
 
 async function reviewUi(page, doc, world, file) {
-  const note = async (locator, text, intent, severity, position) => {
+  const note = async (locator, text, position) => {
     await page.click('#point');
     await locator.click(position ? { position } : undefined);
     await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'element');
-    if (intent) await page.click(`#tags [data-intent="${intent}"]`);
-    if (severity) await page.click(`#tags [data-severity="${severity}"]`);
     await page.fill('#comment', text);
     await page.click('#add');
   };
-  await note(doc.locator('#step-2'), 'Split this: the scaffold and the save handler are separate risks.', 'change', 'blocking');
-  await note(doc.locator('#rollout td', { hasText: 'Payments team' }), 'Who on the payments team signs this off?', 'question', 'important');
-  await note(doc.locator('#summary'), 'Clear and short. Keep it.', 'looks-good', 'nit');
+  await note(doc.locator('#step-2'), 'Split this: the scaffold and the save handler are separate risks.');
+  await note(doc.locator('#rollout td', { hasText: 'Payments team' }), 'Who on the payments team signs this off?');
+  await note(doc.locator('#summary'), 'Clear and short. Keep it.');
   await page.click('#send');
   await page.waitForSelector('.note:not(.queued) >> text=Sent');
   // The agent works: it splits step 2, answers one note and asks back on another.
@@ -86,7 +84,6 @@ async function attachAnswer(page, doc) {
   await page.click('#point');
   await doc.locator('#rollout td', { hasText: 'Shadow traffic' }).click();
   await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'element');
-  await page.click('#tags [data-intent="change"]');
   await page.fill('#comment', 'Name a person, not a team: see the highlighted owner column in the screenshot.');
   const box = await doc.locator('#rollout th', { hasText: 'Owner' }).boundingBox();
   const table = await doc.locator('#rollout').boundingBox();

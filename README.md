@@ -7,8 +7,8 @@ the agent receives each note tied to exactly that spot. It edits the file, the
 page updates in place, and the conversation carries on until you approve.
 
 > **Status: early.** The core loop works (`open`, `wait` and `reply` on an
-> HTML or Markdown file), with the first-version features F1–F8: decisions,
-> "what changed", notes that re-attach after edits, intent and severity,
+> HTML or Markdown file), with the first-version features F1–F8 but F4
+> (removed): decisions, "what changed", notes that re-attach after edits,
 > Markdown with line ranges, per-note replies with whose turn it is, notes
 > from the agent, and named table cells, controls and chart points. Notes can carry images and other files, and a
 > page can ask for a decision with real controls the reviewer clicks. A
@@ -42,12 +42,10 @@ node dist/cli.js wait examples/plan.html
 On the page, select some text, or press **Point** and click an element: a
 paragraph, a table cell (named by its row and column), one of the options in
 **Decisions for you**, a spot on the chart, or on other pages a button (named
-by its label). Type a note, pick an intent (Change, Question,
-Delete, Looks good) and a severity if you like, and press **Add note**. On a
-queued note, one key does the same: C Q D G for the intent, B I N for the
-severity. To show what you mean, or to hand the agent a file it asked for,
-attach it: paste a screenshot (Ctrl+V) into the note, drop a file on the note
-or on a queued note, or press **Attach**. An image shows as a thumbnail, any
+by its label). Type a note and press **Add note**. To show what you mean, or
+to hand the agent a file it asked for, attach it: paste a screenshot (Ctrl+V)
+into the note, drop a file on the note or on a queued note, or press
+**Attach**. An image shows as a thumbnail, any
 other file as a chip with its name and size; you can remove either before
 sending. Then decide:
 
@@ -138,7 +136,7 @@ The rules, close to those of `xdg-open` and Python's `webbrowser`:
   tried, and after the last the system's default. A browser that starts and
   then fails is not noticed. The URL is printed either way.
 
-![The review page: notes with intents and severities, an approval, and Show changes](docs/screenshots/review-ui.png)
+![The review page: sent notes, an approval, and Show changes](docs/screenshots/review-ui.png)
 
 ## Writing a page worth reviewing
 
@@ -205,7 +203,7 @@ Page script is switched off while it draws. `open` never runs `render`.
 
 [`examples/plan.html`](examples/plan.html) follows the `plan` playbook and the
 `design` CSS. Each decision sits in a "Your input" card with real radio
-buttons marked `data-vivamark-suggest="looks-good"`. Clicking one queues a
+buttons marked `data-vivamark-suggest`. Clicking one queues a
 note, marked "From the page", with the option's label and id: one per group,
 replaced when the choice changes. Nothing is sent by the click; the reviewer
 sends it with the rest, and can edit or remove it first. Only a real click
@@ -231,35 +229,6 @@ for and sends the agent to `vivamark guide`. It holds no rules of its own, so
 it cannot drift from the installed CLI. It is generated from the guide's text:
 after changing `src/guide.ts`, run `npm run skill`; a test fails when the
 committed stub is out of date.
-
-## Going back to an earlier version
-
-vivamark keeps every version of the file it sees: when a review opens, on
-each save while the page is open, at each Send, when a review ends, and
-whenever the review is read, so a save made with the page closed is caught
-at the next `status` or `wait`. It is one timeline per file, across every
-review of it. Press **Versions** on the review page to see them, newest
-first: when, why (Opened, Saved, Sent, Ended, Seen), size, and for a Send
-its decision and how many notes. Pick one to see it read-only, with the
-notes sent on it. **Compare with…** picks a second version and Show changes
-highlights what differs. Old versions use the images and styles beside the
-file as they are now.
-
-To get one back, press **Ask the agent to restore this version**. That
-queues an ordinary note naming the version, its hash and the local path of
-its content; it reaches the agent only with your next Send. The agent (or
-you) can also read any version directly:
-
-```sh
-node dist/cli.js versions examples/plan.html          # the timeline
-node dist/cli.js show examples/plan.html --version 3  # its content, on stdout
-```
-
-vivamark never writes the reviewed file itself. **Storage:** versions are
-never deleted. Each distinct version is one copy of the file in the state
-directory under `versions/`; identical content is stored once. A page saved
-a hundred times at 50 KB costs about 5 MB. To reclaim space, delete a file's
-folder under `versions/` by hand (its `file.json` says which file it is).
 
 ## Ending a review
 
@@ -307,9 +276,8 @@ Every review is also recorded in `events.jsonl` in the state directory
 (`~/.local/state/vivamark` by default): append-only, one JSON object per line,
 each with `seq`, `at`, `type`, `session`, `file` and `labels`. The types are
 `session.opened`, `feedback.sent` (with a count of `attachments`), `reply.posted`, `note.status`,
-`agent-note.added`, `session.ended`, `browser.connected`,
-`browser.disconnected` and `version.saved` (with the version's number, hash,
-size and cause). **Events carry metadata only:** ids, counts, decisions
+`agent-note.added`, `session.ended`, `browser.connected` and
+`browser.disconnected`. **Events carry metadata only:** ids, counts, decisions
 and statuses, never a note, quote, reply, message, attached file, or its name or path. Read the words with
 `wait`.
 

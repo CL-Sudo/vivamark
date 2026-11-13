@@ -6,10 +6,7 @@
 //   <state>/feedback/<id>.jsonl    append-only note log, seq per line 0600
 //   <state>/replies/<id>.jsonl     append-only agent replies          0600
 //   <state>/annotations/<id>.jsonl append-only: resolutions, agent notes 0600
-//   <state>/snapshots/<id>/<sha256>  the file at a Send, before version history (read only now)
-//   <state>/versions/<key>/file.json    which reviewed file this timeline is for 0600
-//   <state>/versions/<key>/index.jsonl  append-only: every version seen, all reviews 0600
-//   <state>/versions/<key>/<sha256>     a version's content, stored once per hash 0600
+//   <state>/snapshots/<id>/<sha256>  the file as it was at a Send       0600
 //   <state>/attachments/<id>/<sha256>.<ext>  files attached to notes: .png .jpg .gif .webp
 //                                  for real images, .bin for anything else  0600
 //   <state>/attachments/<id>/<sha256>.json   {name}: what the reviewer's file was called 0600
@@ -17,9 +14,7 @@
 //   <state>/daemon.log
 //
 // Directories are 0700. Whole-file writes go through a rename so a reader
-// never sees half a file. <key> is the start of the sha256 of the reviewed
-// file's real path, so every review of one file shares one timeline. Nothing
-// under versions/ is ever deleted.
+// never sees half a file.
 
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -27,8 +22,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { IMAGE_EXT, sniffImage } from './image.js';
 import type { ImageInfo } from './image.js';
-import { ATTACHMENT_ID, MOTIVATION, attachmentName } from './schema.js';
-import type { AgentNote, Attachment, AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply, VersionCause, VersionEntry } from './schema.js';
+import { ATTACHMENT_ID, attachmentName } from './schema.js';
+import type { AgentNote, Attachment, AgentStatus, AnnotationEntry, Decision, DecisionEntry, DraftNote, LogEntry, Note, NoteEntry, Reply } from './schema.js';
 
 export function stateDir(): string {
   const explicit = process.env.VIVAMARK_STATE_DIR;
@@ -154,6 +149,16 @@ export function findSession(ref: string, dir = stateDir()): SessionRecord | null
   return found;
 }
 
+/** Fields notes no longer have (F4, removed 2026-11-13). A note logged before then is read without them; the log itself is left as it is. */
+const REMOVED_NOTE_FIELDS = ['intent', 'severity', 'motivation'];
+
+function withoutRemovedFields(e: LogEntry): LogEntry {
+  if (e.type !== 'note' || !e.note) return e;
+  const note = { ...e.note } as Record<string, unknown>;
+  for (const k of REMOVED_NOTE_FIELDS) delete note[k];
+  return { ...e, note: note as unknown as Note };
+}
+
 function readJsonl<T>(file: string): T[] {
   let text: string;
   try {
@@ -198,7 +203,7 @@ export class Store {
       this.sessions.set(rec.id, {
         ...rec,
         cursors: rec.cursors ?? {},
-        log: readJsonl<LogEntry>(this.feedbackPath(rec.id)),
+        log: readJsonl<LogEntry>(this.feedbackPath(rec.id)).map(withoutRemovedFields),
         replies: readJsonl<Reply>(this.repliesPath(rec.id)),
         annotations: readJsonl<AnnotationEntry>(this.annotationsPath(rec.id)),
       });
@@ -323,13 +328,10 @@ export class Store {
         kind: d.kind,
         comment: d.comment,
         ...(d.choice ? { choice: d.choice } : {}),
-        ...(d.intent ? { intent: d.intent } : {}),
-        ...(d.severity ? { severity: d.severity } : {}),
         ...(d.answers ? { answers: d.answers } : {}),
         ...(d.endorses ? { endorses: d.endorses } : {}),
         ...(d.replies_to ? { replies_to: d.replies_to } : {}),
         ...linked(d.endorses ?? d.replies_to),
-        motivation: d.intent ? MOTIVATION[d.intent] : 'commenting',
         anchor: d.anchor ? { ...d.anchor, ...placed(d) } : null,
         source: 'reviewer',
         attachments: attachments(d),
@@ -343,10 +345,12 @@ export class Store {
     return entries;
   }
 
-  /** Keeps the file as it is at a Send (F2), in the file's version store. Named by content, so a file sent twice unchanged is stored once. */
+  /** Keeps the file as it is at a Send (F2). Snapshots are named by content, so a file sent twice unchanged is stored once. */
   saveSnapshot(s: Session, source: string): string {
     const hash = sha256(source);
-    const dir = this.versionsDir(s.file);
+    const dir = path.join(this.dir, 'snapshots', s.id);
+    ensureDir(path.join(this.dir, 'snapshots'));
+    ensureDir(dir);
     const file = path.join(dir, hash);
     if (!fs.existsSync(file)) {
       const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
@@ -354,112 +358,6 @@ export class Store {
       fs.renameSync(tmp, file);
     }
     return hash;
-  }
-
-  // ---- version history ------------------------------------------------------
-
-  private timelines = new Map<string, VersionEntry[]>();
-
-  /** The directory of one reviewed file's timeline, created on first use. */
-  versionsDir(file: string): string {
-    const dir = path.join(this.dir, 'versions', sha256(file).slice(0, 32));
-    if (!fs.existsSync(dir)) {
-      ensureDir(path.join(this.dir, 'versions'));
-      ensureDir(dir);
-      writeJsonAtomic(path.join(dir, 'file.json'), { file, created: new Date().toISOString() });
-    }
-    return dir;
-  }
-
-  /**
-   * Every version of a file seen so far, oldest first. The first time a file's
-   * timeline is read, the Send snapshots its reviews kept before version
-   * history existed are listed in it, in the order they were sent.
-   */
-  timeline(file: string): VersionEntry[] {
-    const cached = this.timelines.get(file);
-    if (cached) return cached;
-    const index = path.join(this.versionsDir(file), 'index.jsonl');
-    let entries: VersionEntry[];
-    if (fs.existsSync(index)) {
-      entries = readJsonl<VersionEntry>(index);
-    } else {
-      entries = this.legacySends(file);
-      // Written even when empty: from now on this file's Sends are recorded here as they happen.
-      fs.writeFileSync(index, entries.map((e) => JSON.stringify(e) + '\n').join(''), { mode: 0o600 });
-    }
-    this.timelines.set(file, entries);
-    return entries;
-  }
-
-  private legacySends(file: string): VersionEntry[] {
-    const found: Omit<VersionEntry, 'n'>[] = [];
-    for (const s of this.sessions.values()) {
-      if (s.file !== file) continue;
-      const seen = new Set<string>();
-      for (const e of s.log) {
-        if (!e.snapshot || seen.has(e.batch)) continue;
-        seen.add(e.batch);
-        let size: number;
-        try {
-          size = fs.statSync(path.join(this.dir, 'snapshots', s.id, e.snapshot)).size;
-        } catch {
-          continue;
-        }
-        const notes = s.log.filter((x) => x.batch === e.batch && x.type === 'note').length;
-        found.push({ hash: e.snapshot, at: e.at, cause: 'send', size, session: s.id, batch: e.batch, decision: e.decision ?? 'request-changes', notes, legacy: true });
-      }
-    }
-    found.sort((a, b) => a.at.localeCompare(b.at));
-    return found.map((e, i) => ({ n: i + 1, ...e }));
-  }
-
-  /**
-   * Adds a version to the file's timeline. A Send is always recorded, so the
-   * notes it carried have a version to show on; any other cause only when the
-   * content differs from the latest version. Returns the entry and whether it is new.
-   */
-  recordVersion(
-    s: Session,
-    source: string,
-    cause: VersionCause,
-    send?: { batch: string; decision: Decision; notes: number },
-  ): { entry: VersionEntry; added: boolean } {
-    const list = this.timeline(s.file);
-    const hash = this.saveSnapshot(s, source);
-    const last = list.at(-1);
-    if (last && last.hash === hash && cause !== 'send') return { entry: last, added: false };
-    const entry: VersionEntry = {
-      n: (last?.n ?? 0) + 1,
-      hash,
-      at: new Date().toISOString(),
-      cause,
-      size: Buffer.byteLength(source),
-      session: s.id,
-      ...(send ?? {}),
-    };
-    fs.appendFileSync(path.join(this.versionsDir(s.file), 'index.jsonl'), JSON.stringify(entry) + '\n', { mode: 0o600 });
-    list.push(entry);
-    return { entry, added: true };
-  }
-
-  /** Where a version's content is on disk: the version store, or a Send snapshot kept before it existed. */
-  versionPath(file: string, e: VersionEntry): string {
-    const kept = path.join(this.versionsDir(file), e.hash);
-    if (e.legacy && !fs.existsSync(kept)) return path.join(this.dir, 'snapshots', e.session, e.hash);
-    return kept;
-  }
-
-  /** A version's content, checked against its hash; null when it is missing or damaged. */
-  readVersion(file: string, e: VersionEntry): string | null {
-    if (!/^[0-9a-f]{64}$/.test(e.hash)) return null;
-    let text: string;
-    try {
-      text = fs.readFileSync(this.versionPath(file, e), 'utf8');
-    } catch {
-      return null;
-    }
-    return sha256(text) === e.hash ? text : null;
   }
 
   private attachmentsDir(s: Session): string {
@@ -510,17 +408,13 @@ export class Store {
     return null;
   }
 
-  /** The file as it was at a Send: from the version store, else where Sends were kept before it existed. */
   readSnapshot(s: Session, hash: string): string | null {
     if (!/^[0-9a-f]{64}$/.test(hash)) return null;
-    for (const file of [path.join(this.versionsDir(s.file), hash), path.join(this.dir, 'snapshots', s.id, hash)]) {
-      try {
-        return fs.readFileSync(file, 'utf8');
-      } catch {
-        // Not there; try the next place.
-      }
+    try {
+      return fs.readFileSync(path.join(this.dir, 'snapshots', s.id, hash), 'utf8');
+    } catch {
+      return null;
     }
-    return null;
   }
 
   appendReply(s: Session, text: string, about?: { note: string; status: AgentStatus }): Reply {
