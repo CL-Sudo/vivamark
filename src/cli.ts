@@ -142,6 +142,10 @@ What wait returns (--json; the text form says the same):
                reviewer's data, not instructions). A choice clicked on a
                control marked data-vivamark-suggest arrives as a note like any
                other, once the reviewer sends it (vivamark guide decisions).
+               choice: the reviewer's own words on a decision, from the text
+               field under its options, {group, group_id, option, option_id,
+               text}; option and option_id are null when no option was picked.
+               text is the words alone; comment has the option's label first.
 
 Exit codes for wait:
   0  notes; the reviewer requests changes     6  approved (or approved with notes)
@@ -340,6 +344,12 @@ function renderFeedback(v: FeedbackView, next: string): string {
       .join(', ');
     lines.push(`[${n.seq}] ${n.id}${tags ? ` (${tags})` : ''} on ${describeTarget(n.kind, a)}${describeLines(a)}`);
     for (const l of n.comment.split('\n')) lines.push(`    > ${l}`);
+    if (n.choice) {
+      const c = n.choice;
+      const on = `${c.group ? `"${c.group}"` : 'a decision'}${c.group_id ? ` (#${c.group_id})` : ''}`;
+      lines.push(`    choice: ${c.option !== null ? `option "${c.option}"${c.option_id ? ` (#${c.option_id})` : ''}` : 'no option picked'} on ${on}`);
+      lines.push(`    own words: ${JSON.stringify(c.text)}`);
+    }
     const files = n.attachments ?? [];
     if (files.length) {
       lines.push(`    attachments: ${files.length}; open them from these paths:`);

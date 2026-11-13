@@ -364,6 +364,18 @@ How the reviewer answers
   - Wait returns it as an ordinary note: comment "SQLite (recommended): ...",
     intent "looks-good", anchor.stable_id "decision-storage-sqlite",
     anchor.control {role: "radio", name: ...}.
+  - In their own words: vivamark puts a text field under every decision
+    group (a role="radiogroup" holding radios marked data-vivamark-suggest),
+    on every page, with no markup from you. What they type joins that
+    group's queued note, with the option they picked or with none, and is
+    sent only with the rest. Wait then adds note.choice: {group, group_id,
+    option, option_id, text}. text is their words alone; group is the
+    group's aria-label (else the card's heading) and group_id the card's id;
+    option and option_id are null when they picked nothing, and the note
+    then points at the card (anchor.stable_id "decision-storage"). The
+    comment is the option's label, a line break, then the words. Without
+    words a note has no choice field and is exactly as above. Read the
+    words as the answer when they say something the options do not.
   - Approve with nothing chosen: your recommendation stands. Say so on the
     page ("Approving accepts the recommended options").
   - Once decided, the page shows the decision everywhere it said otherwise
@@ -374,19 +386,23 @@ The attribute
   <input type="checkbox">, or an <option> (or on the <select>, for all its
   options). The intent is change, question, delete or looks-good; looks-good
   means "this one". An option without the attribute withdraws the suggestion.
-  Text fields are not supported: free text goes in the reviewer's own note.
+  Add no text field of your own for "other": vivamark adds one to every
+  radiogroup. A checkbox or a <select> gets none; there the reviewer points
+  and writes a note.
 
 Free-form questions: the fallback
   When the answer is not one of a few options ("what should the limit be?"),
   put the question in a .your-input card with an id and no controls. The
-  reviewer presses Point, clicks it and writes a note. They can also point at
-  any option to say "yes, but ...", with Change or Question.
+  reviewer presses Point, clicks it and writes a note. On a card with
+  options, "yes, but ..." or "none of these" goes in the field under them.
 
 Rules
   - One question per card, two to four options, each with its cost.
   - Mark at most one option .recommended, and say why in the option itself.
   - Give every control an id built from the decision's id, and a <label>, so
-    the answer is readable from stable_id and the text alone.
+    the answer is readable from stable_id and the text alone. Give the card
+    the decision's id and the radiogroup an aria-label: words sent with no
+    option come back by those.
   - Never pre-select an option: a choice the reviewer did not make is not an
     answer. Make the recommendation visible instead.
   - The controls do nothing on the page itself and need no script of yours.

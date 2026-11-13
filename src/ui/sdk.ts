@@ -405,7 +405,11 @@
   function pickTarget(t: EventTarget | null): Element | null {
     let el = t instanceof Element ? t : t instanceof Node ? t.parentElement : null;
     if (!el || isOurs(el) || el === document.documentElement) return null;
-    if (el === document.body) return el;
+    // A decision's own-words field is vivamark's, not the page's: pointing at it points at the decision.
+    if (isField(el)) {
+      const g = [...groups].find(([, s]) => s.host === el)?.[0];
+      return g ? decisionTarget(g) : null;
+    }
     return el;
   }
 
@@ -455,7 +459,11 @@
     const anchor = textAnchor(sel.getRangeAt(0));
     if (anchor) post({ type: 'pick', kind: 'text', anchor });
   }
-  document.addEventListener('mouseup', () => setTimeout(reportSelection, 0));
+  document.addEventListener('mouseup', (e) => {
+    // Selecting words in a decision's field is not pointing at the page.
+    if (isField(e.target)) return;
+    setTimeout(reportSelection, 0);
+  });
   document.addEventListener('keyup', (e) => {
     if (e.shiftKey || e.key === 'Shift') reportSelection();
     if (e.key === 'Escape' && picking) {
@@ -472,6 +480,156 @@
   const SUGGEST_INTENTS = ['change', 'question', 'delete', 'looks-good'];
   const suggestIntent = (v: string | null | undefined) => (v && SUGGEST_INTENTS.includes(v) ? v : undefined);
 
+  // ---- own words on a decision ------------------------------------------------------
+  //
+  // Every decision group (a role=radiogroup holding radios marked
+  // data-vivamark-suggest) gets a text field after it, so the reviewer can say
+  // what no option covers. It lives in a shadow root on a <vivamark-field>
+  // element: the page's CSS does not reach it, its text is not part of the
+  // page's text (what changed, quotes), and no element of the page changes its
+  // place among siblings of its own tag (selectors). Its words join the
+  // group's proposed note, with the option picked or without one; like a
+  // click, they are only queued.
+
+  type Group = { host: HTMLElement; field: HTMLTextAreaElement; picked: HTMLInputElement | null };
+  const groups = new Map<Element, Group>();
+  const FIELD_TAG = 'vivamark-field';
+  const MAX_WORDS = 4000;
+  let fieldsReadOnly = false;
+
+  const isDecisionGroup = (el: Element) => !!el.querySelector('input[type="radio"][data-vivamark-suggest]');
+  const groupOf = (el: Element): Element | null => {
+    const g = el.closest('[role="radiogroup"]');
+    return g && groups.has(g) ? g : null;
+  };
+  const groupKey = (g: Element) => `group:${cssPath(g)}`;
+
+  /**
+   * What a note on the decision as a whole points at: the group, or the
+   * nearest element around it with an id that holds no other decision (the
+   * .your-input card), so the agent reads the decision from stable_id.
+   */
+  function decisionTarget(g: Element): Element {
+    const others = [...document.querySelectorAll('[role="radiogroup"]')].filter((o) => o !== g && isDecisionGroup(o));
+    for (let el: Element | null = g; el && el !== document.body; el = el.parentElement) {
+      if (el !== g && others.some((o) => el!.contains(o))) break;
+      if (stableId(el)) return el;
+    }
+    return g;
+  }
+
+  /** The decision's name: the group's own label, else the heading of the card around it. */
+  function decisionName(g: Element): string {
+    const ids = g.getAttribute('aria-labelledby');
+    const labelled = ids ? squash(ids.split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' ')) : '';
+    const own = labelled || squash(g.getAttribute('aria-label') ?? '');
+    if (own) return clipText(own, 300);
+    const card = decisionTarget(g);
+    const heading = (card === g ? g.parentElement : card)?.querySelector('h1, h2, h3, h4, h5, h6, legend');
+    return clipText(textOf(heading), 300);
+  }
+
+  /** The group's proposed note, as it stands: the option picked (if any) and the reviewer's words. */
+  function postGroup(g: Element): void {
+    const s = groups.get(g);
+    if (!s) return;
+    const words = s.field.value.trim().slice(0, MAX_WORDS);
+    const picked = s.picked?.checked && s.picked.isConnected && g.contains(s.picked) ? s.picked : null;
+    const key = groupKey(g);
+    if (!picked && !words) {
+      post({ type: 'suggest', key, remove: true });
+      return;
+    }
+    const target = picked ?? decisionTarget(g);
+    const label = picked ? clipText(accessibleName(picked) || picked.value, 300) : '';
+    const decision = { name: decisionName(g), id: stableId(decisionTarget(g)) };
+    post({
+      type: 'suggest',
+      key,
+      kind: 'element',
+      anchor: elementAnchor(target),
+      intent: picked ? suggestIntent(picked.getAttribute('data-vivamark-suggest')) : undefined,
+      text: label,
+      ...(words ? { words, decision } : {}),
+    });
+  }
+
+  const FIELD_CSS = `
+    :host { display: block; margin: .75em 0 0; }
+    label { display: block; margin: 0 0 .3em; font-size: .85em; opacity: .75; }
+    textarea { display: block; box-sizing: border-box; width: 100%; min-height: 3.4em; margin: 0; padding: .5em .65em;
+      resize: vertical; font: inherit; font-size: .95em; line-height: 1.4; color: inherit; background: transparent;
+      border: 1px solid color-mix(in srgb, currentColor 32%, transparent); border-radius: 8px; }
+    textarea::placeholder { color: inherit; opacity: .55; }
+    textarea:focus { outline: 2px solid color-mix(in srgb, currentColor 45%, transparent); outline-offset: 1px; }
+    textarea:disabled { opacity: .55; }
+  `;
+
+  let fieldCount = 0;
+  function addField(g: Element): void {
+    const host = document.createElement(FIELD_TAG);
+    host.style.cssText = 'display:block;margin:.75em 0 0;';
+    const root = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = FIELD_CSS;
+    const id = `f${++fieldCount}`;
+    const label = document.createElement('label');
+    label.htmlFor = id;
+    label.textContent = 'Your own words (optional)';
+    const field = document.createElement('textarea');
+    field.id = id;
+    field.rows = 2;
+    field.maxLength = MAX_WORDS;
+    field.placeholder = 'Anything the options do not cover. Sent with your choice, or on its own.';
+    const name = decisionName(g);
+    field.setAttribute('aria-label', name ? `Your own words on: ${name}` : 'Your own words on this decision');
+    field.disabled = fieldsReadOnly;
+    root.append(style, label, field);
+    // Typing here is the reviewer's, not the page's: keys do not reach the page's own shortcuts.
+    for (const type of ['keydown', 'keyup', 'keypress']) host.addEventListener(type, (e) => e.stopPropagation());
+    field.addEventListener('input', (e) => {
+      if (e.isTrusted) postGroup(g);
+    });
+    g.after(host);
+    groups.set(g, { host, field, picked: null });
+  }
+
+  /** Gives every decision group its field, once; again if the page's own script replaced it. */
+  function scanGroups(): void {
+    for (const g of [...groups.keys()]) if (!g.isConnected) groups.delete(g);
+    for (const g of document.querySelectorAll('[role="radiogroup"]')) {
+      if (!isDecisionGroup(g)) continue;
+      const s = groups.get(g);
+      if (s && s.host.isConnected) continue;
+      if (s) groups.delete(g);
+      addField(g);
+    }
+  }
+
+  const isField = (t: EventTarget | null) => t instanceof Element && t.localName === FIELD_TAG;
+  /** A field the chrome's queue says has words, or an option, from before this load (a live reload). */
+  type FieldState = { key: string; text: string; option: Anchor | null };
+  function restoreFields(list: FieldState[], readOnly: boolean): void {
+    fieldsReadOnly = readOnly;
+    const byKey = new Map(list.map((f) => [f.key, f]));
+    for (const [g, s] of groups) {
+      s.field.disabled = readOnly;
+      const f = byKey.get(groupKey(g));
+      // The reviewer is typing here: the queue is catching up, not ahead.
+      if (document.hasFocus() && (s.field.getRootNode() as ShadowRoot).activeElement === s.field) continue;
+      const text = f?.text ?? '';
+      if (s.field.value !== text) s.field.value = text;
+      if (f?.option && !s.picked?.checked) {
+        // The reviewer's own choice, from before the page reloaded: shown ticked again.
+        const radio = resolveElement(f.option);
+        if (radio instanceof HTMLInputElement && radio.type === 'radio' && radio.hasAttribute('data-vivamark-suggest') && g.contains(radio)) {
+          radio.checked = true;
+          s.picked = radio;
+        }
+      }
+    }
+  }
+
   /**
    * The reviewer ticked a radio or checkbox, or chose an option, that the
    * author marked with data-vivamark-suggest="<intent>". It becomes a proposed
@@ -486,6 +644,13 @@
       const t = e.target;
       if (t instanceof HTMLInputElement && (t.type === 'radio' || t.type === 'checkbox')) {
         if (!t.hasAttribute('data-vivamark-suggest')) return;
+        const g = t.type === 'radio' ? groupOf(t) : null;
+        if (g) {
+          // A decision with a field: the choice and the reviewer's words are one note.
+          if (t.checked) groups.get(g)!.picked = t;
+          postGroup(g);
+          return;
+        }
         const key = t.type === 'radio' && t.name ? `radio:${t.form ? cssPath(t.form) + ' ' : ''}${t.name}` : `${t.type}:${cssPath(t)}`;
         if (!t.checked) {
           // A radio is unticked only by ticking another one, which sends its own suggestion.
@@ -546,10 +711,28 @@
       redraw();
     } else if (d.type === 'restore') {
       window.scrollTo(Number(d.x) || 0, Number(d.y) || 0);
+    } else if (d.type === 'fields') {
+      const list = Array.isArray(d.fields)
+        ? (d.fields as unknown[]).filter((f): f is FieldState => !!f && typeof (f as FieldState).key === 'string' && typeof (f as FieldState).text === 'string')
+        : [];
+      restoreFields(list, !!d.readOnly);
     }
   });
 
-  const ready = () => post({ type: 'ready' });
+  const ready = () => {
+    scanGroups();
+    // A page script that draws its decisions later gets fields for them too.
+    let scanQueued = false;
+    new MutationObserver(() => {
+      if (scanQueued) return;
+      scanQueued = true;
+      requestAnimationFrame(() => {
+        scanQueued = false;
+        scanGroups();
+      });
+    }).observe(document.body ?? document.documentElement, { childList: true, subtree: true });
+    post({ type: 'ready' });
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);
   else ready();
   window.addEventListener('load', redraw);

@@ -212,6 +212,17 @@ sends it with the rest, and can edit or remove it first. Only a real click
 counts, not an event a page script fakes. A free-form question is a card to
 point at instead.
 
+Under every decision group (a `role="radiogroup"` of radios marked
+`data-vivamark-suggest`) vivamark adds a text field, **Your own words**, on
+every page and with no markup from the author, for what none of the options
+says. The words join that group's queued note, with the option picked or on
+their own, and go only with Send. In `wait --json` the note then carries
+`choice`: `{group, group_id, option, option_id, text}`, where `text` is the
+words alone and `option` and `option_id` are null when nothing was picked
+(the note then points at the decision's card). The comment is the option's
+label, a line break, then the words. A decision answered without words
+arrives exactly as before, with no `choice`.
+
 ![A queued note with an attached screenshot, and a decision answered by clicking a radio button, queued "From the page"](docs/screenshots/attach-answer.png)
 
 For agents that load Agent Skills,

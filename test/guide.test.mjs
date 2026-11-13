@@ -112,6 +112,10 @@ test('the plan playbook ends on decisions, and decisions are answered with real 
   assert.match(d, /type="radio"/);
   assert.match(d, /"looks-good"/);
   assert.match(d, /Nothing is sent by the click/);
+  // Every radiogroup gets a field for the reviewer's own words, and the guide says how they arrive.
+  assert.match(d, /text field under every decision\s+group/);
+  assert.match(d, /note\.choice: \{group, group_id,\s+option, option_id, text\}/);
+  assert.doesNotMatch(d, /Text fields are not supported/);
   assert.match(d, /Press Point, clicks it and writes a note|presses Point, clicks it and writes a note/);
   assert.match(PAGE_CSS, /\.your-input::before \{ content: "Your input";/);
 });

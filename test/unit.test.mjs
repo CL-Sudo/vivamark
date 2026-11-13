@@ -84,6 +84,30 @@ test('parseDraft accepts the three note kinds and refuses malformed notes', () =
   }
 });
 
+test('parseDraft keeps the reviewer\'s own words on a decision, with an option or without one', () => {
+  const anchor = { stable_id: 'idcheck-passport', selector: '#idcheck-passport', tag: 'input', text: '' };
+  const withOption = parseDraft({
+    kind: 'element',
+    comment: 'MyKad or passport\nbut only for foreign staff',
+    choice: { group: 'Which ID check?', group_id: 'decision-id', option: 'MyKad or passport', option_id: 'idcheck-passport', text: ' but only for foreign staff ' },
+    anchor,
+  });
+  assert.deepEqual(withOption.choice, { group: 'Which ID check?', group_id: 'decision-id', option: 'MyKad or passport', option_id: 'idcheck-passport', text: 'but only for foreign staff' });
+  assert.deepEqual(Object.keys(withOption).slice(0, 3), ['kind', 'comment', 'choice'], 'the words come before anything large');
+  const alone = parseDraft({ kind: 'element', comment: 'none of these', choice: { group: 'Which ID check?', group_id: 'decision-id', option: null, option_id: 'ignored', text: 'none of these' }, anchor });
+  assert.deepEqual(alone.choice, { group: 'Which ID check?', group_id: 'decision-id', option: null, option_id: null, text: 'none of these' });
+  assert.equal(parseDraft({ kind: 'element', comment: 'x', anchor }).choice, undefined, 'no words, no choice: as before');
+  for (const bad of [
+    { kind: 'element', comment: 'x', choice: 'x', anchor },
+    { kind: 'element', comment: 'x', choice: { group: 'g', option: null, text: '  ' }, anchor },
+    { kind: 'element', comment: 'x', choice: { group: 'g', option: 3, text: 't' }, anchor },
+    { kind: 'element', comment: 'x', choice: { group: 'g', option: null, text: 'x'.repeat(4001) }, anchor },
+    { kind: 'page', comment: 'x', choice: { group: 'g', option: null, text: 't' } },
+  ]) {
+    assert.equal(typeof parseDraft(bad), 'string', JSON.stringify(bad).slice(0, 80));
+  }
+});
+
 test('request guards: Host allowlist, Origin, tokens, proof', () => {
   const req = (headers) => ({ headers });
   // Loopback names on any port: a port forwarder may reach us on a different one.

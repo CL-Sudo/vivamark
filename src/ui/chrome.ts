@@ -36,9 +36,22 @@ interface Attached {
   name?: string;
   path?: string;
 }
+/**
+ * The reviewer's own words on a decision, typed in the field vivamark adds
+ * under its options: the decision, the option picked (null for none) and the
+ * words apart from the option's label.
+ */
+interface Choice {
+  group: string;
+  group_id: string | null;
+  option: string | null;
+  option_id: string | null;
+  text: string;
+}
 interface Draft {
   kind: Kind;
   comment: string;
+  choice?: Choice;
   intent?: Intent;
   severity?: Severity;
   answers?: string;
@@ -640,6 +653,8 @@ function editQueued(i: number): void {
 }
 
 const SUGGEST_INTENTS: Intent[] = ['change', 'question', 'delete', 'looks-good'];
+/** The most a reviewer's own words on one decision may run to, as the page's field allows. */
+const MAX_WORDS = 4000;
 
 /**
  * Click-to-answer: the reviewer changed a control the page author marked with
@@ -647,24 +662,48 @@ const SUGGEST_INTENTS: Intent[] = ['change', 'question', 'delete', 'looks-good']
  * group or control; it is never sent by itself. The page proposes; the
  * reviewer sends.
  */
-function onSuggest(d: { key?: unknown; remove?: unknown; kind?: unknown; anchor?: unknown; intent?: unknown; text?: unknown }): void {
+function onSuggest(d: {
+  key?: unknown;
+  remove?: unknown;
+  kind?: unknown;
+  anchor?: unknown;
+  intent?: unknown;
+  text?: unknown;
+  words?: unknown;
+  decision?: unknown;
+}): void {
   if (ended || typeof d.key !== 'string' || !d.key || d.key.length > 2_000) return;
   const at = queue.findIndex((q) => q.suggested === d.key);
   if (d.remove === true) {
     if (at >= 0) queue.splice(at, 1);
   } else {
     const text = typeof d.text === 'string' ? d.text.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
-    if (d.kind !== 'element' || !d.anchor || typeof d.anchor !== 'object' || !text) return;
+    // The reviewer's own words on a decision: kept as typed, line breaks and all.
+    const words = typeof d.words === 'string' ? d.words.trim().slice(0, MAX_WORDS) : '';
+    if (d.kind !== 'element' || !d.anchor || typeof d.anchor !== 'object' || (!text && !words)) return;
     const intent = SUGGEST_INTENTS.includes(d.intent as Intent) ? (d.intent as Intent) : undefined;
     const prev = at >= 0 ? queue[at] : undefined;
+    const anchor = d.anchor as Anchor;
+    const decision = (d.decision && typeof d.decision === 'object' ? d.decision : {}) as { name?: unknown; id?: unknown };
+    const choice: Choice | undefined = words
+      ? {
+          group: typeof decision.name === 'string' ? decision.name.slice(0, 300) : '',
+          group_id: typeof decision.id === 'string' && decision.id ? decision.id.slice(0, 200) : null,
+          option: text || null,
+          option_id: text ? anchor.stable_id : null,
+          text: words,
+        }
+      : undefined;
     const draft: Draft = {
       kind: 'element',
-      comment: text,
+      // The option's label as today, then the reviewer's words on a line of their own.
+      comment: text && words ? `${text}\n${words}` : text || words,
+      ...(choice ? { choice } : {}),
       ...(intent ? { intent } : {}),
       // A severity or files the reviewer added stay with the new choice.
       ...(prev?.severity ? { severity: prev.severity } : {}),
       ...(prev?.attachments?.length ? { attachments: prev.attachments } : {}),
-      anchor: d.anchor as Anchor,
+      anchor,
       suggested: d.key,
     };
     if (at >= 0) queue[at] = draft;
@@ -797,6 +836,7 @@ function render(): void {
   renderChanges();
   renderVersions();
   postMarks();
+  postFields();
 }
 
 /** An ended review keeps its thread readable and takes nothing more. */
@@ -856,7 +896,8 @@ function setPresence(state: 'listening' | 'away'): void {
 
 function toFrame(msg: Record<string, unknown>): void {
   // The frame has an opaque origin, so '*' is the only target that reaches it.
-  // Nothing sent here is secret: marks and scroll positions only.
+  // Nothing sent here is secret: marks, scroll positions, and the words the
+  // reviewer typed into this same page's decision fields.
   frame.contentWindow?.postMessage({ vivamark: 1, ...msg }, '*');
 }
 
@@ -885,6 +926,28 @@ function postMarks(): void {
   toFrame({ type: 'marks', marks, show: showMarks });
 }
 
+/**
+ * Tells the page what its decision fields hold: the words and option of each
+ * group's queued note, so a field shows what will be sent, empties once it is
+ * sent or removed, and comes back after the page reloads. These are the
+ * reviewer's words typed into that same page; the queue stays the record.
+ */
+let postedFields = '';
+function postFields(force = false): void {
+  const fields = viewing
+    ? []
+    : queue.flatMap((d) =>
+        d.suggested?.startsWith('group:')
+          ? [{ key: d.suggested, text: d.choice?.text ?? '', option: !d.choice || d.choice.option !== null ? d.anchor : null }]
+          : [],
+      );
+  const msg = { type: 'fields', fields, readOnly: !!viewing || !!ended };
+  const json = JSON.stringify(msg);
+  if (!force && json === postedFields) return;
+  postedFields = json;
+  toFrame(msg);
+}
+
 function setPicking(on: boolean): void {
   pointBtn.setAttribute('aria-pressed', String(on));
   toFrame({ type: 'mode', pick: on });
@@ -910,6 +973,7 @@ window.addEventListener('message', (e) => {
       setPicking(pointBtn.getAttribute('aria-pressed') === 'true');
       postMarks();
       postChanges();
+      postFields(true);
       break;
     case 'pick':
       // An earlier version is read-only: nothing on it becomes a note.

@@ -322,6 +322,7 @@ export class Store {
         id: `n_${String(noteCount).padStart(4, '0')}`,
         kind: d.kind,
         comment: d.comment,
+        ...(d.choice ? { choice: d.choice } : {}),
         ...(d.intent ? { intent: d.intent } : {}),
         ...(d.severity ? { severity: d.severity } : {}),
         ...(d.answers ? { answers: d.answers } : {}),

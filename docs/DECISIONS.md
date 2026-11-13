@@ -176,3 +176,22 @@ then land".
 This supersedes the `unfilled-shape` row of "After a decision, the page
 shows the decided state" (2026-10-09) where it says the rule is an error
 in every case.
+
+## 2026-11-13: Every decision has a field for the reviewer's own words
+
+Asked: "I want to have a text field for every input so that I can convey the
+message that is not listed as options". A decision card offered only its
+options; anything else meant pointing at the card and writing a separate
+note, or editing the queued one.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Which decisions | Every `role="radiogroup"` holding at least one radio marked `data-vivamark-suggest` gets one field, right after the group, on every page. The author adds nothing. A checkbox or a `<select>` gets none. | The guide already asks for that markup, so every existing page gets the field on reload. A checkbox or select has no "group" to answer in words; pointing still works there. |
+| Where it lives | The injected script adds it at run time, in an open shadow root on a `<vivamark-field>` element. The served file still gains exactly one script tag and the saved file is never written. | The page's CSS cannot restyle it; its text is not part of the page's text, so "what changed" offsets and quotes are unchanged; a tag of its own moves no page element's `nth-of-type`, so selectors and source lines are unchanged. It inherits the card's font and colour, so it fits light and dark pages. |
+| What it sends | The words join the group's queued "From the page" note: with the option picked, the comment is the label, a line break, then the words, and the anchor stays on the radio; with no option, the comment is the words and the anchor is the decision's card (the nearest element around the group with an id that holds no other decision, else the group). The note gains `choice` `{group, group_id, option, option_id, text}`, right after `comment`. A note without words has no `choice` and is unchanged. | `text` lets an agent tell the words from the label; keeping the label first in `comment` keeps every current reader right, including one that strips a known label off the front. |
+| Sending | Typing only queues, like a click. Only a trusted `input` event counts; keys typed in the field do not reach the page's own key handlers. Nothing reaches the agent before Send. | Non-negotiable 3. |
+| Field and queue | The queue is the record. The review page tells the frame what each group's queued note holds, so a field empties once its note is sent or removed and, after a reload, gets back its words and the option the reviewer picked (ticked again). An earlier version, or an ended review, shows the fields disabled. | Without that, a reload would show an empty field over a queued note with words, and the next keystroke would replace them. |
+| Tests' browser | The browser tests and the screenshot script launch the Chrome named by `VIVAMARK_CHROME` when it is set, and open the review by `localhost` then. | A wrapper there may allow only that name to resolve. |
+
+This supersedes the line of `vivamark guide decisions` that said text fields
+are not supported.

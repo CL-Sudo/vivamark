@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { FIXTURE, makePng, makeWorld, startCli } from './helpers/harness.mjs';
+import { browserUrl, FIXTURE, makePng, makeWorld, ROOT, startCli } from './helpers/harness.mjs';
 
 let chromium;
 try {
@@ -27,7 +27,7 @@ before(async () => {
   world = makeWorld({ guardEgress: true });
   if (!chromium) return;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, executablePath: process.env.VIVAMARK_CHROME || undefined });
   } catch (err) {
     launchError = err;
   }
@@ -61,7 +61,7 @@ async function reviewPage(url, { init } = {}) {
   page.on('console', (msg) => {
     if (msg.type() === 'error') problems.push(`console: ${msg.text()}`);
   });
-  await page.goto(url);
+  await page.goto(browserUrl(url));
   return { page, offLoopback, problems, frame: () => page.frames().find((f) => f.url().includes('/a/')) };
 }
 
@@ -100,7 +100,7 @@ test('element pick and text selection become notes only when Send is clicked', {
     if (msg.type() === 'error') problems.push(`console: ${msg.text()}`);
   });
 
-  await page.goto(url);
+  await page.goto(browserUrl(url));
   const doc = page.frameLocator('#page');
   await doc.locator('#step-2').waitFor();
   assert.equal(new URL(page.url()).hash, '', 'the token is removed from the address bar');
@@ -568,6 +568,223 @@ test('the header bar fits at every width, the file name whole and no control pas
     assert.deepEqual(problems, []);
     await page.close();
   }
+});
+
+const WORDS_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Decide in words</title>
+<style>textarea, label { color: red; font-size: 40px; }</style></head>
+<body>
+<section id="decision-id" class="your-input">
+  <h3>Which ID check?</h3>
+  <div class="options" role="radiogroup" aria-label="Which ID check?">
+    <label><input type="radio" name="idcheck" id="idcheck-mykad" data-vivamark-suggest="looks-good"> MyKad only (recommended)</label>
+    <label><input type="radio" name="idcheck" id="idcheck-passport" data-vivamark-suggest="looks-good"> MyKad or passport</label>
+  </div>
+</section>
+<section id="decision-region" class="your-input">
+  <h3>Which region first?</h3>
+  <div class="options" role="radiogroup">
+    <label><input type="radio" name="region" id="region-my" data-vivamark-suggest="looks-good"> Malaysia</label>
+    <label><input type="radio" name="region" id="region-sg" data-vivamark-suggest="looks-good"> Singapore</label>
+  </div>
+</section>
+<section id="decision-plain" class="your-input">
+  <h3>Ship on Friday?</h3>
+  <div class="options" role="radiogroup" aria-label="Ship on Friday?">
+    <label><input type="radio" name="ship" id="ship-yes" data-vivamark-suggest="looks-good"> Yes</label>
+    <label><input type="radio" name="ship" id="ship-no" data-vivamark-suggest="change"> No</label>
+  </div>
+</section>
+<div role="radiogroup" id="not-a-decision"><label><input type="radio" name="x"> Unmarked</label></div>
+<p id="tail">Tail paragraph.</p>
+<button type="button" id="fake">Page script: fake words</button>
+<script>
+  window.pageKeys = [];
+  document.addEventListener('keydown', (e) => window.pageKeys.push(e.key));
+  // A page script tries to type for the reviewer, with an untrusted event.
+  document.getElementById('fake').addEventListener('click', () => {
+    const f = document.querySelector('vivamark-field').shadowRoot.querySelector('textarea');
+    f.value = 'typed by the page';
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+</script>
+</body></html>
+`;
+
+test('own words: every decision group gets a text field; its words go with the choice, or alone, only on Send', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'words.html');
+  fs.writeFileSync(file, WORDS_PAGE);
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { page, offLoopback, problems, frame } = await reviewPage(JSON.parse(opened.stdout).url);
+  const doc = page.frameLocator('#page');
+  await doc.locator('#idcheck-mykad').waitFor();
+  const fields = doc.locator('vivamark-field textarea');
+  const field = (section) => doc.locator(`#${section} vivamark-field textarea`);
+  const suggested = () => page.locator('.note.queued.suggested p.comment').allTextContents();
+
+  // One field per decision group, and none for a group with no marked radio.
+  await fields.first().waitFor();
+  assert.equal(await fields.count(), 3);
+  assert.equal(await doc.locator('#not-a-decision ~ vivamark-field').count(), 0);
+  // The field is vivamark's: no text of the page, no shift in its selectors, the page's CSS kept out.
+  const info = await frame().evaluate(() => {
+    const host = document.querySelector('#decision-id vivamark-field');
+    const ta = host.shadowRoot.querySelector('textarea');
+    return {
+      bodyText: document.body.textContent.includes('own words'),
+      prev: host.previousElementSibling.getAttribute('role'),
+      firstDiv: document.querySelector('#decision-id > div:nth-of-type(1)') === document.querySelector('#decision-id [role=radiogroup]'),
+      color: getComputedStyle(ta).color,
+      label: ta.getAttribute('aria-label'),
+    };
+  });
+  assert.equal(info.bodyText, false);
+  assert.equal(info.prev, 'radiogroup');
+  assert.equal(info.firstDiv, true);
+  assert.notEqual(info.color, 'rgb(255, 0, 0)', 'the page\'s textarea rule does not reach the field');
+  assert.equal(info.label, 'Your own words on: Which ID check?');
+
+  // Words with an option picked: one note, the label then the words.
+  await doc.locator('#idcheck-passport').check();
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 1);
+  await field('decision-id').fill('but only for foreign staff');
+  await page.waitForFunction(() => document.querySelector('.note.queued.suggested p.comment')?.textContent === 'MyKad or passport\nbut only for foreign staff');
+  // Typing in the field does not reach the page's own key handlers.
+  assert.deepEqual(await frame().evaluate(() => window.pageKeys), []);
+  // Another option keeps the words.
+  await doc.locator('#idcheck-mykad').check();
+  await page.waitForFunction(() => document.querySelector('.note.queued.suggested p.comment')?.textContent === 'MyKad only (recommended)\nbut only for foreign staff');
+  assert.equal(await page.locator('.note.queued').count(), 1);
+
+  // Words with no option picked: a note on the decision's card.
+  await field('decision-region').fill('Neither: Thailand first.');
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 2);
+  assert.deepEqual(await suggested(), ['MyKad only (recommended)\nbut only for foreign staff', 'Neither: Thailand first.']);
+  // Emptying the field withdraws a note that had only words.
+  await field('decision-region').fill('');
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 1);
+  await field('decision-region').fill('Neither: Thailand first.');
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 2);
+
+  // A decision with no words is as before.
+  await doc.locator('#ship-no').check();
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 3);
+
+  // A page script's synthetic input queues nothing; a trusted change after it proves its message would have arrived.
+  await doc.locator('#fake').click();
+  await doc.locator('#ship-yes').check();
+  await page.waitForFunction(() => [...document.querySelectorAll('.note.queued.suggested p.comment')].some((p) => p.textContent === 'Yes'));
+  assert.ok(!(await suggested()).some((c) => c.includes('typed by the page')));
+  await field('decision-id').fill('but only for foreign staff');
+  await page.waitForFunction(() => document.querySelector('.note.queued.suggested p.comment')?.textContent === 'MyKad only (recommended)\nbut only for foreign staff');
+
+  // The page reloads after an edit: the words and the choice come back from the queue.
+  fs.writeFileSync(file, WORDS_PAGE.replace('Tail paragraph.', 'Tail paragraph, edited.'));
+  await doc.locator('#tail', { hasText: 'edited' }).waitFor({ timeout: 10_000 });
+  await field('decision-id').waitFor();
+  await doc.locator('#idcheck-mykad:checked').waitFor();
+  assert.equal(await field('decision-id').inputValue(), 'but only for foreign staff');
+  assert.equal(await field('decision-region').inputValue(), 'Neither: Thailand first.');
+  assert.equal(await doc.locator('#region-my:checked, #region-sg:checked').count(), 0, 'no option is made up for words sent alone');
+
+  if (process.env.VIVAMARK_SCREENSHOT_DIR) {
+    await page.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, 'own-words.png') });
+  }
+
+  // Nothing has reached the agent.
+  const early = await world.cli(['wait', file, '--timeout', '800ms']);
+  assert.equal(early.code, 5, early.stdout);
+
+  await page.click('#send');
+  await page.waitForSelector('.note:not(.queued) >> text=Sent');
+  // Sent: the fields empty; the ticks stay, as before.
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued').length === 0);
+  await frame().waitForFunction(() => [...document.querySelectorAll('vivamark-field')].every((h) => h.shadowRoot.querySelector('textarea').value === ''));
+
+  const w = await world.cli(['wait', file, '--json']);
+  assert.equal(w.code, 0, w.stderr);
+  const notes = JSON.parse(w.stdout).notes;
+  const byId = (id) => notes.find((n) => n.anchor.stable_id === id);
+  const picked = byId('idcheck-mykad');
+  assert.equal(picked.comment, 'MyKad only (recommended)\nbut only for foreign staff');
+  assert.deepEqual(picked.choice, { group: 'Which ID check?', group_id: 'decision-id', option: 'MyKad only (recommended)', option_id: 'idcheck-mykad', text: 'but only for foreign staff' });
+  assert.equal(picked.intent, 'looks-good');
+  const keys = Object.keys(picked);
+  assert.equal(keys.indexOf('choice'), keys.indexOf('comment') + 1, 'the words come right after the comment');
+  const alone = byId('decision-region');
+  assert.equal(alone.comment, 'Neither: Thailand first.');
+  assert.deepEqual(alone.choice, { group: 'Which region first?', group_id: 'decision-region', option: null, option_id: null, text: 'Neither: Thailand first.' });
+  assert.equal(alone.kind, 'element');
+  assert.equal(alone.intent, undefined);
+  assert.ok(alone.anchor.source_line > 1);
+  const plain = byId('ship-yes');
+  assert.equal(plain.comment, 'Yes');
+  assert.equal('choice' in plain, false, 'no words: the note is as it always was');
+  assert.deepEqual(plain.anchor.control, { role: 'radio', name: 'Yes' });
+
+  // The text form says it too.
+  const text = await world.cli(['wait', file, '--after', '0']);
+  assert.match(text.stdout, /choice: option "MyKad only \(recommended\)" \(#idcheck-mykad\) on "Which ID check\?" \(#decision-id\)/);
+  assert.match(text.stdout, /own words: "but only for foreign staff"/);
+  assert.match(text.stdout, /choice: no option picked on "Which region first\?" \(#decision-region\)/);
+
+  // Removing a queued note empties its field.
+  await field('decision-region').fill('Thailand, then Vietnam.');
+  await page.waitForFunction(() => document.querySelectorAll('.note.queued.suggested').length === 1);
+  await page.click('.note.queued.suggested button.remove');
+  await frame().waitForFunction(() => document.querySelector('#decision-region vivamark-field').shadowRoot.querySelector('textarea').value === '');
+
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});
+
+test('own words: the field fits a styled page at desktop and phone width, in light and dark', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'example-plan.html');
+  fs.copyFileSync(path.join(ROOT, 'examples', 'plan.html'), file);
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { page, offLoopback, problems, frame } = await reviewPage(JSON.parse(opened.stdout).url);
+  const doc = page.frameLocator('#page');
+  const card = doc.locator('#decision-placement');
+  const field = card.locator('vivamark-field textarea');
+  await field.waitFor();
+  assert.equal(await doc.locator('vivamark-field').count(), await doc.locator('[role=radiogroup]').count(), 'one field per decision');
+  await card.locator('input[type=radio]').nth(1).check();
+  await field.fill('Yes, but keep it behind a flag for the first week.');
+  await page.waitForFunction(() => document.querySelector('.note.queued.suggested p.comment')?.textContent.endsWith('first week.'));
+  const colors = {};
+  for (const run of [
+    { name: 'desktop-light', width: 1360, height: 900, scheme: 'light' },
+    { name: 'desktop-dark', width: 1360, height: 900, scheme: 'dark' },
+    { name: 'phone-light', width: 390, height: 844, scheme: 'light' },
+    { name: 'phone-dark', width: 390, height: 844, scheme: 'dark' },
+  ]) {
+    await page.setViewportSize({ width: run.width, height: run.height });
+    await page.emulateMedia({ colorScheme: run.scheme });
+    await card.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await frame().evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const m = await frame().evaluate(() => {
+      const c = document.getElementById('decision-placement').getBoundingClientRect();
+      const ta = document.querySelector('#decision-placement vivamark-field').shadowRoot.querySelector('textarea');
+      const f = ta.getBoundingClientRect();
+      return { inCard: f.left >= c.left - 0.5 && f.right <= c.right + 0.5, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth, color: getComputedStyle(ta).color };
+    });
+    assert.ok(m.inCard, `${run.name}: the field stays inside its card`);
+    assert.equal(m.sideways, false, `${run.name}: the page does not scroll sideways`);
+    colors[run.scheme] = m.color;
+    if (process.env.VIVAMARK_SCREENSHOT_DIR) {
+      await page.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, `own-words-${run.name}.png`) });
+      await card.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, `own-words-card-${run.name}.png`) });
+    }
+  }
+  assert.notEqual(colors.light, colors.dark, 'the field takes its colour from the page, light or dark');
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
 });
 
 test('End review on the page ends the review: the agent is told and the page takes nothing more', { timeout: 60_000 }, async (t) => {

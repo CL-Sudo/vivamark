@@ -10,7 +10,9 @@
 // log of their own (F7), `anchor.cell`, `control` and `point` (F8),
 // images in `note.attachments`, which was always there and always empty before,
 // and other files there too: an attachment with mime application/octet-stream
-// and no width or height, and an optional `name` on every attachment.
+// and no width or height, and an optional `name` on every attachment, and
+// `note.choice`: the reviewer's own words on a decision, apart from the
+// option's label.
 // Version history (VersionEntry) is a log of its own, per reviewed file.
 // Readers must ignore fields they do not know.
 
@@ -94,10 +96,29 @@ export interface FileAttachment {
 
 export const ATTACHMENT_ID = /^[0-9a-f]{64}$/;
 
+/**
+ * The reviewer's own words on a decision, typed in the field vivamark adds
+ * under every decision group (a role=radiogroup of radios marked
+ * data-vivamark-suggest). Present only when they typed something. `group` is
+ * the decision's name and `group_id` its stable id (the group or the card
+ * around it); `option` and `option_id` are the option picked, both null when
+ * the words came with no option. `text` is the words alone, as typed: the
+ * note's comment carries the option's label first, then these words.
+ */
+export interface Choice {
+  group: string;
+  group_id: string | null;
+  option: string | null;
+  option_id: string | null;
+  text: string;
+}
+
 export interface Note {
   id: string;
   kind: NoteKind;
   comment: string;
+  /** The reviewer's own words on a decision, apart from the option's label. */
+  choice?: Choice;
   intent?: Intent;
   severity?: Severity;
   /** W3C Web Annotation motivation, derived from the intent. */
@@ -257,6 +278,7 @@ export const SOURCE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,39}$/;
 export interface DraftNote {
   kind: NoteKind;
   comment: string;
+  choice?: Choice;
   intent?: Intent;
   severity?: Severity;
   answers?: string;
@@ -279,6 +301,8 @@ export const LIMITS = {
   endMessage: 2_000,
   attachmentsPerNote: 20,
   attachmentName: 200,
+  /** The reviewer's own words on one decision. */
+  choiceText: 4_000,
 };
 
 /**
@@ -348,6 +372,24 @@ function parseNames(ar: Record<string, unknown>): Pick<Anchor, 'cell' | 'control
   return out;
 }
 
+/** The reviewer's own words on a decision; an error message for a malformed one. */
+function parseChoice(v: unknown): Choice | string {
+  const c = plainObject(v);
+  if (!c) return 'note.choice must be an object';
+  const text = typeof c.text === 'string' ? c.text.trim() : '';
+  if (!text) return 'note.choice.text is required';
+  if (text.length > LIMITS.choiceText) return `note.choice.text is longer than ${LIMITS.choiceText} characters`;
+  const option = c.option === null || c.option === undefined ? null : str(c.option, LIMITS.text);
+  if (option === undefined) return 'note.choice.option must be a string or null';
+  return {
+    group: str(c.group, LIMITS.text) ?? '',
+    group_id: str(c.group_id, LIMITS.context) || null,
+    option: option || null,
+    option_id: option ? str(c.option_id, LIMITS.context) || null : null,
+    text,
+  };
+}
+
 /** Validates one note from the review UI. Returns an error message for bad input. */
 export function parseDraft(input: unknown): DraftNote | string {
   if (!input || typeof input !== 'object') return 'note must be an object';
@@ -357,7 +399,13 @@ export function parseDraft(input: unknown): DraftNote | string {
   const comment = typeof x.comment === 'string' ? x.comment.trim() : '';
   if (!comment) return 'note.comment is required';
   if (comment.length > LIMITS.comment) return `note.comment is longer than ${LIMITS.comment} characters`;
-  const tags: Pick<DraftNote, 'intent' | 'severity' | 'answers' | 'endorses' | 'replies_to' | 'attachments'> = {};
+  const tags: Pick<DraftNote, 'choice' | 'intent' | 'severity' | 'answers' | 'endorses' | 'replies_to' | 'attachments'> = {};
+  if (x.choice !== undefined && x.choice !== null) {
+    if (kind !== 'element') return 'note.choice belongs on an element note';
+    const choice = parseChoice(x.choice);
+    if (typeof choice === 'string') return choice;
+    tags.choice = choice;
+  }
   if (x.intent !== undefined && x.intent !== null) {
     if (!(INTENTS as readonly unknown[]).includes(x.intent)) return `note.intent must be one of ${INTENTS.join(', ')}`;
     tags.intent = x.intent as Intent;
