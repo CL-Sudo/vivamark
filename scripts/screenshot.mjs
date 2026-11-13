@@ -7,11 +7,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
-import { makeWorld, ROOT } from '../test/helpers/harness.mjs';
+import { browserUrl, makeWorld, ROOT } from '../test/helpers/harness.mjs';
 
 const outDir = process.argv[2] ?? path.join(ROOT, 'docs', 'screenshots');
 const original = fs.readFileSync(path.join(ROOT, 'examples', 'plan.html'), 'utf8');
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.VIVAMARK_CHROME || undefined });
 try {
   await shoot('review-ui.png', { width: 1280, height: 800 }, reviewUi);
   await shoot('attach-answer.png', { width: 1360, height: 860 }, attachAnswer);
@@ -28,7 +28,7 @@ async function shoot(name, viewport, scene) {
     const opened = JSON.parse((await world.cli(['open', file, '--no-browser', '--json'])).stdout);
     const page = await browser.newPage({ viewport });
     await page.route('**/*', (r) => (['127.0.0.1', 'localhost'].includes(new URL(r.request().url()).hostname) ? r.continue() : r.abort()));
-    await page.goto(opened.url);
+    await page.goto(browserUrl(opened.url));
     const doc = page.frameLocator('#page');
     await doc.locator('#step-2').waitFor();
     await scene(page, doc, world, file);

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { WebSocket } from 'ws';
-import { ELEMENT_NOTE, FIXTURE, api, makeWorld, startCli } from './helpers/harness.mjs';
+import { browserUrl, ELEMENT_NOTE, FIXTURE, api, makeWorld, startCli } from './helpers/harness.mjs';
 
 let chromium;
 try {
@@ -25,7 +25,7 @@ before(async () => {
   world = makeWorld({ guardEgress: true });
   if (!chromium) return;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, executablePath: process.env.VIVAMARK_CHROME || undefined });
   } catch (err) {
     launchError = err;
   }
@@ -354,7 +354,7 @@ test('review page: the Versions picker shows an earlier version read-only, compa
   await page.route('**/*', (route) => (['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort()));
   page.on('pageerror', (err) => problems.push(err.message));
   try {
-    await page.goto(s.out.url);
+    await page.goto(browserUrl(s.out.url));
     const frame = () => page.frames().find((f) => /\/(a|v)\//.test(f.url()));
     await page.frameLocator('#page').locator('#step-2').waitFor();
     fs.writeFileSync(s.file, original.replace('Applet scaffold, save handler and container page.', 'Applet scaffold and container page.'));

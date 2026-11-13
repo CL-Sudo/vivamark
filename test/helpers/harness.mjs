@@ -19,6 +19,16 @@ export const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plan.html');
 export const EGRESS_GUARD = path.join(ROOT, 'test', 'helpers', 'egress-guard.mjs');
 
 /** A fresh state directory and a copy of the fixture page, both under the OS temp dir. */
+/**
+ * The address a test browser opens. A Chrome started through VIVAMARK_CHROME
+ * may be a wrapper that lets the browser resolve only "localhost" (every other
+ * name, a loopback IP literal included, fails); the server listens on both
+ * loopback addresses, so the same review is reached by that name.
+ */
+export function browserUrl(url) {
+  return process.env.VIVAMARK_CHROME ? url.replace(/^http:\/\/127\.0\.0\.1:/, 'http://localhost:') : url;
+}
+
 export function makeWorld({ guardEgress = false } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vivamark-test-'));
   const stateDir = path.join(base, 'state');
