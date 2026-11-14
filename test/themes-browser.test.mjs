@@ -85,6 +85,13 @@ function copyReport(name) {
   return file;
 }
 
+/** A CLI step that must succeed; its stderr says why when it does not. */
+async function ok(run) {
+  const r = await run;
+  assert.equal(r.code, 0, r.stderr);
+  return r;
+}
+
 async function point(page, locator) {
   await page.click('#point');
   await locator.click();
@@ -279,9 +286,9 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
   await page.click('#add');
   await page.click('#send');
   await page.waitForSelector('.note[data-status="open"]');
-  for (const r of [await world.cli(['reply', file, '--note', 'n_0001', '--status', 'addressed', '-m', 'Named it.'])]) assert.equal(r.code, 0, r.stderr);
-  for (const r of [await world.cli(['reply', file, '--note', 'n_0002', '--status', 'question', '-m', 'Start at 00:00?'])]) assert.equal(r.code, 0, r.stderr);
-  for (const r of [await world.cli(['note', 'add', file, '--target', '#finding-speed', '--text', 'Checked the logs.', '--source', 'agent'])]) assert.equal(r.code, 0, r.stderr);
+  await ok(world.cli(['reply', file, '--note', 'n_0001', '--status', 'addressed', '-m', 'Named it.']));
+  await ok(world.cli(['reply', file, '--note', 'n_0002', '--status', 'question', '-m', 'Start at 00:00?']));
+  await ok(world.cli(['note', 'add', file, '--target', '#finding-speed', '--text', 'Checked the logs.', '--source', 'agent']));
   await page.waitForSelector('.note-reply.question');
   await page.waitForSelector('.note.agent');
   await point(page, doc.locator('#finding-steps'));
