@@ -1,0 +1,209 @@
+/* Sticker: a friendly conversation. The panel is a chat thread: your notes
+   are purple bubbles on the right, each with a chip naming its target; the
+   agent's replies are bubbles on the left with a sticker for the status
+   ("Done!", "Question"); the agent has a face that shows whether it is
+   listening, and blinks while it does. The composer is a message box with a
+   labelled Send. Bricolage Grotesque. */
+:root[data-theme="sticker"] {
+  --bg: #f4f1ff;
+  --bar-bg: #f4f1ff;
+  --bar-fg: #2b2340;
+  --bar-line: 0 solid transparent;
+  --blur: none;
+  --side-bg: #f4f1ff;
+  --side-line: 0 solid transparent;
+  --side-pad: 6px 14px 14px 0;
+  --side-width: 380px;
+  --stage-pad: 0 14px 14px;
+  --frame-bg: #ffffff;
+  --frame-line: 2px solid #e3dcff;
+  --frame-radius: 20px;
+  --frame-shadow: none;
+  --card: #ffffff;
+  --card-solid: #ffffff;
+  --card-line: #e3dcff;
+  --card-bw: 2px;
+  --r: 16px;
+  --r-sm: 12px;
+  --shadow: none;
+  --queued-bg: #ffffff;
+  --queued-line: #6a48f0;
+  --fg: #2b2340;
+  --fg2: #2b2340;
+  --muted: #5d5575;
+  --line: #e3dcff;
+  --accent: #6a48f0;
+  --accent-strong: #5a3fd6;
+  --accent-soft: #efeaff;
+  --on-accent: #ffffff;
+  --chip: #efeaff;
+  --chip-fg: #4a33b8;
+  --mark: #fff0e4;
+  --mark-fg: #9a430a;
+  --ok: #1d7a62;
+  --ok-fg: #17634f;
+  --ok-soft: #d4f7ec;
+  --ok-line: #1d7a62;
+  --q: #9a430a;
+  --q-fg: #9a430a;
+  --q-soft: #fff0e4;
+  --q-line: #ff8a3d;
+  --bad-fg: #a3124f;
+  --bad-soft: #fff0f5;
+  --bad-line: #ff8ab8;
+  --warn-fg: #9a430a;
+  --warn-soft: #fff0e4;
+  --agent-bg: #ffffff;
+  --agent-line: #e3dcff;
+  --reply-bg: #ffffff;
+  --reply-line: #e3dcff;
+  --reply-fg: #2b2340;
+  --reply-head: #4a33b8;
+  --btn-bg: #ffffff;
+  --btn-hover: #f8f6ff;
+  --btn-fg: #2b2340;
+  --btn-line: #e3dcff;
+  --btn-bw: 2px;
+  --btn-radius: 999px;
+  --btn-shadow: none;
+  --primary-bg: #6a48f0;
+  --primary-hover: #5a3fd6;
+  --primary-fg: #ffffff;
+  --primary-line: #6a48f0;
+  --primary-shadow: none;
+  --approve-bg: #7be0c3;
+  --approve-fg: #2b2340;
+  --approve-line: #2b2340;
+  --pressed-bg: #6a48f0;
+  --pressed-fg: #ffffff;
+  --pressed-line: #6a48f0;
+  --input-bg: transparent;
+  --input-line: transparent;
+  --input-shadow: none;
+  --input-focus: none;
+  --focus: #2b2340;
+  --focus-w: 3px;
+  --num-bg: #ffd84d;
+  --num-fg: #2b2340;
+  --ui: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --fs: 14px;
+
+  --mk-font: 700 11.5px/1 "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --mk-pin-bg: #ffd84d;
+  --mk-pin-fg: #2b2340;
+  --mk-pin-border: 2px solid #2b2340;
+  --mk-pin-radius: 999px;
+  --mk-pin-shadow: none;
+  --mk-pin-queued-bg: #ffffff;
+  --mk-pin-queued-fg: #2b2340;
+  --mk-pin-queued-border: 2px dashed #6a48f0;
+  --mk-pin-agent-bg: #efeaff;
+  --mk-pin-agent-fg: #2b2340;
+  --mk-pin-agent-border: 2px dotted #6a48f0;
+  --mk-pin-done-bg: #7be0c3;
+  --mk-pin-done-fg: #2b2340;
+  --mk-pin-done-border: 2px solid #2b2340;
+  --mk-pin-ask-bg: #ffb27d;
+  --mk-pin-ask-fg: #2b2340;
+  --mk-pin-ask-border: 2px solid #2b2340;
+  --mk-target-line: 3px dashed #ff8a3d;
+  --mk-target-line-queued: 3px dashed #6a48f0;
+  --mk-target-line-agent: 3px dotted #6a48f0;
+  --mk-target-offset: 2px;
+  --mk-target-radius: 8px;
+  --mk-target-bg: rgba(255, 138, 61, .06);
+  --mk-target-bg-agent: rgba(106, 72, 240, .05);
+  --mk-target-shadow: none;
+  --mk-text-bg: rgba(255, 216, 77, .45);
+  --mk-text-bg-agent: rgba(106, 72, 240, .14);
+  --mk-text-line: none;
+  --mk-hover-line: 3px dashed #ff8a3d;
+  --mk-hover-bg: rgba(255, 138, 61, .08);
+  --mk-insert-bg: rgba(123, 224, 195, .45);
+  --mk-insert-line: 0 solid transparent;
+  --mk-removal-fg: #a3124f;
+  --mk-removal-bg: #fff0f5;
+  --mk-removal-border: 2px solid #ff8ab8;
+  --mk-thread: #6a48f0;
+}
+[data-theme="sticker"] .bar { padding: 10px 14px; gap: 6px 12px; }
+[data-theme="sticker"] .brand { font-weight: 800; font-size: 16px; }
+[data-theme="sticker"] .logo { background: #7b61ff; box-shadow: none; }
+[data-theme="sticker"] .chip { background: #ffd84d; color: #2b2340; font-weight: 700; }
+[data-theme="sticker"] .toggle, [data-theme="sticker"] .theme-pick select { font-weight: 700; }
+[data-theme="sticker"] .turn { background: #ffd84d; color: #2b2340; }
+[data-theme="sticker"] .turn[data-turn="agent"] { background: #efeaff; color: #4a33b8; }
+/* The agent says where it is through its face, below, as well as here in words. */
+[data-theme="sticker"] .presence { display: none; }
+[data-theme="sticker"] .side { gap: 8px; }
+[data-theme="sticker"] .who { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+[data-theme="sticker"] .who-text b { display: block; font-size: 15px; }
+[data-theme="sticker"] .who-text small { display: block; font-weight: 600; font-size: 12px; color: #5d5575; }
+[data-theme="sticker"] .who[data-state="listening"] .who-text small { color: #17634f; }
+[data-theme="sticker"] .face { position: relative; display: inline-block; flex: none; width: 34px; height: 34px; border-radius: 50%; background: #9b94b3; border: 2px solid #2b2340; }
+[data-theme="sticker"] .who[data-state="listening"] .face { background: #7b61ff; }
+[data-theme="sticker"] .face i { position: absolute; top: 11px; width: 5px; height: 8px; border-radius: 3px; background: #ffffff; transform: scaleY(.25); }
+[data-theme="sticker"] .face i:first-child { left: 9px; }
+[data-theme="sticker"] .face i:last-child { right: 9px; }
+[data-theme="sticker"] .who[data-state="listening"] .face i { transform: none; }
+[data-theme="sticker"] .side-title { font-size: 12px; color: #5d5575; }
+[data-theme="sticker"] .count { background: #ffffff; color: #2b2340; border: 2px solid #e3dcff; }
+[data-theme="sticker"] .thread { gap: 10px; padding: 4px 4px 4px 2px; }
+/* Your notes: bubbles on the right, the target named in a chip above. */
+[data-theme="sticker"] .note { display: flex; flex-direction: column; align-items: flex-end; background: transparent; border: 0; padding: 0; box-shadow: none; }
+[data-theme="sticker"] .note-head { max-width: 92%; gap: 6px; margin-bottom: 3px; font-size: 11.5px; }
+[data-theme="sticker"] .num { width: 20px; height: 20px; font-size: 11px; font-weight: 700; border: 2px solid #2b2340; transform: rotate(-8deg); }
+[data-theme="sticker"] .note.queued .num { background: #ffffff; color: #2b2340; border: 2px dashed #6a48f0; }
+[data-theme="sticker"] .kind { display: none; }
+[data-theme="sticker"] .note .where { font-size: 11.5px; font-weight: 700; color: #4a33b8; background: #efeaff; border-radius: 999px; padding: 0 8px; }
+[data-theme="sticker"] .note .where::before { content: "on "; font-weight: 600; }
+[data-theme="sticker"] .note-head .state { margin-left: 0; font-size: 11.5px; font-weight: 700; }
+[data-theme="sticker"] .note-tags { justify-content: flex-end; }
+[data-theme="sticker"] .note p.comment { max-width: 88%; padding: 7px 12px; border-radius: 16px 16px 5px 16px; background: #6a48f0; color: #ffffff; }
+[data-theme="sticker"] .note.queued p.comment { background: #ffffff; color: #2b2340; border: 2px dashed #6a48f0; }
+[data-theme="sticker"] .note.queued.suggested { background: transparent; border: 0; }
+[data-theme="sticker"] .note.queued:focus-visible { outline-offset: 4px; border-radius: 16px; }
+[data-theme="sticker"] .note[data-status="resolved"] p.comment { background: #ddd5ff; color: #2b2340; }
+[data-theme="sticker"] .thumbs { justify-content: flex-end; }
+/* The agent's answers: bubbles on the left, with a sticker for the status. */
+[data-theme="sticker"] .note-reply { position: relative; align-self: flex-start; max-width: 88%; margin-top: 14px; padding: 10px 12px 7px; background: #ffffff; border: 2px solid #e3dcff; border-radius: 16px 16px 16px 5px; color: #2b2340; font-size: 13.5px; }
+[data-theme="sticker"] .note-reply.question, [data-theme="sticker"] .note-reply.addressed { background: #ffffff; }
+[data-theme="sticker"] .note-reply .reply-head { display: none; }
+[data-theme="sticker"] .sticker { display: inline-block; position: absolute; right: 10px; top: -12px; padding: 1px 8px; border-radius: 8px; border: 2px solid #2b2340; background: #efeaff; color: #2b2340; font-size: 11px; font-weight: 700; transform: rotate(6deg); }
+[data-theme="sticker"] .note-reply.addressed .sticker { background: #7be0c3; }
+[data-theme="sticker"] .note-reply.question .sticker { background: #ffb27d; }
+[data-theme="sticker"] .note-reply.declined .sticker { background: #ffc7dc; }
+[data-theme="sticker"] .note-actions { align-self: flex-start; margin-top: 4px; }
+[data-theme="sticker"] .btn.small { padding: 2px 10px; font-size: 12px; }
+[data-theme="sticker"] .btn.small.answer { background: #ffb27d; color: #2b2340; border-color: #2b2340; }
+/* Notes from the agent, and its replies to the whole page, sit on its side. */
+[data-theme="sticker"] .note.agent { align-items: flex-start; }
+[data-theme="sticker"] .note.agent p.comment { background: #ffffff; color: #2b2340; border: 2px dotted #6a48f0; border-radius: 16px 16px 16px 5px; }
+[data-theme="sticker"] .num.agent { transform: none; border-radius: 999px; }
+[data-theme="sticker"] .kind.source { display: inline; background: transparent; padding: 0; color: #4a33b8; }
+[data-theme="sticker"] .reply { align-self: flex-start; max-width: 88%; border-radius: 16px 16px 16px 5px; border-width: 2px; }
+[data-theme="sticker"] .decision { align-self: center; background: #ffffff; border: 2px solid #e3dcff; color: #2b2340; }
+[data-theme="sticker"] .decision.approve, [data-theme="sticker"] .decision.approve-with-notes { background: #7be0c3; border-color: #2b2340; color: #2b2340; transform: rotate(-1.5deg); }
+/* The message box. */
+[data-theme="sticker"] .composer { gap: 6px; background: #ffffff; border: 2px solid #6a48f0; border-radius: 20px; padding: 8px 10px 8px 12px; }
+[data-theme="sticker"] .target-label { display: none; }
+[data-theme="sticker"] .target-text { font-size: 11.5px; font-weight: 700; color: #9a430a; background: #fff0e4; }
+[data-theme="sticker"] .target-text::before { content: "on "; font-weight: 600; }
+[data-theme="sticker"] textarea { padding: 4px 2px; min-height: 48px; border: 0; }
+[data-theme="sticker"] textarea:focus { box-shadow: none; }
+[data-theme="sticker"] .btn { font-weight: 700; font-size: 13px; padding: 6px 12px; }
+[data-theme="sticker"] .btn.primary { padding-left: 30px; background: #6a48f0 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 11.5 21 3l-7.5 18-2.7-7.2L3 11.5Z' fill='%23ffffff'/%3E%3C/svg%3E") no-repeat 11px 50% / 13px 13px; }
+[data-theme="sticker"] .decide { margin-top: 2px; }
+[data-theme="sticker"] .btn.quiet { font-size: 12px; color: #5d5575; }
+[data-theme="sticker"] .btn.ok { border-width: 2px; transform: rotate(-1.5deg); }
+[data-theme="sticker"] .btn.ok:active:not(:disabled) { transform: rotate(-1.5deg) translateY(1px); }
+@media (prefers-reduced-motion: no-preference) {
+  /* The agent blinks while it listens; a sticker pops in with a small overshoot. */
+  [data-theme="sticker"] .who[data-state="listening"] .face i { animation: sticker-blink 4s infinite; }
+  [data-theme="sticker"] .note-reply.fresh .sticker { animation: sticker-pop .32s cubic-bezier(.34, 1.56, .64, 1); }
+  @keyframes sticker-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+  @keyframes sticker-pop { from { transform: rotate(6deg) scale(.2); opacity: 0; } }
+}
+@media (max-width: 860px) {
+  [data-theme="sticker"] .side { padding: 8px 12px 12px; }
+}
