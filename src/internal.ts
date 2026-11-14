@@ -14,3 +14,4 @@ export { GUIDE_SCHEMA, PAGE_CSS, TOPICS, guideIndex, skillMarkdown } from './gui
 export { browserCommands, browserEntry, defaultBrowser, openBrowser, splitBrowserList } from './browser.js';
 export { lintPage, lintExitCode, pageFigures, renderLint, renderFigures, LINT_SCHEMA, FIGURES_SCHEMA } from './lint.js';
 export { chromeArgs, findChrome, isWsl, renderPage, renderExitCode, defaultOutDir, CHROME_NAMES, RENDER_SCHEMA, RESOLVER_CHECK_HOST, RenderError } from './render.js';
+export { PAGE_TOKENS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, contrast, pageContrastFailures } from './ui/page-tokens.js';

@@ -1,6 +1,7 @@
 // Themes without a browser: which theme a review page starts in, the fonts
 // the themes use (bundled, licensed, served by the daemon and nothing else),
-// and the marks in the agent's page drawn from theme tokens only.
+// the marks in the agent's page drawn from theme tokens only, and the page
+// tokens each theme offers the page (complete, opaque, at the floor).
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,7 +10,9 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { api, makeWorld, openSession, ROOT } from './helpers/harness.mjs';
 
-const { DEFAULT_THEME, MARK_TOKENS, THEMES, themeConfig } = await import(path.join(ROOT, 'dist', 'internal.js'));
+const { DEFAULT_THEME, MARK_TOKENS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, THEMES, contrast, pageContrastFailures, themeConfig } = await import(
+  path.join(ROOT, 'dist', 'internal.js'),
+);
 
 let world;
 before(() => {
@@ -116,5 +119,79 @@ test('the marks in the page are drawn from theme tokens only, and every theme se
     assert.ok(css.includes(`:root[data-theme="${t.id}"]`), `${t.id}.css is scoped to its theme`);
     for (const name of MARK_TOKENS) assert.ok(css.includes(`${name}:`), `${t.id}.css sets ${name}`);
     assert.doesNotMatch(css, /url\(\s*["']?(https?:)?\/\//, `${t.id}.css fetches nothing`);
+  }
+});
+
+test('every theme offers the page the same small set of page tokens, its colours opaque and at the floor', () => {
+  assert.ok(PAGE_TOKENS.length <= 24, 'a small set');
+  assert.ok(PAGE_TOKENS.every((n) => n.startsWith('--vivamark-')), 'one prefix, unlikely to be a page\'s own');
+  assert.deepEqual(Object.keys(PAGE_THEMES).sort(), THEMES.map((t) => t.id).sort());
+  // The contrast helper itself, on known pairs.
+  assert.equal(contrast('#000000', '#ffffff').toFixed(1), '21.0');
+  assert.equal(contrast('#777777', '#ffffff').toFixed(2), '4.48');
+  for (const t of THEMES) {
+    const tokens = PAGE_THEMES[t.id];
+    assert.deepEqual(Object.keys(tokens), [...PAGE_TOKENS], `${t.id} sets every page token, in order`);
+    for (const name of PAGE_COLOURS) assert.match(tokens[name], /^#[0-9a-f]{6}$/, `${t.id} ${name} is an opaque colour`);
+    assert.equal(tokens['--vivamark-scheme'], 'light', `${t.id} is a light theme`);
+    assert.match(tokens['--vivamark-radius'], /^\d+px$/);
+    assert.doesNotMatch(Object.values(tokens).join(' '), /url\(|[;{}<>\\]/, `${t.id}: plain values, nothing to fetch`);
+    assert.deepEqual(pageContrastFailures(tokens), [], `${t.id}: every pair a page may use at 4.5:1`);
+  }
+  // Each theme reads as itself: no two share background, text and accent.
+  const looks = new Set(THEMES.map((t) => ['bg', 'text', 'accent'].map((k) => PAGE_THEMES[t.id][`--vivamark-${k}`]).join()));
+  assert.equal(looks.size, THEMES.length);
+});
+
+test('the page tokens\' fonts are bundled faces under names of their own, the theme\'s own face first', () => {
+  const dir = path.join(ROOT, 'src', 'ui', 'fonts');
+  const fontsCss = fs.readFileSync(path.join(ROOT, 'src', 'ui', 'fonts.css'), 'utf8');
+  for (const f of PAGE_FACES) {
+    assert.ok(fs.existsSync(path.join(dir, f.file)), `${f.file} is bundled`);
+    assert.match(f.family, /^vivamark /, 'never the plain name a page might use for a font of its own');
+    // The same face and weights as the review page's own @font-face.
+    const plain = f.family.replace(/^vivamark /, '');
+    assert.ok(fontsCss.includes(`font-family: "${plain}"; src: url("/_vivamark/fonts/${f.file}") format("woff2"); font-weight: ${f.weight};`), `${f.file} as in fonts.css`);
+  }
+  const families = new Set(PAGE_FACES.map((f) => f.family));
+  for (const t of THEMES) {
+    const css = t.id === 'smooth-glass' ? fs.readFileSync(path.join(ROOT, 'src', 'ui', 'chrome.css'), 'utf8') : fs.readFileSync(path.join(ROOT, 'src', 'ui', 'themes', `${t.id}.css`), 'utf8');
+    const ui = /--ui: ([^;]+);/.exec(css)[1];
+    const display = /--display: ([^;]+);/.exec(css)?.[1];
+    for (const name of ['--vivamark-font-body', '--vivamark-font-heading']) {
+      const first = PAGE_THEMES[t.id][name].split(',')[0].trim().replace(/"/g, '');
+      if (t.id === 'smooth-glass') {
+        assert.equal(first, 'Inter', 'Smooth glass, like its review page, has no bundled face');
+        continue;
+      }
+      assert.ok(families.has(first), `${t.id} ${name}: ${first} is a bundled face`);
+      const chromeFace = (name === '--vivamark-font-heading' && display && !display.startsWith('var(') ? display : ui).split(',')[0].trim().replace(/"/g, '');
+      assert.equal(first, `vivamark ${chromeFace}`, `${t.id} ${name}: the face its review page uses`);
+    }
+  }
+});
+
+test('the agent\'s page is served with the reviewer\'s theme for its page tokens, and may use the bundled fonts, nothing more', async () => {
+  const other = makeWorld({ guardEgress: true });
+  try {
+    const s = await openSession(other);
+    const base = `/a/${s.id}/${s.record.artifact_key}/${path.basename(other.page)}`;
+    const tag = (text) => /<script src="\/_vivamark\/sdk\.js"[^>]*><\/script>/.exec(text)?.[0];
+    const served = await api(s.port, 'GET', `${base}?vmload=abc&vmtheme=riso`);
+    assert.equal(served.status, 200);
+    assert.equal(tag(served.text), '<script src="/_vivamark/sdk.js" data-vivamark-load="abc" data-vivamark-theme="riso"></script>');
+    assert.equal((served.text.match(/<script/g) ?? []).length - (fs.readFileSync(other.page, 'utf8').match(/<script/g) ?? []).length, 1, 'still exactly one script tag added');
+    // No theme, or one that is not a theme: the server's default, never the text as given.
+    for (const q of ['', '&vmtheme=neon', '&vmtheme=%22%3E%3Cscript%3E']) {
+      const r = await api(s.port, 'GET', `${base}?vmload=abc${q}`);
+      assert.match(tag(r.text), / data-vivamark-theme="gumdrop"><\/script>$/, q);
+    }
+    // Fonts answer a frame of opaque origin, and only fonts do.
+    const font = await api(s.port, 'GET', '/_vivamark/fonts/lexend.woff2');
+    assert.equal(font.headers['access-control-allow-origin'], 'null');
+    for (const p of ['/_vivamark/sdk.js', `/s/${s.id}`, base]) assert.equal((await api(s.port, 'GET', p)).headers['access-control-allow-origin'], undefined, p);
+    assert.deepEqual(other.egress(), []);
+  } finally {
+    await other.cleanup();
   }
 });

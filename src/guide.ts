@@ -20,50 +20,53 @@ export interface GuideTopic {
  * review page should make no outbound requests. The base matches
  * src/ui/chrome.css; the visual classes (.viz and the rest) are for pages only.
  */
-export const PAGE_CSS = `/* vivamark "Smooth glass" page style (vivamark guide design). Fetches nothing. */
+export const PAGE_CSS = `/* vivamark "Smooth glass" page style (vivamark guide design). Fetches nothing.
+   Each colour and font follows the reviewer's theme in vivamark (the --vivamark-* page tokens);
+   the value after the comma is the page's own, used when it is opened anywhere else. */
 :root {
-  color-scheme: light dark;
-  --bg: #f7fbff;
-  --bg-tint: linear-gradient(135deg, #f6faff, #ffffff 45%, #f3f8ff);
-  --panel: rgba(255, 255, 255, .85);
-  --fg: #0b1324;
-  --fg2: #33415c;
-  --muted: #7083a3;
-  --line: rgba(15, 40, 90, .08);
-  --accent: #0ea5e9;
-  --accent-strong: #0369a1;
-  --accent-soft: rgba(14, 165, 233, .08);
-  --ok: #047857; --ok-soft: rgba(16, 185, 129, .1);
-  --warn: #b45309; --warn-soft: rgba(245, 158, 11, .12);
-  --bad: #be123c; --bad-soft: rgba(244, 63, 94, .08);
-  --q: #6d28d9; --q-soft: rgba(139, 92, 246, .1);
-  --shadow: 0 8px 30px rgba(14, 60, 120, .06);
-  --r: 16px; --r-sm: 10px;
+  color-scheme: var(--vivamark-scheme, light dark);
+  --bg: var(--vivamark-bg, #f7fbff);
+  --bg-tint: var(--vivamark-bg, linear-gradient(135deg, #f6faff, #ffffff 45%, #f3f8ff));
+  --panel: var(--vivamark-surface, rgba(255, 255, 255, .85));
+  --fg: var(--vivamark-text, #0b1324);
+  --fg2: var(--vivamark-text, #33415c);
+  --muted: var(--vivamark-muted, #7083a3);
+  --line: var(--vivamark-border, rgba(15, 40, 90, .08));
+  --accent: var(--vivamark-accent, #0ea5e9);
+  --accent-strong: var(--vivamark-accent, #0369a1);
+  --accent-soft: var(--vivamark-accent-bg, rgba(14, 165, 233, .08));
+  --ok: var(--vivamark-ok, #047857); --ok-soft: var(--vivamark-ok-bg, rgba(16, 185, 129, .1));
+  --warn: var(--vivamark-warn, #b45309); --warn-soft: var(--vivamark-warn-bg, rgba(245, 158, 11, .12));
+  --bad: var(--vivamark-bad, #be123c); --bad-soft: var(--vivamark-bad-bg, rgba(244, 63, 94, .08));
+  --q: var(--vivamark-ask, #6d28d9); --q-soft: var(--vivamark-ask-bg, rgba(139, 92, 246, .1));
+  --shadow: var(--vivamark-shadow, 0 8px 30px rgba(14, 60, 120, .06));
+  --r: var(--vivamark-radius, 16px); --r-sm: calc(var(--r) * .625);
   --s1: 4px; --s2: 8px; --s3: 16px; --s4: 24px; --s5: 40px;
-  --ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ui: var(--vivamark-font-body, Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+  --display: var(--vivamark-font-heading, var(--ui));
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --measure: 46rem;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b1220;
-    --bg-tint: linear-gradient(135deg, #0b1220, #0f172a 45%, #0b1626);
-    --panel: rgba(30, 41, 59, .7);
-    --fg: #e6edf7; --fg2: #c1cce0; --muted: #8a9bb8;
-    --line: rgba(148, 180, 230, .14);
-    --accent: #38bdf8; --accent-strong: #7dd3fc; --accent-soft: rgba(56, 189, 248, .12);
-    --ok: #34d399; --ok-soft: rgba(52, 211, 153, .12);
-    --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .12);
-    --bad: #fb7185; --bad-soft: rgba(251, 113, 133, .12);
-    --q: #c4b5fd; --q-soft: rgba(167, 139, 250, .14);
-    --shadow: 0 8px 30px rgba(0, 0, 0, .3);
+    --bg: var(--vivamark-bg, #0b1220);
+    --bg-tint: var(--vivamark-bg, linear-gradient(135deg, #0b1220, #0f172a 45%, #0b1626));
+    --panel: var(--vivamark-surface, rgba(30, 41, 59, .7));
+    --fg: var(--vivamark-text, #e6edf7); --fg2: var(--vivamark-text, #c1cce0); --muted: var(--vivamark-muted, #8a9bb8);
+    --line: var(--vivamark-border, rgba(148, 180, 230, .14));
+    --accent: var(--vivamark-accent, #38bdf8); --accent-strong: var(--vivamark-accent, #7dd3fc); --accent-soft: var(--vivamark-accent-bg, rgba(56, 189, 248, .12));
+    --ok: var(--vivamark-ok, #34d399); --ok-soft: var(--vivamark-ok-bg, rgba(52, 211, 153, .12));
+    --warn: var(--vivamark-warn, #fbbf24); --warn-soft: var(--vivamark-warn-bg, rgba(251, 191, 36, .12));
+    --bad: var(--vivamark-bad, #fb7185); --bad-soft: var(--vivamark-bad-bg, rgba(251, 113, 133, .12));
+    --q: var(--vivamark-ask, #c4b5fd); --q-soft: var(--vivamark-ask-bg, rgba(167, 139, 250, .14));
+    --shadow: var(--vivamark-shadow, 0 8px 30px rgba(0, 0, 0, .3));
   }
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body { margin: 0; min-height: 100vh; background: var(--bg-tint); color: var(--fg2); font: 16px/1.6 var(--ui); -webkit-font-smoothing: antialiased; }
 main { max-width: var(--measure); margin: 0 auto; padding: var(--s5) var(--s3); }
-h1, h2, h3 { color: var(--fg); line-height: 1.25; }
+h1, h2, h3 { color: var(--fg); font-family: var(--display); line-height: 1.25; }
 h1 { font-size: 30px; margin: 0 0 var(--s2); }
 h2 { font-size: 20px; margin: var(--s5) 0 var(--s2); }
 h3 { font-size: 16px; margin: var(--s4) 0 var(--s2); }
@@ -220,19 +223,20 @@ Themes of the review page
   Theme in its bar: Gumdrop (the default), Raster, Raw, Pinboard, Signal,
   Sticker, Riso, Bauhaus and Smooth glass. Their default is set with
   VIVAMARK_THEME or "theme" in ~/.config/vivamark/config.json, read when the
-  server starts. A theme changes only how the review page and the marks on
-  your page look, never your page's own styles or what wait returns. Do not
-  style your page to suit one.
+  server starts. A theme changes how the review page and the marks on your
+  page look, and your page's colours and fonts only where your page reads
+  the page tokens (see: vivamark guide design); never what wait returns. Do
+  not style your page to suit one theme: use the tokens and it follows each.
 `;
 
 const DESIGN = `design: the Smooth glass look
 
 White, a faint sky tint, frosted panels, rounded pills, one sky-blue accent.
-This is the look of the page you write; the review page around it has its
-own themes, which the reviewer chooses (see: vivamark guide workflow).
-Paste the CSS below into a <style> element in the page's <head>, and wrap the
-content in <main>. It defines tokens (colour, type, spacing) for light and
-dark, and an explicit page background.
+This is the look of the page you write when it is opened on its own; in
+vivamark it takes the colours and fonts of the theme the reviewer chose
+(below). Paste the CSS below into a <style> element in the page's <head>, and
+wrap the content in <main>. It defines tokens (colour, type, spacing) for
+light and dark, and an explicit page background.
 
 No external URLs. Do not link web fonts, CDN stylesheets, scripts or remote
 images: a review page should make no outbound requests, and the reviewer may be
@@ -247,6 +251,23 @@ Layout rules
   - One idea per section, a heading per section, the conclusion first.
   - Colour carries meaning only with a word beside it (a .pill reading
     "Blocked", not a red dot alone).
+
+Following the reviewer's theme
+  vivamark gives the page the active theme as CSS custom properties on :root,
+  before the first paint and again on every switch, with no reload. The CSS
+  below already reads them. Page CSS of your own opts in the same way: read
+  each one with your own value after the comma, used anywhere else.
+    body { background: var(--vivamark-bg, #ffffff); color: var(--vivamark-text, #1f2937);
+           font-family: var(--vivamark-font-body, system-ui, sans-serif); }
+    .pill.bad { color: var(--vivamark-bad, #be123c); background: var(--vivamark-bad-bg, #fdedf0); }
+  A page that never reads them looks exactly as written. The tokens:
+    --vivamark-bg -surface -text -muted -border   page, cards, text, small print, rules
+    --vivamark-accent -accent-bg                  links and highlights; a tint for callouts
+    --vivamark-ok -warn -bad -ask, each with -bg  a status's text colour and its badge tint
+    --vivamark-font-body -font-heading            font-family lists (bundled faces)
+    --vivamark-radius -shadow -scheme             card corners, card shadow, light or dark
+  Every text colour reads at 4.5:1 on bg, surface and each tint. Put a status
+  on its own -bg, and say it in a word too.
 
 Classes
   .eyebrow  small caps line above the title (the page's kind: "Plan", "Report")
@@ -805,6 +826,8 @@ const MARKDOWN = `markdown: when a .md file is enough
 vivamark opens Markdown too. Each note on a .md file carries lines [first,
 last] in the source, so you can find the place without ids. Raw HTML inside
 the Markdown is shown as text, not rendered: no ids, no classes, no layout.
+vivamark shows it in a plain style of its own that follows the reviewer's
+theme.
 
 A plain .md file is enough when
   - the page is linear prose or a short list: a draft, a short plan, notes;
@@ -823,7 +846,7 @@ the review, and carry the agreed changes back.
 
 export const TOPICS: readonly GuideTopic[] = [
   { name: 'workflow', summary: 'the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected', text: WORKFLOW },
-  { name: 'design', summary: 'the Smooth glass look: a ready CSS block, light and dark, and layout rules', text: DESIGN },
+  { name: 'design', summary: "the Smooth glass look: a ready CSS block, light and dark, that follows the reviewer's theme; layout rules", text: DESIGN },
   { name: 'ids', summary: 'stable ids on everything worth a note, so notes survive edits', text: IDS },
   { name: 'decisions', summary: 'ask for choices in a "Your input" card with real controls; open questions to point at', text: DECISIONS },
   { name: 'amend', summary: 'after a decision: the decided state everywhere, what it replaced marked', text: AMEND },

@@ -22,7 +22,7 @@ review, run:
 and read the topics you need (`vivamark guide <topic>`):
 
 - `workflow`: the open, wait, edit, reply loop; waiting from an agent harness; ended and disconnected
-- `design`: the Smooth glass look: a ready CSS block, light and dark, and layout rules
+- `design`: the Smooth glass look: a ready CSS block, light and dark, that follows the reviewer's theme; layout rules
 - `ids`: stable ids on everything worth a note, so notes survive edits
 - `decisions`: ask for choices in a "Your input" card with real controls; open questions to point at
 - `amend`: after a decision: the decided state everywhere, what it replaced marked

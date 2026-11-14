@@ -550,7 +550,7 @@ export class Daemon {
     if ((m = /^\/a\/(s_[a-z0-9]+)\/([0-9a-f]{64})\/(.*)$/.exec(p)) && method === 'GET') {
       const s = this.session(m[1]);
       if (!tokensEqual(m[2], s.artifact_key)) throw new HttpError(404, 'not found');
-      return this.serveArtifact(res, s, m[3], url.searchParams.get('vmload') ?? '');
+      return this.serveArtifact(res, s, m[3], url.searchParams.get('vmload') ?? '', url.searchParams.get('vmtheme'));
     }
     if ((m = /^\/api\/s\/(s_[a-z0-9]+)\/attachments\/([0-9a-f]{64})$/.exec(p)) && method === 'GET') {
       const s = this.session(m[1]);
@@ -685,7 +685,10 @@ export class Daemon {
     } catch {
       throw new HttpError(404, 'not found');
     }
-    send(res, 200, body, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=86400' });
+    // Fonts are fetched with CORS. The agent's page runs in a sandboxed frame with an opaque
+    // origin ("null"), so it may use these files (and nothing else of the daemon's) for the
+    // page tokens' faces. They are the package's own OFL fonts; nothing private is in them.
+    send(res, 200, body, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=86400', 'Access-Control-Allow-Origin': 'null' });
   }
 
   private serveChrome(req: IncomingMessage, res: ServerResponse): void {
@@ -711,7 +714,7 @@ export class Daemon {
     });
   }
 
-  private serveArtifact(res: ServerResponse, s: Session, rest: string, load: string): void {
+  private serveArtifact(res: ServerResponse, s: Session, rest: string, load: string, theme: string | null): void {
     const headers = { 'Content-Security-Policy': `sandbox ${SANDBOX}` };
     let rel: string;
     try {
@@ -729,7 +732,9 @@ export class Daemon {
       // A Markdown file is rendered to a page; the saved file itself is never changed.
       if (docKind(s.file) === 'markdown') html = renderMarkdownPage(html, path.basename(s.file));
       const safeLoad = /^[a-z0-9]{1,32}$/.test(load) ? load : '';
-      const tag = `<script src="/_vivamark/sdk.js" data-vivamark-load="${safeLoad}"></script>`;
+      // The reviewer's theme, so the page script applies its page tokens before the first paint.
+      const pageTheme = themeById(theme)?.id ?? this.theme;
+      const tag = `<script src="/_vivamark/sdk.js" data-vivamark-load="${safeLoad}" data-vivamark-theme="${pageTheme}"></script>`;
       return send(res, 200, injectScript(html, tag), { ...headers, 'Content-Type': 'text/html; charset=utf-8' });
     }
     // A sibling asset: confined to the page's directory, symlinks included, and no dotfiles.

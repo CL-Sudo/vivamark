@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { GUIDE_SCHEMA, PAGE_CSS, TOPICS, skillMarkdown } from '../dist/internal.js';
+import { GUIDE_SCHEMA, PAGE_CSS, PAGE_TOKENS, TOPICS, skillMarkdown } from '../dist/internal.js';
 import { ROOT, makeWorld, runCli } from './helpers/harness.mjs';
 
 const NO_STATE = '/nonexistent/vivamark-guide-should-not-be-created';
@@ -69,6 +69,24 @@ test('the design CSS has the classes report visuals need, colours from tokens on
   assert.doesNotMatch(visual, /#[0-9a-f]{3,8}\b|rgba?\(/i, 'no literal colours in the visual classes');
   const design = TOPICS.find((t) => t.name === 'design').text;
   for (const cls of ['.viz ', '.viz-caption', '.legend', 'table.matrix', '.pill.nd', '.card.ok']) assert.ok(design.includes(cls), `design lists ${cls}`);
+});
+
+test('the design CSS follows the reviewer\'s theme through the page tokens, its own look the fallback', () => {
+  const used = new Set(PAGE_CSS.match(/--vivamark-[a-z-]+/g));
+  assert.deepEqual([...used].sort(), [...PAGE_TOKENS].sort(), 'it reads every page token and no other name');
+  // Every colour, font and the shape of a card comes from a token, with the page's own value after the comma.
+  const root = PAGE_CSS.slice(PAGE_CSS.indexOf(':root {'), PAGE_CSS.indexOf('* { box-sizing'));
+  for (const line of root.split('\n')) {
+    for (const [, name, value] of line.matchAll(/(--[a-z0-9-]+): ([^;]+);/g)) {
+      if (/^--(s\d|mono|measure|r-sm|display)$/.test(name)) continue;
+      assert.match(value, /^var\(--vivamark-[a-z-]+, .+\)$/, `${name} reads a page token: ${value}`);
+    }
+  }
+  assert.match(PAGE_CSS, /color-scheme: var\(--vivamark-scheme, light dark\);/);
+  assert.match(PAGE_CSS, /h1, h2, h3 \{[^}]*font-family: var\(--display\)/);
+  const design = TOPICS.find((t) => t.name === 'design').text;
+  assert.match(design, /Following the reviewer's theme/);
+  for (const name of ['--vivamark-bg', '--vivamark-text', '--vivamark-font-body', '--vivamark-bad-bg']) assert.ok(design.replace(PAGE_CSS, '').includes(name), `the design topic shows ${name}`);
 });
 
 test('the report playbook is visual by default, keeps the full text, and names its visuals and rules', () => {

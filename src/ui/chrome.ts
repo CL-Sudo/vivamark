@@ -5,6 +5,7 @@
 import { startCanvas } from './canvas.js';
 import type { Canvas } from './canvas.js';
 import { MARK_TOKENS } from './mark-tokens.js';
+import { PAGE_THEMES } from './page-tokens.js';
 import { THEME_KEY, THEMES, themeById } from './themes.js';
 import type { Layout, Theme } from './themes.js';
 
@@ -911,7 +912,8 @@ function setPicking(on: boolean): void {
 function loadFrame(): void {
   if (!session) return;
   loadNonce = Math.random().toString(36).slice(2, 12);
-  frame.src = `${session.artifact_url}?vmload=${loadNonce}`;
+  // The theme rides along so the page has its page tokens from the first paint.
+  frame.src = `${session.artifact_url}?vmload=${loadNonce}&vmtheme=${encodeURIComponent(theme.id)}`;
 }
 
 window.addEventListener('message', (e) => {
@@ -1218,12 +1220,15 @@ function setLayout(layout: Layout): void {
 }
 wide.addEventListener('change', () => setLayout(theme.layout));
 
-/** Sends the active theme's mark tokens to the page, so its marks follow the theme. */
+/**
+ * Sends the active theme's mark tokens to the page, so its marks follow the
+ * theme, and its page tokens, for a page that styles itself with them.
+ */
 function postTheme(): void {
   const cs = getComputedStyle(document.documentElement);
   const tokens: Record<string, string> = {};
   for (const name of MARK_TOKENS) tokens[name] = cs.getPropertyValue(name).trim();
-  toFrame({ type: 'theme', id: theme.id, tokens, pinPrefix: theme.pinPrefix ?? '', pinShapes: !!theme.pinShapes });
+  toFrame({ type: 'theme', id: theme.id, tokens, page: PAGE_THEMES[theme.id], pinPrefix: theme.pinPrefix ?? '', pinShapes: !!theme.pinShapes });
 }
 
 const themeSelect = $<HTMLSelectElement>('theme');

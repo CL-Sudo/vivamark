@@ -3,7 +3,9 @@
 // configured default), the floor every theme keeps (every control there and
 // labelled, a visible focus ring, text at 4.5:1, states in words, no motion
 // when asked, nothing past the edge), the marks in the page following the
-// theme, Pinboard's canvas, and a browser that only ever talks to loopback,
+// theme, the page tokens (an example page that uses them follows each theme
+// from its first paint and keeps the floor; a page that does not is left as
+// it is), Pinboard's canvas, and a browser that only ever talks to loopback,
 // fonts included.
 //
 // Skipped, with a message, when no Chromium can be launched.
@@ -14,7 +16,13 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { browserUrl, makeWorld, ROOT } from './helpers/harness.mjs';
 
-const { THEMES } = await import(path.join(ROOT, 'dist', 'internal.js'));
+const { PAGE_THEMES, THEMES } = await import(path.join(ROOT, 'dist', 'internal.js'));
+
+/** `#rrggbb` as getComputedStyle writes it. */
+const rgb = (hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+};
 
 let chromium;
 try {
@@ -274,7 +282,7 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
   if (skipWithoutBrowser(t)) return;
   const file = copyReport('floor.html');
   const url = await openReview(file);
-  const { page, requests, offLoopback, problems } = await reviewPage(url);
+  const { page, requests, offLoopback, problems, frame } = await reviewPage(url);
   const doc = page.frameLocator('#page');
   await doc.locator('#finding-stale').waitFor();
   // A review with every kind of state: addressed, asked back, from the agent, queued, a changed page.
@@ -300,6 +308,7 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
   await page.waitForSelector('#banner', { state: 'hidden', timeout: 10_000 });
 
   const failures = [];
+  const pageLooks = new Set();
   for (const theme of THEMES.map((x) => x.id)) {
     await page.selectOption('#theme', theme);
     for (const width of [1280, 390]) {
@@ -346,6 +355,20 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
       if (m.barOut.length) failures.push(`${at}: past the bar's edge or cut: ${m.barOut.join(', ')}`);
       const low = await page.evaluate(contrastFailures);
       if (low.length) failures.push(`${at}: text under 4.5:1: ${low.join('; ')}`);
+      // The example page uses the page tokens: it takes this theme's colours and keeps the floor too.
+      const own = await frame().evaluate(() => ({
+        bg: getComputedStyle(document.documentElement).backgroundColor,
+        text: getComputedStyle(document.body).color,
+        link: getComputedStyle(document.querySelector('main a')).color,
+        heading: getComputedStyle(document.querySelector('h1')).fontFamily,
+      }));
+      const want = PAGE_THEMES[theme];
+      if (own.bg !== rgb(want['--vivamark-bg']) || own.text !== rgb(want['--vivamark-text']) || own.link !== rgb(want['--vivamark-accent']))
+        failures.push(`${at}: the example page is not in the theme's colours: ${JSON.stringify(own)}`);
+      if (own.heading.replace(/\s+/g, ' ') !== want['--vivamark-font-heading'].replace(/\s+/g, ' ')) failures.push(`${at}: the example page's headings are in ${own.heading}`);
+      pageLooks.add(JSON.stringify(own));
+      const lowPage = await frame().evaluate(contrastFailures);
+      if (lowPage.length) failures.push(`${at}: text in the example page under 4.5:1: ${lowPage.join('; ')}`);
       // A focus ring from the keyboard.
       await page.focus('#point');
       await page.keyboard.press('Tab');
@@ -373,6 +396,7 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
     if (moving.length) failures.push(`${theme}: moves with reduced motion: ${moving.slice(0, 5).join(', ')}`);
   }
   assert.deepEqual(failures, []);
+  assert.equal(pageLooks.size, THEMES.length, 'each switch changed the example page: a look of its own per theme');
   const fonts = requests.filter((u) => u.pathname.startsWith('/_vivamark/fonts/'));
   assert.ok(fonts.length >= 8, `the themes' fonts were loaded: ${fonts.map((u) => u.pathname).join(', ')}`);
   assert.deepEqual(
@@ -384,6 +408,103 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
   assert.deepEqual(problems, []);
   await page.close();
   assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
+});
+
+test('the page tokens are in place before the page first paints, in the theme the review page is in, and after a reload too', { timeout: 60_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // The report, with a script at the very top of its body: it runs before the body is drawn, and
+  // before any message from the review page could arrive (those come after the page is ready).
+  const file = path.join(world.pageDir, 'first-paint.html');
+  const probe = `<script>window.__first = { bg: getComputedStyle(document.documentElement).backgroundColor, token: getComputedStyle(document.documentElement).getPropertyValue('--vivamark-bg').trim(), load: Math.random() };</script>`;
+  fs.writeFileSync(file, fs.readFileSync(path.join(ROOT, 'examples', 'report.html'), 'utf8').replace('<body>', `<body>\n${probe}`));
+  const url = await openReview(file);
+  const { page, offLoopback, problems, frame } = await reviewPage(url);
+  await page.frameLocator('#page').locator('#finding-stale').waitFor();
+  const first = await frame().evaluate(() => window.__first);
+  assert.equal(first.token, PAGE_THEMES.gumdrop['--vivamark-bg']);
+  assert.equal(first.bg, rgb(PAGE_THEMES.gumdrop['--vivamark-bg']), 'Gumdrop from the first paint: no flash of the page without it');
+
+  // Switched, then the file changes: the page reloads straight into the theme it is in now.
+  await page.selectOption('#theme', 'riso');
+  await frame().waitForFunction((bg) => getComputedStyle(document.documentElement).backgroundColor === bg, rgb(PAGE_THEMES.riso['--vivamark-bg']));
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('The cache halves a typical run.', 'The cache halves a typical run, here.'));
+  // The frame is replaced as it reloads: ask whichever page is in it now.
+  let again = first;
+  for (const until = Date.now() + 10_000; again.load === first.load && Date.now() < until; ) {
+    await page.waitForTimeout(200);
+    again = (await frame()?.evaluate(() => window.__first).catch(() => null)) ?? first;
+  }
+  assert.notEqual(again.load, first.load, 'the page reloaded');
+  assert.equal(again.bg, rgb(PAGE_THEMES.riso['--vivamark-bg']), 'after a reload, Riso from the first paint');
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});
+
+test('a page with its own colours and fonts that ignores the page tokens renders exactly as it does without vivamark, in every theme', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // Its own palette, custom properties of its own (one named like ours, --bg), and fonts named like
+  // the bundled faces, which it does not have: it must get its own fallbacks, never vivamark's faces.
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Own look</title>
+<style>
+:root { --bg: #202830; --ink: #f0e0c0; }
+html { background: var(--bg); }
+body { margin: 0; color: var(--ink); font: 16px/1.5 "Lexend", Georgia, serif; }
+main { width: 320px; padding: 16px; }
+h1 { color: #ff8800; font-family: "Archivo", "Courier New", monospace; }
+a { color: #7fdbff; }
+.card { background: #334455; border: 2px solid #aabbcc; border-radius: 4px; padding: 8px; }
+.pill { background: #ffdc00; color: #111111; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Own look</h1>
+  <p id="lede">A page with a design of its own and a <a id="link" href="#lede">link</a>.</p>
+  <div class="card" id="card"><span class="pill" id="pill">Blocked</span> on review.</div>
+</main>
+</body>
+</html>
+`;
+  const file = path.join(world.pageDir, 'own-look.html');
+  fs.writeFileSync(file, html);
+  const styles = () =>
+    [...document.querySelectorAll('html, body, body *')]
+      .filter((e) => e.id !== '__vivamark_layer' && !e.closest('#__vivamark_layer'))
+      .map((e) => {
+        const cs = getComputedStyle(e);
+        return [e.id || e.localName, cs.color, cs.backgroundColor, cs.fontFamily, cs.fontSize, cs.borderTopColor, cs.borderTopWidth, cs.borderRadius, cs.colorScheme].join(' | ');
+      });
+
+  // Without vivamark: the saved file, opened as it is.
+  const plain = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  await plain.goto(`file://${file}`);
+  const alone = await plain.evaluate(styles);
+  await plain.close();
+
+  const url = await openReview(file);
+  const { page, offLoopback, problems, frame } = await reviewPage(url);
+  const frameFonts = [];
+  page.on('request', (r) => {
+    if (r.frame() !== page.mainFrame() && r.url().includes('/_vivamark/fonts/')) frameFonts.push(r.url());
+  });
+  await page.frameLocator('#page').locator('#card').waitFor();
+  for (const theme of ['gumdrop', 'raster', 'raw', 'riso', 'smooth-glass']) {
+    await page.selectOption('#theme', theme);
+    // The switch has reached the page: its tokens are this theme's, unused.
+    await frame().waitForFunction((bg) => getComputedStyle(document.documentElement).getPropertyValue('--vivamark-bg').trim() === bg, PAGE_THEMES[theme]['--vivamark-bg']);
+    await page.evaluate(() => document.fonts.ready);
+    assert.deepEqual(await frame().evaluate(styles), alone, `${theme}: every element as without vivamark`);
+    assert.deepEqual(await frame().evaluate(() => [...document.fonts].filter((f) => f.status !== 'unloaded').map((f) => f.family)), [], `${theme}: no bundled face in use`);
+  }
+  assert.deepEqual(frameFonts, [], 'the page fetched none of the bundled faces');
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
 });
 
 test('Pinboard: the page as a sheet on a table, notes pinned beside it with threads, zoom, fit, pills and minimap; the panel comes back', { timeout: 120_000 }, async (t) => {

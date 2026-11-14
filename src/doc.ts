@@ -34,16 +34,18 @@ md.core.ruler.push('vivamark_lines', (state) => {
   }
 });
 
+// The page tokens (src/ui/page-tokens.ts) carry the reviewer's theme; each value after the comma is the look without one.
 const MD_CSS = `
-  body { font: 16px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #33415c; max-width: 46rem; margin: 40px 56px; }
-  h1, h2, h3, h4 { color: #0b1324; line-height: 1.25; margin: 1.6em 0 .6em; }
+  :root { color-scheme: var(--vivamark-scheme, light); background: var(--vivamark-bg, #ffffff); }
+  body { font: 16px/1.65 var(--vivamark-font-body, Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif); color: var(--vivamark-text, #33415c); max-width: 46rem; margin: 40px 56px; }
+  h1, h2, h3, h4 { font-family: var(--vivamark-font-heading, inherit); color: var(--vivamark-text, #0b1324); line-height: 1.25; margin: 1.6em 0 .6em; }
   h1 { font-size: 30px; margin-top: 0; } h2 { font-size: 21px; } h3 { font-size: 17px; }
-  a { color: #0369a1; }
-  code { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f1f5f9; border-radius: 4px; padding: 1px 4px; }
-  pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; overflow-x: auto; }
+  a { color: var(--vivamark-accent, #0369a1); }
+  code { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--vivamark-accent-bg, #f1f5f9); border-radius: 4px; padding: 1px 4px; }
+  pre { background: var(--vivamark-surface, #f8fafc); border: 1px solid var(--vivamark-border, #e2e8f0); border-radius: 10px; padding: 12px 14px; overflow-x: auto; }
   pre code { background: none; padding: 0; }
-  blockquote { margin: 0; padding: 2px 16px; border-left: 3px solid #bae6fd; color: #475569; }
-  table { border-collapse: collapse; } th, td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
+  blockquote { margin: 0; padding: 2px 16px; border-left: 3px solid var(--vivamark-accent, #bae6fd); color: var(--vivamark-muted, #475569); }
+  table { border-collapse: collapse; } th, td { border: 1px solid var(--vivamark-border, #e2e8f0); padding: 6px 10px; text-align: left; }
   img { max-width: 100%; }
 `;
 

@@ -5,9 +5,12 @@
 // A control the author marked with data-vivamark-suggest proposes a note when
 // the reviewer changes it; the review UI only queues it, never sends it.
 // Every mark is drawn from the review page's theme tokens (mark-tokens.ts);
-// until they arrive, in plain ink.
+// until they arrive, in plain ink. The theme's page tokens (page-tokens.ts)
+// are offered to the page itself as custom properties on :root, from the
+// first paint; a page that never reads them is untouched.
 
 import { MARK_TOKENS } from './mark-tokens.js';
+import { PAGE_FACES, PAGE_THEMES, PAGE_TOKENS } from './page-tokens.js';
 
 (() => {
   const script = document.currentScript as HTMLScriptElement | null;
@@ -36,6 +39,53 @@ import { MARK_TOKENS } from './mark-tokens.js';
   type Mark = { n: number | string; kind: 'element' | 'text' | 'page'; anchor: Anchor | null; queued: boolean; agent?: boolean; state?: string };
 
   const post = (msg: Record<string, unknown>) => window.parent.postMessage({ vivamark: 1, load, ...msg }, parentOrigin);
+
+  // ---- page tokens ----------------------------------------------------------------
+
+  /**
+   * The --vivamark-* custom properties, in a stylesheet of our own adopted by
+   * the document: nothing is added to the page's markup, and they do nothing
+   * until the page's own CSS uses them. Set through the CSSOM, never as text.
+   */
+  let pageSheet: CSSStyleSheet | null = null;
+  function pageStyle(): CSSStyleDeclaration {
+    try {
+      if (!pageSheet) {
+        pageSheet = new CSSStyleSheet();
+        pageSheet.replaceSync(':root{}');
+      }
+      // A page script may have replaced the list; ours goes back at the end.
+      if (!document.adoptedStyleSheets.includes(pageSheet)) document.adoptedStyleSheets = [...document.adoptedStyleSheets, pageSheet];
+      return (pageSheet.cssRules[0] as CSSStyleRule).style;
+    } catch {
+      // No constructable stylesheets: the root element's own style instead.
+      return document.documentElement.style;
+    }
+  }
+
+  function setPageTokens(given: unknown): void {
+    if (!given || typeof given !== 'object') return;
+    const values = given as Record<string, unknown>;
+    const style = pageStyle();
+    for (const name of PAGE_TOKENS) {
+      const v = values[name];
+      if (typeof v === 'string' && v.trim() && v.length <= 200) style.setProperty(name, v.trim());
+      else style.removeProperty(name);
+    }
+  }
+
+  /** The bundled faces, under names of their own, from the daemon; each loads only if the page uses it. */
+  try {
+    for (const f of PAGE_FACES) {
+      const url = new URL(`/_vivamark/fonts/${f.file}`, script.src).href;
+      document.fonts.add(new FontFace(f.family, `url("${url}") format("woff2")`, { weight: f.weight, display: 'block' }));
+    }
+  } catch {
+    // No font loading API: the font tokens fall back to their system faces.
+  }
+  // The theme the review page is in when it loads us: in place before the page's body is parsed.
+  const startTheme = script.dataset.vivamarkTheme ?? '';
+  if (Object.prototype.hasOwnProperty.call(PAGE_THEMES, startTheme)) setPageTokens(PAGE_THEMES[startTheme]);
 
   // ---- anchors ----------------------------------------------------------------
 
@@ -857,6 +907,16 @@ import { MARK_TOKENS } from './mark-tokens.js';
       redraw();
       if (canvas) postGeometry();
     }).observe(document.documentElement);
+  // A face arriving moves text without always changing the page's size (a body as tall as the
+  // frame, say), which the observer above would miss: the marks and Pinboard's cards follow it.
+  try {
+    document.fonts.addEventListener('loadingdone', () => {
+      redraw();
+      if (canvas) postGeometry();
+    });
+  } catch {
+    // No font loading API: nothing loads late to follow.
+  }
 
   // ---- messages from the review UI ----------------------------------------------------
 
@@ -866,7 +926,10 @@ import { MARK_TOKENS } from './mark-tokens.js';
     if (!d || d.vivamark !== 1) return;
     if (d.type === 'theme') {
       setTheme(d);
+      setPageTokens(d.page);
       redraw();
+      // A page that uses the page tokens may have moved: Pinboard's cards follow it.
+      if (canvas) postGeometry();
     } else if (d.type === 'mode') {
       picking = !!d.pick;
       hoverEl = null;
