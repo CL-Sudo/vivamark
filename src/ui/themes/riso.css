@@ -1,0 +1,178 @@
+/* Riso: Raster x Sticker, as a two-ink risograph print on halftone paper.
+   Pink is your voice (your pins, your draft, Send), blue the agent's (its
+   replies, its notes, its changes in the page), and a note the agent has
+   addressed gets a purple overprint. Pink is only ever a fill, never text.
+   Big numerals tie each card to its pin, as in Raster; Space Grotesk. */
+:root[data-theme="riso"] {
+  --bg: #f6f1e7 radial-gradient(rgba(0, 120, 191, .09) 1px, transparent 1.3px) 0 0 / 5px 5px;
+  --bar-bg: transparent;
+  --bar-fg: #1b1f5e;
+  --bar-line: 3px solid #0078bf;
+  --blur: none;
+  --side-bg: transparent;
+  --side-line: 0 solid transparent;
+  --side-pad: 14px 16px 16px 0;
+  --side-width: 370px;
+  --stage-pad: 14px 16px 16px 14px;
+  --frame-bg: #ffffff;
+  --frame-line: 2px solid #0078bf;
+  --frame-radius: 0;
+  --frame-shadow: 5px 5px 0 #ff48b0;
+  --card: #ffffff;
+  --card-solid: #ffffff;
+  --card-line: #0078bf;
+  --card-bw: 2px;
+  --r: 0;
+  --r-sm: 0;
+  --shadow: 4px 4px 0 #ffb3d9;
+  --queued-bg: #ffffff;
+  --queued-line: #ff48b0;
+  --fg: #1b1f5e;
+  --fg2: #1b1f5e;
+  --muted: #3d4a7a;
+  --line: #0078bf;
+  --accent: #0078bf;
+  --accent-strong: #00609a;
+  --accent-soft: #dcecf7;
+  --on-accent: #ffffff;
+  --chip: #dcecf7;
+  --chip-fg: #0d3f6b;
+  --mark: #ffd1ea;
+  --mark-fg: #1b1f5e;
+  --ok: #6b3fa0;
+  --ok-fg: #5b2f90;
+  --ok-soft: #efe6f8;
+  --ok-line: #6b3fa0;
+  --q: #ff48b0;
+  --q-fg: #1b1f5e;
+  --q-soft: #ffd1ea;
+  --q-line: #ff48b0;
+  --bad-fg: #a3124f;
+  --bad-soft: #fff0f7;
+  --bad-line: #ff48b0;
+  --warn-fg: #1b1f5e;
+  --warn-soft: #ffd1ea;
+  --agent-bg: #eef6fc;
+  --agent-line: #0078bf;
+  --reply-bg: #dcecf7;
+  --reply-line: #0078bf;
+  --reply-fg: #0d3f6b;
+  --reply-head: #0d3f6b;
+  --btn-bg: #ffffff;
+  --btn-hover: #fff5fa;
+  --btn-fg: #1b1f5e;
+  --btn-line: #0078bf;
+  --btn-bw: 2px;
+  --btn-radius: 0;
+  --btn-shadow: none;
+  --primary-bg: #ff48b0;
+  --primary-hover: #ff33a6;
+  --primary-fg: #1b1f5e;
+  --primary-line: #ff48b0;
+  --primary-shadow: 2px 2px 0 #0078bf;
+  --approve-bg: #0078bf;
+  --approve-fg: #ffffff;
+  --approve-line: #0078bf;
+  --pressed-bg: #0078bf;
+  --pressed-fg: #ffffff;
+  --pressed-line: #0078bf;
+  --input-bg: #ffffff;
+  --input-line: #ff48b0;
+  --input-shadow: none;
+  --input-focus: 3px 3px 0 #ff48b0;
+  --focus: #1b1f5e;
+  --focus-w: 3px;
+  --num-bg: transparent;
+  --num-fg: #1b1f5e;
+  --num-radius: 0;
+  --pill-radius: 999px;
+  --ui: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --fs: 13.5px;
+
+  --mk-font: 700 11px/1 "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --mk-pin-bg: #ff48b0;
+  --mk-pin-fg: #1b1f5e;
+  --mk-pin-border: 0 solid transparent;
+  --mk-pin-radius: 999px;
+  --mk-pin-shadow: 1.5px 1px 0 #0078bf;
+  --mk-pin-queued-bg: #ffffff;
+  --mk-pin-queued-fg: #1b1f5e;
+  --mk-pin-queued-border: 2px dashed #ff48b0;
+  --mk-pin-agent-bg: #0078bf;
+  --mk-pin-agent-fg: #ffffff;
+  --mk-pin-agent-border: 2px dotted #ffffff;
+  --mk-pin-done-bg: #6b3fa0;
+  --mk-pin-done-fg: #ffffff;
+  --mk-pin-done-border: 0 solid transparent;
+  --mk-pin-ask-bg: #ff48b0;
+  --mk-pin-ask-fg: #1b1f5e;
+  --mk-pin-ask-border: 2px solid #0078bf;
+  --mk-target-line: 2px solid #0078bf;
+  --mk-target-line-queued: 2px dashed #ff48b0;
+  --mk-target-line-agent: 2px dotted #0078bf;
+  --mk-target-offset: 0px;
+  --mk-target-radius: 0;
+  --mk-target-bg: rgba(255, 72, 176, .14);
+  --mk-target-bg-agent: rgba(0, 120, 191, .1);
+  --mk-target-shadow: inset 3px 2px 0 rgba(255, 72, 176, .55);
+  --mk-text-bg: rgba(255, 72, 176, .22);
+  --mk-text-bg-agent: rgba(0, 120, 191, .14);
+  --mk-text-line: inset 0 -2px 0 #0078bf;
+  --mk-hover-line: 2px dashed #ff48b0;
+  --mk-hover-bg: rgba(255, 72, 176, .1);
+  --mk-insert-bg: rgba(0, 120, 191, .16);
+  --mk-insert-line: 2px solid #0078bf;
+  --mk-removal-fg: #0d3f6b;
+  --mk-removal-bg: #dcecf7;
+  --mk-removal-border: 2px solid #0078bf;
+  --mk-thread: #0078bf;
+}
+[data-theme="riso"] .bar { padding: 8px 14px; gap: 6px 12px; }
+[data-theme="riso"] .brand { font-weight: 700; font-size: 19px; letter-spacing: -.01em; color: #1b1f5e; text-shadow: 2px 1.5px 0 #ff48b0; }
+[data-theme="riso"] .logo { display: none; }
+[data-theme="riso"] .file { color: #00609a; }
+[data-theme="riso"] .chip { background: #ff48b0; color: #1b1f5e; font-weight: 700; }
+[data-theme="riso"] .toggle, [data-theme="riso"] .theme-pick select { font-weight: 700; }
+[data-theme="riso"] .theme-pick { color: #1b1f5e; }
+[data-theme="riso"] .turn { background: #ff48b0; color: #1b1f5e; font-weight: 700; }
+[data-theme="riso"] .turn[data-turn="agent"] { background: #0078bf; color: #ffffff; }
+[data-theme="riso"] .presence { color: #1b1f5e; font-weight: 700; padding: 1px 9px; border-radius: 999px; border: 2px solid #0078bf; }
+[data-theme="riso"] .presence[data-state="listening"] { background: #0078bf; color: #ffffff; }
+[data-theme="riso"] .presence .dot, [data-theme="riso"] .presence[data-state="listening"] .dot { background: currentColor; box-shadow: none; }
+[data-theme="riso"] .status { gap: 10px; }
+[data-theme="riso"] .side-title { font-weight: 700; text-transform: uppercase; letter-spacing: .07em; font-size: 12px; color: #00609a; }
+/* The numbered index: a big pink numeral, printed slightly out of register with the blue. */
+[data-theme="riso"] .note { position: relative; padding: 8px 10px 9px 46px; min-height: 44px; }
+[data-theme="riso"] .num { position: absolute; left: 6px; top: 4px; width: 36px; height: auto; justify-content: center; font: 700 28px/1 var(--ui); color: #ff48b0; text-shadow: 1.5px 1px 0 rgba(0, 120, 191, .75); -webkit-text-stroke: .6px #1b1f5e; }
+[data-theme="riso"] .note.queued .num { border: 0; background: transparent; color: #ffffff; -webkit-text-stroke: 1px #ff48b0; }
+[data-theme="riso"] .num.agent { font-size: 18px; top: 8px; left: 4px; padding: 0; color: #0078bf; border: 0; background: transparent; text-shadow: none; -webkit-text-stroke: 0; }
+[data-theme="riso"] .note-head { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #00609a; }
+[data-theme="riso"] .note .where { color: #00609a; font-size: 10.5px; }
+[data-theme="riso"] .kind { font-size: 10.5px; border-radius: 0; }
+[data-theme="riso"] .note-head .state { padding: 0 7px; letter-spacing: .04em; font-size: 10.5px; font-weight: 700; color: #1b1f5e; border: 1.5px solid #0078bf; }
+[data-theme="riso"] .note-head .state.status-addressed { background: #6b3fa0; border-color: #6b3fa0; color: #ffffff; }
+[data-theme="riso"] .note-head .state.status-question { background: #ff48b0; border-color: #ff48b0; color: #1b1f5e; }
+[data-theme="riso"] .note-head .state.from-page { background: #ffd1ea; color: #1b1f5e; border-color: #ff48b0; }
+[data-theme="riso"] .note p.comment { color: #1b1f5e; }
+/* Overprint: the agent's blue over your pink reads as purple, so a done note separates at a glance. */
+[data-theme="riso"] .note[data-status="addressed"], [data-theme="riso"] .note[data-status="resolved"] { box-shadow: 4px 4px 0 #8a3fb9; }
+[data-theme="riso"] .note.queued { border: 2px dashed #ff48b0; box-shadow: none; }
+[data-theme="riso"] .note.agent { border-style: dotted; box-shadow: 4px 4px 0 #9fd0ee; }
+[data-theme="riso"] .note-reply { border-left: 3px solid #0078bf; }
+[data-theme="riso"] .note-reply.question { background: #ffe6f3; border-left-color: #ff48b0; }
+[data-theme="riso"] .note-reply.question .reply-head { color: #1b1f5e; }
+[data-theme="riso"] .note-reply.addressed { background: #efe6f8; border-left-color: #6b3fa0; }
+[data-theme="riso"] .note-reply.addressed .reply-head { color: #5b2f90; }
+[data-theme="riso"] .composer { border: 2px dashed #ff48b0; background: #ffffff; padding: 8px 10px; }
+[data-theme="riso"] .comp-num { display: inline-block; font: 700 22px/1 var(--ui); color: #ff48b0; text-shadow: 1.5px 1px 0 rgba(0, 120, 191, .75); -webkit-text-stroke: .6px #1b1f5e; }
+[data-theme="riso"] .target-text { background: #ffd1ea; color: #1b1f5e; border-radius: 0; font-weight: 700; }
+[data-theme="riso"] .actions .btn.ghost { border: 0; background: transparent; box-shadow: none; color: #00609a; text-decoration: underline; text-underline-offset: 3px; padding-left: 4px; padding-right: 4px; }
+[data-theme="riso"] .actions .btn.ghost[aria-pressed="true"] { background: #dcecf7; }
+[data-theme="riso"] .btn { font-weight: 700; }
+[data-theme="riso"] .btn.quiet { color: #00609a; }
+[data-theme="riso"] .decision { border-radius: 0; border: 2px solid #0078bf; color: #0d3f6b; background: #ffffff; }
+@media (prefers-reduced-motion: no-preference) {
+  /* On Send, your pink layer slides into register over the blue. */
+  [data-theme="riso"].just-sent .num, [data-theme="riso"] body.just-sent .num { animation: riso-register .16s ease-out; }
+  @keyframes riso-register { from { text-shadow: 4px 3px 0 rgba(0, 120, 191, .75); transform: translate(-2px, -1px); } }
+}

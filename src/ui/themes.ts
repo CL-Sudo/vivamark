@@ -20,6 +20,8 @@ export interface Theme {
   pinPrefix?: string;
   /** Pins in the page take the note's state as a shape: circle, triangle, square. */
   pinShapes?: boolean;
+  /** Buttons say everything they do: "Send 2 notes", not "Send 2". */
+  fullLabels?: boolean;
 }
 
 /** In the order the switcher lists them. */
@@ -28,7 +30,7 @@ export const THEMES: readonly Theme[] = [
   { id: 'raster', name: 'Raster', layout: 'index' },
   { id: 'raw', name: 'Raw', layout: 'panel' },
   { id: 'pinboard', name: 'Pinboard', layout: 'canvas' },
-  { id: 'signal', name: 'Signal', layout: 'panel', pinPrefix: 'Note ' },
+  { id: 'signal', name: 'Signal', layout: 'panel', pinPrefix: 'Note ', fullLabels: true },
   { id: 'sticker', name: 'Sticker', layout: 'chat' },
   { id: 'riso', name: 'Riso', layout: 'index' },
   { id: 'bauhaus', name: 'Bauhaus', layout: 'panel', pinShapes: true },

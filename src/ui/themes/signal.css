@@ -1,0 +1,174 @@
+/* Signal: accessibility first. Big type (Atkinson Hyperlegible, 15px), big
+   targets (40px controls), every state spelled out with a symbol and a word,
+   text at AAA contrast, a black-and-yellow focus ring that shows on any page,
+   and no motion. */
+:root[data-theme="signal"] {
+  --bg: #ffffff;
+  --bar-bg: #000000;
+  --bar-fg: #ffffff;
+  --bar-line: 0 solid transparent;
+  --blur: none;
+  --side-bg: #ffffff;
+  --side-line: 2px solid #000000;
+  --side-pad: 12px 14px;
+  --side-width: 420px;
+  --card: #ffffff;
+  --card-solid: #ffffff;
+  --card-line: #000000;
+  --card-bw: 2px;
+  --r: 6px;
+  --r-sm: 4px;
+  --shadow: none;
+  --queued-bg: #ffffff;
+  --queued-line: #000000;
+  --fg: #000000;
+  --fg2: #000000;
+  --muted: #333333;
+  --line: #000000;
+  --accent: #1747a6;
+  --accent-strong: #1747a6;
+  --accent-soft: #e8eefb;
+  --on-accent: #ffffff;
+  --chip: #e8eefb;
+  --chip-fg: #0f2f6e;
+  --mark: #fff3a8;
+  --mark-fg: #000000;
+  --ok: #0b6b2e;
+  --ok-fg: #0b6b2e;
+  --ok-soft: #e3f3e8;
+  --ok-line: #0b6b2e;
+  --q: #5a1a96;
+  --q-fg: #5a1a96;
+  --q-soft: #f1e8fa;
+  --q-line: #5a1a96;
+  --bad-fg: #9b0d0d;
+  --bad-soft: #fdeaea;
+  --bad-line: #9b0d0d;
+  --warn-fg: #6b3a00;
+  --warn-soft: #fff0d6;
+  --agent-bg: #f7f2fc;
+  --agent-line: #5a1a96;
+  --reply-bg: #f2f2f2;
+  --reply-line: #000000;
+  --reply-fg: #000000;
+  --reply-head: #000000;
+  --btn-bg: #ffffff;
+  --btn-hover: #f2f2f2;
+  --btn-fg: #000000;
+  --btn-line: #000000;
+  --btn-bw: 2px;
+  --btn-radius: 6px;
+  --btn-shadow: none;
+  --primary-bg: #1747a6;
+  --primary-hover: #123a88;
+  --primary-fg: #ffffff;
+  --primary-line: #1747a6;
+  --primary-shadow: none;
+  --approve-bg: #0b6b2e;
+  --approve-fg: #ffffff;
+  --approve-line: #0b6b2e;
+  --pressed-bg: #000000;
+  --pressed-fg: #ffffff;
+  --pressed-line: #000000;
+  --input-bg: #ffffff;
+  --input-line: #000000;
+  --input-shadow: none;
+  --input-focus: none;
+  --focus: #000000;
+  --focus-w: 3px;
+  --num-bg: #1747a6;
+  --num-fg: #ffffff;
+  --num-radius: 4px;
+  --pill-radius: 4px;
+  --ui: "Atkinson Hyperlegible", Verdana, system-ui, sans-serif;
+  --fs: 15px;
+  --fs-sm: 13px;
+
+  --mk-font: 700 12px/1 "Atkinson Hyperlegible", Verdana, sans-serif;
+  --mk-pin-bg: #1747a6;
+  --mk-pin-fg: #ffffff;
+  --mk-pin-border: 2px solid #ffffff;
+  --mk-pin-radius: 4px;
+  --mk-pin-shadow: 0 0 0 2px #000000;
+  --mk-pin-queued-bg: #ffffff;
+  --mk-pin-queued-fg: #000000;
+  --mk-pin-queued-border: 2px dashed #000000;
+  --mk-pin-agent-bg: #5a1a96;
+  --mk-pin-agent-fg: #ffffff;
+  --mk-pin-agent-border: 2px dotted #ffffff;
+  --mk-pin-done-bg: #0b6b2e;
+  --mk-pin-done-fg: #ffffff;
+  --mk-pin-done-border: 2px solid #ffffff;
+  --mk-pin-ask-bg: #5a1a96;
+  --mk-pin-ask-fg: #ffffff;
+  --mk-pin-ask-border: 2px solid #ffffff;
+  --mk-target-line: 3px solid #1747a6;
+  --mk-target-line-queued: 3px dashed #000000;
+  --mk-target-line-agent: 3px dotted #5a1a96;
+  --mk-target-offset: 0px;
+  --mk-target-radius: 2px;
+  --mk-target-bg: repeating-linear-gradient(135deg, rgba(23, 71, 166, .14) 0 6px, transparent 6px 12px);
+  --mk-target-bg-agent: repeating-linear-gradient(45deg, rgba(90, 26, 150, .12) 0 6px, transparent 6px 12px);
+  --mk-target-shadow: none;
+  --mk-text-bg: rgba(255, 212, 0, .28);
+  --mk-text-bg-agent: rgba(90, 26, 150, .12);
+  --mk-text-line: inset 0 -3px 0 #1747a6;
+  --mk-hover-line: 3px solid #000000;
+  --mk-hover-bg: rgba(255, 212, 0, .22);
+  --mk-insert-bg: rgba(11, 107, 46, .12);
+  --mk-insert-line: 3px solid #0b6b2e;
+  --mk-removal-fg: #9b0d0d;
+  --mk-removal-bg: #ffffff;
+  --mk-removal-border: 2px solid #9b0d0d;
+  --mk-thread: #1747a6;
+}
+/* The ring: yellow next to the control, black around it, on any background. */
+[data-theme="signal"] :focus-visible { outline: 3px solid #000000; outline-offset: 3px; box-shadow: 0 0 0 3px #ffd400; }
+[data-theme="signal"] .bar :focus-visible { outline-color: #ffffff; }
+[data-theme="signal"] .bar { padding: 8px 14px; gap: 8px 16px; }
+[data-theme="signal"] .brand { font-weight: 700; }
+[data-theme="signal"] .logo { display: none; }
+[data-theme="signal"] .file { color: #ffffff; }
+[data-theme="signal"] .chip { background: #ffffff; color: #000000; font-weight: 700; }
+[data-theme="signal"] .toggle, [data-theme="signal"] .theme-pick select { min-height: 36px; font-size: 14px; border-color: #ffffff; }
+[data-theme="signal"] .toggle:disabled { opacity: 1; background: #000000; color: #d6d6d6; border-style: dashed; }
+[data-theme="signal"] .theme-pick { color: #ffffff; font-size: 14px; font-weight: 700; }
+[data-theme="signal"] .turn { background: #ffd400; color: #000000; font-weight: 700; font-size: 14px; padding: 1px 10px; }
+[data-theme="signal"] .turn[data-turn="agent"] { background: #ffffff; color: #000000; }
+[data-theme="signal"] .presence { color: #ffffff; font-size: 14px; }
+[data-theme="signal"] .presence .dot { width: 12px; height: 12px; border: 2px solid #ffffff; background: #000000; }
+[data-theme="signal"] .presence[data-state="listening"] .dot { background: #7ee2a0; box-shadow: none; }
+[data-theme="signal"] .side-title { font-size: 17px; font-weight: 700; }
+[data-theme="signal"] .note { padding: 8px 10px; font-size: 15px; }
+[data-theme="signal"] .note-head { flex-wrap: wrap; font-size: 14px; }
+[data-theme="signal"] .num { width: auto; padding: 0 6px; font-weight: 700; font-size: 13px; height: 24px; }
+[data-theme="signal"] .num:not(.agent)::before { content: "Note\00a0"; }
+[data-theme="signal"] .note.queued .num { border: 2px dashed #000000; background: #ffffff; color: #000000; }
+[data-theme="signal"] .note .where { font-size: 13px; color: #333333; }
+[data-theme="signal"] .note-head .state { font-weight: 700; padding: 0 6px; border: 2px solid currentColor; border-radius: 4px; font-size: 13px; color: #000000; }
+[data-theme="signal"] .note-head .state.status-open::before { content: "→\00a0"; }
+[data-theme="signal"] .note-head .state.status-addressed::before { content: "✓\00a0"; }
+[data-theme="signal"] .note-head .state.status-question::before { content: "?\00a0"; }
+[data-theme="signal"] .note-head .state.status-declined::before { content: "✕\00a0"; }
+[data-theme="signal"] .note-head .state.status-resolved::before { content: "■\00a0"; }
+[data-theme="signal"] .note-head .state.status-answered::before { content: "↩\00a0"; }
+[data-theme="signal"] .note-head .state.status-addressed { color: #0b6b2e; }
+[data-theme="signal"] .note-head .state.status-question { color: #5a1a96; }
+[data-theme="signal"] .note-head .state.status-declined { color: #9b0d0d; }
+[data-theme="signal"] .note-head .state.from-page { color: #0b6b2e; }
+[data-theme="signal"] .note-reply { font-size: 14px; border: 0; }
+[data-theme="signal"] .reply-head { font-size: 13px; }
+[data-theme="signal"] .note[data-status="resolved"] { border-style: dashed; }
+[data-theme="signal"] .target { font-size: 14px; font-weight: 700; color: #000000; }
+[data-theme="signal"] .target-label::after { content: ":"; }
+[data-theme="signal"] .target-text { background: #fff3a8; color: #000000; border: 2px solid #000000; }
+[data-theme="signal"] textarea { font-size: 15px; border-width: 2px; }
+[data-theme="signal"] textarea:focus { box-shadow: 0 0 0 3px #ffffff, 0 0 0 6px #ffd400; border-color: #000000; }
+[data-theme="signal"] .btn { min-height: 40px; font-size: 14px; font-weight: 700; }
+[data-theme="signal"] .btn.small { min-height: 36px; font-size: 13px; }
+[data-theme="signal"] .btn.ok::before { content: "✓\00a0"; }
+[data-theme="signal"] .btn.quiet { color: #000000; text-decoration: underline; text-underline-offset: 3px; }
+[data-theme="signal"] .btn:disabled { opacity: 1; background: #ffffff; color: #555555; border: 2px dashed #555555; box-shadow: none; }
+[data-theme="signal"] .btn.quiet:disabled { border-color: transparent; }
+[data-theme="signal"] .decision { border: 2px solid currentColor; font-size: 13px; }
+[data-theme="signal"] .hint { font-size: 14px; color: #000000; }

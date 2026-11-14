@@ -189,6 +189,7 @@ textarea:focus-visible { outline-offset: 1px; }
 .side-title { font-weight: 600; display: flex; gap: 8px; align-items: center; font-family: var(--display); }
 .count { font-size: var(--fs-sm); background: var(--chip); color: var(--chip-fg); border-radius: var(--pill-radius); padding: 1px 8px; font-weight: 600; }
 .thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 2px; margin: -2px; }
+.thread > * { flex-shrink: 0; }
 .empty { color: var(--muted); padding: 8px 2px; }
 
 .note { background: var(--card); border: var(--card-bw) solid var(--card-line); border-radius: var(--r); padding: 12px 14px; box-shadow: var(--shadow); }

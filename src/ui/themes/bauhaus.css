@@ -1,0 +1,212 @@
+/* Bauhaus: Raster with Signal's rules. Three primaries, three shapes: a blue
+   circle is addressed, a red triangle is the agent asking you, a yellow
+   square is your draft (a white square once sent). The same shape marks the
+   note in the panel and its pin in the page, and a legend names them. Jost,
+   spaced capitals, 2px black rules, no radius. */
+:root[data-theme="bauhaus"] {
+  --bg: #f3ede1;
+  --bar-bg: #f3ede1;
+  --bar-fg: #121212;
+  --bar-line: 2px solid #121212;
+  --blur: none;
+  --side-bg: #fbf8f2;
+  --side-line: 2px solid #121212;
+  --side-pad: 0;
+  --side-width: 380px;
+  --stage-pad: 14px;
+  --frame-bg: #ffffff;
+  --frame-line: 2px solid #121212;
+  --frame-radius: 0;
+  --frame-shadow: none;
+  --card: transparent;
+  --card-solid: #ffffff;
+  --card-line: #121212;
+  --card-bw: 0;
+  --r: 0;
+  --r-sm: 0;
+  --shadow: none;
+  --queued-bg: #fff8e3;
+  --queued-line: #121212;
+  --fg: #121212;
+  --fg2: #121212;
+  --muted: #4d4a45;
+  --line: #121212;
+  --accent: #1d4f9a;
+  --accent-strong: #1d4f9a;
+  --accent-soft: #dfe7f3;
+  --on-accent: #ffffff;
+  --chip: #dfe7f3;
+  --chip-fg: #12366e;
+  --mark: #fbe7a8;
+  --mark-fg: #121212;
+  --ok: #1d4f9a;
+  --ok-fg: #1d4f9a;
+  --ok-soft: #dfe7f3;
+  --ok-line: #1d4f9a;
+  --q: #d22b27;
+  --q-fg: #a81e1b;
+  --q-soft: #f8dedd;
+  --q-line: #d22b27;
+  --bad-fg: #a81e1b;
+  --bad-soft: #f8dedd;
+  --bad-line: #121212;
+  --warn-fg: #121212;
+  --warn-soft: #fbe7a8;
+  --agent-bg: transparent;
+  --agent-line: #121212;
+  --reply-bg: #ffffff;
+  --reply-line: transparent;
+  --reply-fg: #121212;
+  --reply-head: #12366e;
+  --btn-bg: #fbf8f2;
+  --btn-hover: #ffffff;
+  --btn-fg: #121212;
+  --btn-line: #121212;
+  --btn-bw: 2px;
+  --btn-radius: 0;
+  --btn-shadow: none;
+  --primary-bg: #d22b27;
+  --primary-hover: #b8231f;
+  --primary-fg: #ffffff;
+  --primary-line: #121212;
+  --primary-shadow: none;
+  --approve-bg: #1d4f9a;
+  --approve-fg: #ffffff;
+  --approve-line: #121212;
+  --pressed-bg: #f1b81e;
+  --pressed-fg: #121212;
+  --pressed-line: #121212;
+  --input-bg: #ffffff;
+  --input-line: #121212;
+  --input-shadow: none;
+  --input-focus: none;
+  --focus: #1d4f9a;
+  --focus-w: 3px;
+  --num-bg: #ffffff;
+  --num-fg: #121212;
+  --num-radius: 0;
+  --pill-radius: 0;
+  --ui: "Jost", "Futura", "Century Gothic", system-ui, sans-serif;
+  --fs: 14px;
+
+  --mk-font: 700 11px/1 "Jost", "Futura", "Century Gothic", sans-serif;
+  --mk-pin-bg: #ffffff;
+  --mk-pin-fg: #121212;
+  --mk-pin-border: 2px solid #121212;
+  --mk-pin-radius: 0;
+  --mk-pin-shadow: none;
+  --mk-pin-queued-bg: #f1b81e;
+  --mk-pin-queued-fg: #121212;
+  --mk-pin-queued-border: 2px dashed #121212;
+  --mk-pin-agent-bg: #1d4f9a;
+  --mk-pin-agent-fg: #ffffff;
+  --mk-pin-agent-border: 0 solid transparent;
+  --mk-pin-done-bg: #1d4f9a;
+  --mk-pin-done-fg: #ffffff;
+  --mk-pin-done-border: 2px solid #1d4f9a;
+  --mk-pin-ask-bg: #d22b27;
+  --mk-pin-ask-fg: #ffffff;
+  --mk-pin-ask-border: 0 solid transparent;
+  --mk-target-line: 3px solid #121212;
+  --mk-target-line-queued: 3px dashed #121212;
+  --mk-target-line-agent: 3px dotted #1d4f9a;
+  --mk-target-offset: 0px;
+  --mk-target-radius: 0;
+  --mk-target-bg: rgba(241, 184, 30, .2);
+  --mk-target-bg-agent: rgba(29, 79, 154, .08);
+  --mk-target-shadow: none;
+  --mk-text-bg: rgba(241, 184, 30, .35);
+  --mk-text-bg-agent: rgba(29, 79, 154, .14);
+  --mk-text-line: inset 0 -3px 0 #1d4f9a;
+  --mk-hover-line: 3px solid #121212;
+  --mk-hover-bg: rgba(241, 184, 30, .18);
+  --mk-insert-bg: rgba(29, 79, 154, .16);
+  --mk-insert-line: 3px solid #1d4f9a;
+  --mk-removal-fg: #a81e1b;
+  --mk-removal-bg: #ffffff;
+  --mk-removal-border: 2px solid #121212;
+  --mk-thread: #121212;
+}
+/* The bar is a row of colour blocks: name, file, the switches, agent, turn. */
+[data-theme="bauhaus"] .bar { padding: 0; gap: 0; align-items: stretch; }
+[data-theme="bauhaus"] .bar > * { display: flex; align-items: center; padding: 8px 12px; border-left: 2px solid #121212; }
+[data-theme="bauhaus"] .bar > :first-child { border-left: 0; }
+[data-theme="bauhaus"] .brand { background: #d22b27; color: #ffffff; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+[data-theme="bauhaus"] .logo { display: none; }
+[data-theme="bauhaus"] .file { flex: 1; color: #121212; }
+[data-theme="bauhaus"] .chip { background: #121212; color: #ffffff; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; }
+[data-theme="bauhaus"] .bar > .toggle { border-width: 0 0 0 2px; border-color: #121212; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; background: #f3ede1; }
+[data-theme="bauhaus"] .bar > .toggle[aria-pressed="true"] { background: #f1b81e; color: #121212; }
+[data-theme="bauhaus"] .theme-pick { color: #121212; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; }
+[data-theme="bauhaus"] .theme-pick select { letter-spacing: normal; text-transform: none; }
+[data-theme="bauhaus"] .status { padding: 0; gap: 0; align-items: stretch; }
+[data-theme="bauhaus"] .status > * { display: flex; align-items: center; padding: 8px 12px; border-radius: 0; }
+[data-theme="bauhaus"] .presence { order: 1; background: #1d4f9a; color: #ffffff; font-weight: 600; }
+[data-theme="bauhaus"] .presence .dot { border-radius: 50%; background: transparent; border: 2px solid #ffffff; }
+[data-theme="bauhaus"] .presence[data-state="listening"] .dot { background: #ffffff; box-shadow: none; }
+[data-theme="bauhaus"] .presence[data-state="away"] { background: #f3ede1; color: #121212; }
+[data-theme="bauhaus"] .presence[data-state="away"] .dot { border-color: #121212; }
+[data-theme="bauhaus"] .turn { order: 2; border-left: 2px solid #121212; background: #f1b81e; color: #121212; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; font-size: 12px; }
+[data-theme="bauhaus"] .turn[data-turn="agent"] { background: #ffffff; color: #121212; }
+[data-theme="bauhaus"] .side { gap: 0; }
+[data-theme="bauhaus"] .side-title { padding: 8px 12px; border-bottom: 2px solid #121212; text-transform: uppercase; letter-spacing: .14em; font-size: 12px; }
+[data-theme="bauhaus"] .count { border-radius: 0; background: #121212; color: #ffffff; }
+[data-theme="bauhaus"] .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 7px 12px; border-bottom: 2px solid #121212; font-size: 12px; }
+[data-theme="bauhaus"] .legend span { display: inline-flex; gap: 5px; align-items: center; }
+[data-theme="bauhaus"] .glyph { display: inline-block; width: 12px; height: 12px; }
+[data-theme="bauhaus"] .glyph.circle { border-radius: 50%; background: #1d4f9a; }
+[data-theme="bauhaus"] .glyph.triangle { background: #d22b27; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+[data-theme="bauhaus"] .glyph.square { background: #f1b81e; outline: 1.5px solid #121212; outline-offset: -1.5px; }
+[data-theme="bauhaus"] .glyph.square.sent { background: #ffffff; }
+[data-theme="bauhaus"] .thread { gap: 0; margin: 0; padding: 0; }
+[data-theme="bauhaus"] .empty { padding: 10px 12px; }
+/* Every note row leads with its shape. */
+[data-theme="bauhaus"] .note { position: relative; padding: 10px 12px 10px 60px; min-height: 56px; border-bottom: 2px solid #121212; }
+[data-theme="bauhaus"] .note.queued { border-style: solid; border-width: 0 0 2px; background: #fff8e3; }
+[data-theme="bauhaus"] .num { position: absolute; left: 12px; top: 10px; width: 34px; height: 34px; font-size: 14px; font-weight: 700; background: #ffffff; color: #121212; border: 2px solid #121212; }
+[data-theme="bauhaus"] .note.queued .num { background: #f1b81e; color: #121212; border: 2px dashed #121212; }
+[data-theme="bauhaus"] .note[data-status="addressed"] .num { border-radius: 50%; background: #1d4f9a; border-color: #1d4f9a; color: #ffffff; }
+[data-theme="bauhaus"] .note[data-status="resolved"] .num { border-radius: 50%; background: #ffffff; border: 3px solid #1d4f9a; color: #12366e; }
+[data-theme="bauhaus"] .note[data-status="question"] .num,
+[data-theme="bauhaus"] .note[data-status="declined"] .num { border: 0; background: #d22b27; color: #ffffff; clip-path: polygon(50% 0, 100% 100%, 0 100%); align-items: flex-end; padding-bottom: 3px; font-size: 13px; }
+[data-theme="bauhaus"] .num.agent { width: 34px; padding: 0; border: 0; background: #1d4f9a; color: #ffffff; font-size: 11px; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+[data-theme="bauhaus"] .note-head { flex-wrap: wrap; font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+[data-theme="bauhaus"] .note .where { font-size: 10.5px; letter-spacing: .06em; color: #4d4a45; }
+[data-theme="bauhaus"] .kind { border-radius: 0; font-size: 10.5px; }
+[data-theme="bauhaus"] .note-head .state { font-size: 10.5px; font-weight: 700; color: #121212; }
+[data-theme="bauhaus"] .note-head .state.status-addressed { color: #1d4f9a; }
+[data-theme="bauhaus"] .note-head .state.status-question { color: #a81e1b; }
+[data-theme="bauhaus"] .note-reply { border-left: 4px solid #1d4f9a; padding: 4px 8px; }
+[data-theme="bauhaus"] .note-reply.question { border-left-color: #d22b27; background: #ffffff; }
+[data-theme="bauhaus"] .note-reply.question .reply-head { color: #a81e1b; }
+[data-theme="bauhaus"] .note-reply.addressed .reply-head { color: #1d4f9a; }
+[data-theme="bauhaus"] .reply-head { text-transform: uppercase; letter-spacing: .1em; font-size: 10.5px; }
+[data-theme="bauhaus"] .orphans { margin: 8px 12px; border: 2px dashed #121212; }
+[data-theme="bauhaus"] .decision { margin: 8px 12px; border: 2px solid #121212; text-transform: uppercase; letter-spacing: .1em; font-size: 11px; }
+[data-theme="bauhaus"] .reply { margin: 8px 12px; border-left: 4px solid #1d4f9a; }
+[data-theme="bauhaus"] .ended { margin: 8px 12px; }
+[data-theme="bauhaus"] .composer { gap: 0; border-top: 2px solid #121212; }
+[data-theme="bauhaus"] .target { padding: 8px 12px 6px; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; color: #121212; }
+[data-theme="bauhaus"] .target-text { letter-spacing: normal; text-transform: none; background: #f1b81e; color: #121212; border: 2px solid #121212; }
+[data-theme="bauhaus"] .composer textarea { margin: 0 12px 10px; width: calc(100% - 24px); border-width: 2px; }
+[data-theme="bauhaus"] .composer-images { padding: 0 12px 8px; }
+/* Point, Attach, Add, Send and Approve sit in ruled strips. */
+[data-theme="bauhaus"] .actions, [data-theme="bauhaus"] .decide { gap: 0; row-gap: 0; border-top: 2px solid #121212; }
+[data-theme="bauhaus"] .actions .spacer, [data-theme="bauhaus"] .decide .spacer { display: none; }
+[data-theme="bauhaus"] .actions .btn, [data-theme="bauhaus"] .decide .btn { flex: 1; border-width: 0; border-left: 2px solid #121212; padding: 10px 6px; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; text-align: center; }
+[data-theme="bauhaus"] .actions .btn:first-child, [data-theme="bauhaus"] .decide .btn:first-child { border-left: 0; }
+[data-theme="bauhaus"] .decide #approve { margin-left: 0; }
+[data-theme="bauhaus"] .btn.quiet { color: #121212; }
+[data-theme="bauhaus"] .btn:disabled { opacity: 1; color: #6b6760; text-decoration: line-through; }
+[data-theme="bauhaus"] .btn.primary:disabled { background: #efd6d5; color: #6b2421; }
+[data-theme="bauhaus"] .hint { padding: 8px 12px; border-top: 2px solid #121212; }
+[data-theme="bauhaus"] .note-actions .btn { border-radius: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  /* When the agent addresses a note, its square rounds into a circle. */
+  [data-theme="bauhaus"] .note.changed-now[data-status="addressed"] .num { animation: bauhaus-round .2s ease-out; }
+  @keyframes bauhaus-round { from { border-radius: 0; background: #ffffff; color: #121212; border-color: #121212; } }
+}
+@media (max-width: 860px) {
+  [data-theme="bauhaus"] .bar > * { padding: 6px 10px; }
+  [data-theme="bauhaus"] .file { flex: 1 1 100%; order: 3; border-left: 0; border-top: 2px solid #121212; }
+}

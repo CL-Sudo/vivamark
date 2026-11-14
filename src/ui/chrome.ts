@@ -768,7 +768,7 @@ function render(): void {
   $('note-count').textContent = String(sent.length + queue.length);
   renderEnded();
   sendBtn.disabled = sending || queue.length === 0;
-  sendBtn.textContent = queue.length ? `Send ${queue.length}` : 'Send';
+  sendBtn.textContent = queue.length ? `Send ${queue.length}${theme.fullLabels ? ` note${queue.length === 1 ? '' : 's'}` : ''}` : 'Send';
   approveBtn.disabled = sending;
   approveBtn.textContent = queue.length ? 'Approve with notes' : 'Approve';
   approveBtn.title = queue.length ? 'Approve, and send the queued notes as guidance' : 'Approve: no further revision needed';
