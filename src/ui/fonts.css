@@ -1,0 +1,15 @@
+/* The themes' faces, shipped in the package (Latin subsets, SIL Open Font
+   Licence 1.1; the licences sit beside the files) and served by the daemon
+   from /_vivamark/fonts/. Nothing is fetched from anywhere else; a face loads
+   only when the active theme uses it. */
+@font-face { font-family: "Archivo"; src: url("/_vivamark/fonts/archivo.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Archivo Black"; src: url("/_vivamark/fonts/archivo-black.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Space Mono"; src: url("/_vivamark/fonts/space-mono-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Space Mono"; src: url("/_vivamark/fonts/space-mono-700.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Figtree"; src: url("/_vivamark/fonts/figtree.woff2") format("woff2"); font-weight: 300 900; font-display: swap; }
+@font-face { font-family: "Atkinson Hyperlegible"; src: url("/_vivamark/fonts/atkinson-hyperlegible-400.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Atkinson Hyperlegible"; src: url("/_vivamark/fonts/atkinson-hyperlegible-700.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Bricolage Grotesque"; src: url("/_vivamark/fonts/bricolage-grotesque.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+@font-face { font-family: "Space Grotesk"; src: url("/_vivamark/fonts/space-grotesk.woff2") format("woff2"); font-weight: 300 700; font-display: swap; }
+@font-face { font-family: "Jost"; src: url("/_vivamark/fonts/jost.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Lexend"; src: url("/_vivamark/fonts/lexend.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }

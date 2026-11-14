@@ -1,0 +1,168 @@
+/* Gumdrop (the default): Raw x Clay. Black outlines, hard offset shadows and
+   a press, on rounded candy fills; Lexend. Mint is done, lemon asks you and
+   marks the target, pink is Send, lilac holds the agent's words. */
+:root[data-theme="gumdrop"] {
+  --bg: #fff6e9;
+  --bar-bg: #fff6e9;
+  --bar-fg: #141414;
+  --bar-line: 0 solid transparent;
+  --blur: none;
+  --side-bg: #fff6e9;
+  --side-line: 0 solid transparent;
+  --side-pad: 10px 18px 18px 8px;
+  --side-width: 370px;
+  --stage-pad: 8px 18px 18px 14px;
+  --frame-bg: #ffffff;
+  --frame-line: 2.5px solid #141414;
+  --frame-radius: 16px;
+  --frame-shadow: 5px 5px 0 #141414;
+  --card: #ffffff;
+  --card-solid: #ffffff;
+  --card-line: #141414;
+  --card-bw: 2.5px;
+  --r: 14px;
+  --r-sm: 10px;
+  --shadow: 4px 4px 0 #141414;
+  --queued-bg: #ffffff;
+  --queued-line: #141414;
+  --fg: #141414;
+  --fg2: #2b2b2b;
+  --muted: #4a4a4a;
+  --line: #141414;
+  --accent: #c9b8ff;
+  --accent-strong: #141414;
+  --accent-soft: #efe9ff;
+  --on-accent: #141414;
+  --chip: #9fd8ff;
+  --chip-fg: #141414;
+  --mark: #ffe27a;
+  --mark-fg: #141414;
+  --ok: #1d9e63;
+  --ok-fg: #141414;
+  --ok-soft: #9ef0c8;
+  --ok-line: #141414;
+  --q: #141414;
+  --q-fg: #141414;
+  --q-soft: #ffe27a;
+  --q-line: #141414;
+  --bad-fg: #9b1c3a;
+  --bad-soft: #ffe3ef;
+  --bad-line: #141414;
+  --warn-fg: #141414;
+  --warn-soft: #ffd59e;
+  --agent-bg: #efe9ff;
+  --agent-line: #141414;
+  --reply-bg: #efe9ff;
+  --reply-line: #141414;
+  --reply-fg: #141414;
+  --reply-head: #141414;
+  --btn-bg: #ffffff;
+  --btn-hover: #fffbf4;
+  --btn-fg: #141414;
+  --btn-line: #141414;
+  --btn-bw: 2.5px;
+  --btn-radius: 12px;
+  --btn-shadow: 3px 3px 0 #141414;
+  --btn-press: translate(3px, 3px);
+  --primary-bg: #ff9ecf;
+  --primary-hover: #ff8cc6;
+  --primary-fg: #141414;
+  --primary-line: #141414;
+  --primary-shadow: 3px 3px 0 #141414;
+  --approve-bg: #9ef0c8;
+  --approve-fg: #141414;
+  --approve-line: #141414;
+  --pressed-bg: #c9b8ff;
+  --pressed-fg: #141414;
+  --pressed-line: #141414;
+  --input-bg: #ffffff;
+  --input-line: #141414;
+  --input-shadow: 4px 4px 0 #ff9ecf;
+  --input-focus: 4px 4px 0 #ff9ecf;
+  --focus: #2346d8;
+  --focus-w: 3px;
+  --num-bg: #141414;
+  --num-fg: #ffffff;
+  --ui: "Lexend", "Trebuchet MS", system-ui, sans-serif;
+  --fs: 13.5px;
+
+  --mk-font: 700 11px/1 "Lexend", "Trebuchet MS", system-ui, sans-serif;
+  --mk-pin-bg: #141414;
+  --mk-pin-fg: #ffffff;
+  --mk-pin-border: 0 solid transparent;
+  --mk-pin-radius: 999px;
+  --mk-pin-shadow: 0 0 0 2px #ffe27a;
+  --mk-pin-queued-bg: #ffffff;
+  --mk-pin-queued-fg: #141414;
+  --mk-pin-queued-border: 2px dashed #141414;
+  --mk-pin-agent-bg: #c9b8ff;
+  --mk-pin-agent-fg: #141414;
+  --mk-pin-agent-border: 2px dotted #141414;
+  --mk-pin-done-bg: #9ef0c8;
+  --mk-pin-done-fg: #141414;
+  --mk-pin-done-border: 2px solid #141414;
+  --mk-pin-ask-bg: #ffe27a;
+  --mk-pin-ask-fg: #141414;
+  --mk-pin-ask-border: 2px solid #141414;
+  --mk-target-line: 2.5px solid #141414;
+  --mk-target-line-queued: 2.5px dashed #141414;
+  --mk-target-line-agent: 2.5px dotted #6b4fd8;
+  --mk-target-offset: 0px;
+  --mk-target-radius: 6px;
+  --mk-target-bg: transparent;
+  --mk-target-bg-agent: rgba(201, 184, 255, .18);
+  --mk-target-shadow: 0 0 0 7px #ffe27a;
+  --mk-text-bg: rgba(255, 226, 122, .6);
+  --mk-text-bg-agent: rgba(201, 184, 255, .45);
+  --mk-text-line: inset 0 -2px 0 #141414;
+  --mk-hover-line: 2.5px solid #141414;
+  --mk-hover-bg: rgba(255, 226, 122, .25);
+  --mk-insert-bg: rgba(158, 240, 200, .6);
+  --mk-insert-line: 2px solid #141414;
+  --mk-removal-fg: #141414;
+  --mk-removal-bg: #ffe3ef;
+  --mk-removal-border: 2px solid #141414;
+  --mk-thread: #141414;
+}
+[data-theme="gumdrop"] .bar { padding: 12px 18px 8px 14px; gap: 8px 10px; }
+[data-theme="gumdrop"] .brand { border: 2.5px solid #141414; border-radius: 999px; padding: 2px 12px 2px 6px; background: #c9b8ff; box-shadow: 2px 2px 0 #141414; font-weight: 700; }
+[data-theme="gumdrop"] .logo { width: 12px; height: 12px; background: #141414; box-shadow: none; }
+[data-theme="gumdrop"] .file { color: #3a3a3a; }
+[data-theme="gumdrop"] .chip,
+[data-theme="gumdrop"] .turn,
+[data-theme="gumdrop"] .presence,
+[data-theme="gumdrop"] .count { border: 2px solid #141414; border-radius: 999px; box-shadow: 2px 2px 0 #141414; font-weight: 600; color: #141414; }
+[data-theme="gumdrop"] .turn { background: #ffe27a; }
+[data-theme="gumdrop"] .turn[data-turn="agent"] { background: #9fd8ff; }
+[data-theme="gumdrop"] .presence { padding: 2px 11px; background: #ffffff; font-size: 12px; }
+[data-theme="gumdrop"] .presence[data-state="listening"] { background: #9ef0c8; }
+[data-theme="gumdrop"] .dot, [data-theme="gumdrop"] .presence[data-state="listening"] .dot { background: #141414; box-shadow: none; }
+[data-theme="gumdrop"] .presence[data-state="away"] .dot { background: transparent; border: 2px solid #141414; }
+[data-theme="gumdrop"] .status { gap: 10px; }
+[data-theme="gumdrop"] .side-title { font-weight: 700; }
+[data-theme="gumdrop"] .thread { padding: 2px 6px 6px 2px; }
+[data-theme="gumdrop"] .note-head .state { border: 2px solid #141414; border-radius: 999px; padding: 0 8px; color: #141414; background: #ffffff; font-size: 11px; font-weight: 600; }
+[data-theme="gumdrop"] .note-head .state.status-addressed { background: #9ef0c8; }
+[data-theme="gumdrop"] .note-head .state.status-question { background: #ffe27a; }
+[data-theme="gumdrop"] .note-head .state.status-declined { background: #ffd59e; }
+[data-theme="gumdrop"] .note-head .state.status-resolved { background: #e9e4dc; }
+[data-theme="gumdrop"] .note-head .state.from-page { background: #9ef0c8; }
+[data-theme="gumdrop"] .kind { border: 2px solid #141414; font-size: 11px; }
+[data-theme="gumdrop"] .note.queued .num { border: 2px dashed #141414; background: #ffffff; color: #141414; }
+[data-theme="gumdrop"] .note.queued.suggested { border: 2.5px dashed #141414; background: #effcf5; }
+[data-theme="gumdrop"] .note-reply { border: 2px solid #141414; }
+[data-theme="gumdrop"] .note-reply.question { background: #fff3c4; }
+[data-theme="gumdrop"] .note[data-status="resolved"] { background: #f6f2ec; box-shadow: 2px 2px 0 #141414; }
+[data-theme="gumdrop"] .target-text { border: 2px solid #141414; background: #ffe27a; color: #141414; font-weight: 700; }
+[data-theme="gumdrop"] .composer { background: #ffffff; border: 2.5px solid #141414; border-radius: 14px; box-shadow: 4px 4px 0 #ff9ecf; padding: 10px 11px; }
+[data-theme="gumdrop"] .composer textarea { box-shadow: none; border-width: 2px; }
+[data-theme="gumdrop"] .btn { font-weight: 700; }
+[data-theme="gumdrop"] .btn:active:not(:disabled), [data-theme="gumdrop"] .toggle:active:not(:disabled) { box-shadow: 0 0 0 #141414; }
+[data-theme="gumdrop"] .btn.ghost[aria-pressed="true"] { transform: translate(3px, 3px); box-shadow: 0 0 0 #141414; }
+[data-theme="gumdrop"] .btn.quiet { color: #3a3a3a; text-decoration: underline; text-underline-offset: 3px; }
+[data-theme="gumdrop"] .decision { border: 2px solid #141414; color: #141414; }
+[data-theme="gumdrop"] .orphans { border: 2.5px dashed #141414; }
+[data-theme="gumdrop"] .icon { color: #141414; }
+@media (prefers-reduced-motion: no-preference) {
+  [data-theme="gumdrop"] .btn, [data-theme="gumdrop"] .toggle { transition: transform .09s, box-shadow .09s, background .15s; }
+}

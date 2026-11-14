@@ -178,6 +178,11 @@ Environment:
   VIVAMARK_MAX_NOTE_IMAGE_BYTES largest total of files on one note (default
                                 25 MB; or "max_note_image_bytes" in config.json)
                                 Both are read when the server starts.
+  VIVAMARK_THEME                the review page's theme until the reviewer picks
+                                one on the page (or "theme" in config.json):
+                                gumdrop (default), raster, raw, pinboard, signal,
+                                sticker, riso, bauhaus or smooth-glass. Read when
+                                the server starts.
 `;
 
 class UsageError extends Error {}

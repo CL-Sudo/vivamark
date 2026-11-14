@@ -4,6 +4,10 @@
 // to draw. It never changes the saved file and never talks to the network.
 // A control the author marked with data-vivamark-suggest proposes a note when
 // the reviewer changes it; the review UI only queues it, never sends it.
+// Every mark is drawn from the review page's theme tokens (mark-tokens.ts);
+// until they arrive, in plain ink.
+
+import { MARK_TOKENS } from './mark-tokens.js';
 
 (() => {
   const script = document.currentScript as HTMLScriptElement | null;
@@ -24,8 +28,12 @@
     control?: { role: string; name: string };
     point?: { x: number; y: number; width: number; height: number };
   };
-  /** A note to draw. `agent` marks a note from the agent or a tool (F7), drawn in its own colour. */
-  type Mark = { n: number | string; kind: 'element' | 'text' | 'page'; anchor: Anchor | null; queued: boolean; agent?: boolean };
+  /**
+   * A note to draw. `agent` marks a note from the agent or a tool (F7), drawn
+   * in its own colour and line. `state` is the note's: queued, agent, or the
+   * status of a sent note (open, addressed, question...).
+   */
+  type Mark = { n: number | string; kind: 'element' | 'text' | 'page'; anchor: Anchor | null; queued: boolean; agent?: boolean; state?: string };
 
   const post = (msg: Record<string, unknown>) => window.parent.postMessage({ vivamark: 1, load, ...msg }, parentOrigin);
 
@@ -276,6 +284,69 @@
 
   // ---- drawing ------------------------------------------------------------------
 
+  /** Plain ink until the review page sends its theme. */
+  const INK: Record<string, string> = {
+    '--mk-font': '600 12px/1 ui-sans-serif, system-ui, sans-serif',
+    '--mk-pin-bg': '#111111',
+    '--mk-pin-fg': '#ffffff',
+    '--mk-pin-border': '0 solid transparent',
+    '--mk-pin-radius': '999px',
+    '--mk-pin-shadow': 'none',
+    '--mk-pin-queued-bg': '#ffffff',
+    '--mk-pin-queued-fg': '#111111',
+    '--mk-pin-queued-border': '1.5px dashed #111111',
+    '--mk-pin-agent-bg': '#ffffff',
+    '--mk-pin-agent-fg': '#111111',
+    '--mk-pin-agent-border': '1.5px dotted #111111',
+    '--mk-pin-done-bg': '#111111',
+    '--mk-pin-done-fg': '#ffffff',
+    '--mk-pin-done-border': '0 solid transparent',
+    '--mk-pin-ask-bg': '#111111',
+    '--mk-pin-ask-fg': '#ffffff',
+    '--mk-pin-ask-border': '0 solid transparent',
+    '--mk-target-line': '2px solid #111111',
+    '--mk-target-line-queued': '2px dashed #111111',
+    '--mk-target-line-agent': '2px dotted #111111',
+    '--mk-target-offset': '2px',
+    '--mk-target-radius': '4px',
+    '--mk-target-bg': 'transparent',
+    '--mk-target-bg-agent': 'transparent',
+    '--mk-target-shadow': 'none',
+    '--mk-text-bg': 'rgba(0,0,0,.12)',
+    '--mk-text-bg-agent': 'rgba(0,0,0,.08)',
+    '--mk-text-line': 'inset 0 -2px 0 #111111',
+    '--mk-hover-line': '2px solid #111111',
+    '--mk-hover-bg': 'rgba(0,0,0,.05)',
+    '--mk-insert-bg': 'rgba(0,0,0,.08)',
+    '--mk-insert-line': '2px solid #111111',
+    '--mk-removal-fg': '#111111',
+    '--mk-removal-bg': '#ffffff',
+    '--mk-removal-border': '1px solid #111111',
+  };
+  let tokens: Record<string, string> = { ...INK };
+  /** Theme rules beyond colour: words before a pin's number, and the state as the pin's shape. */
+  let pinPrefix = '';
+  let pinShapes = false;
+
+  /** The theme's values, as custom properties on the layer: they reach every mark and nothing of the page. */
+  function applyTokens(el: HTMLElement): void {
+    for (const name of MARK_TOKENS) el.style.setProperty(name, tokens[name] ?? INK[name]);
+  }
+
+  function setTheme(d: { [k: string]: unknown }): void {
+    const next: Record<string, string> = { ...INK };
+    const given = d.tokens && typeof d.tokens === 'object' ? (d.tokens as Record<string, unknown>) : {};
+    for (const name of MARK_TOKENS) {
+      const v = given[name];
+      if (typeof v === 'string' && v.trim() && v.length <= 400) next[name] = v.trim();
+    }
+    tokens = next;
+    pinPrefix = typeof d.pinPrefix === 'string' ? d.pinPrefix.slice(0, 12) : '';
+    pinShapes = d.pinShapes === true;
+    const l = document.getElementById(LAYER_ID);
+    if (l) applyTokens(l);
+  }
+
   function layer(): HTMLElement {
     let el = document.getElementById(LAYER_ID);
     if (!el) {
@@ -283,6 +354,7 @@
       el.id = LAYER_ID;
       el.setAttribute('aria-hidden', 'true');
       el.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483647;';
+      applyTokens(el);
       document.documentElement.appendChild(el);
     }
     return el;
@@ -294,18 +366,44 @@
     return d;
   }
 
-  function badge(n: number | string, x: number, y: number, queued: boolean, agent = false): HTMLElement {
+  /** Which of the theme's pin styles a note's state takes. */
+  function pinStyle(m: Mark): string {
+    if (m.agent) return 'agent';
+    if (m.queued) return 'queued';
+    if (m.state === 'addressed' || m.state === 'resolved') return 'done';
+    if (m.state === 'question' || m.state === 'declined') return 'ask';
+    return '';
+  }
+
+  /**
+   * Bauhaus's shape code: a circle once the agent has addressed it, a
+   * triangle when it asks you, a square while it is yours (dashed while
+   * queued), a diamond for a note from the agent.
+   */
+  function pinShape(style: string): string {
+    switch (style) {
+      case 'done':
+        return 'border-radius:50%;';
+      case 'ask':
+        return 'border-radius:0;border:0;clip-path:polygon(50% 0,100% 100%,0 100%);height:24px;min-width:26px;padding:6px 4px 0;line-height:18px;';
+      case 'agent':
+        return 'border-radius:2px;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);min-width:28px;height:28px;padding:0 4px;';
+      default:
+        return 'border-radius:0;';
+    }
+  }
+
+  function badge(m: Mark, x: number, y: number): HTMLElement {
     const b = document.createElement('div');
-    b.textContent = String(n);
+    b.textContent = `${pinPrefix}${m.n}`;
+    const style = pinStyle(m);
+    const v = (part: string) => `var(--mk-pin${style ? `-${style}` : ''}-${part})`;
+    b.dataset.vivamarkPin = style || 'sent';
     b.style.cssText =
       `position:absolute;left:${x + scrollX}px;top:${y + scrollY}px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;` +
-      `border-radius:999px;font:600 12px/22px Inter,ui-sans-serif,system-ui,sans-serif;text-align:center;` +
-      (agent
-        ? 'background:#f5f3ff;color:#6d28d9;border:1.5px solid #8b5cf6;line-height:19px;'
-        : queued
-          ? 'background:#fff;color:#0369a1;border:1.5px solid #0ea5e9;line-height:19px;'
-          : 'background:#0ea5e9;color:#fff;') +
-      'box-shadow:0 2px 8px rgba(14,60,120,.18);';
+      `display:flex;align-items:center;justify-content:center;white-space:nowrap;font:var(--mk-font);text-align:center;` +
+      `background:${v('bg')};color:${v('fg')};border:${v('border')};border-radius:var(--mk-pin-radius);box-shadow:var(--mk-pin-shadow);` +
+      (pinShapes ? pinShape(style) : '');
     return b;
   }
 
@@ -330,7 +428,7 @@
       const r = rangeAt(nodes, c.at, c.at + c.text.length);
       if (!r) continue;
       for (const rect of r.getClientRects()) {
-        const d = box(rect, 'background:rgba(16,185,129,.2);border-bottom:2px solid rgba(16,185,129,.7);border-radius:2px;');
+        const d = box(rect, 'background:var(--mk-insert-bg);border-bottom:var(--mk-insert-line);border-radius:2px;');
         d.dataset.vivamarkChange = 'insert';
         l.appendChild(d);
       }
@@ -346,8 +444,8 @@
       chip.textContent = text.length > 60 ? text.slice(0, 59) + '…' : text;
       chip.style.cssText =
         `position:absolute;left:${rect.left + scrollX}px;top:${rect.top + scrollY - 20}px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
-        'padding:1px 6px;border-radius:6px;font:12px/18px Inter,ui-sans-serif,system-ui,sans-serif;color:#be123c;background:rgba(255,241,242,.95);' +
-        'border:1px solid rgba(244,63,94,.35);text-decoration:line-through;box-shadow:0 2px 6px rgba(14,60,120,.1);';
+        'padding:1px 6px;border-radius:6px;font:var(--mk-font);line-height:18px;font-weight:400;color:var(--mk-removal-fg);background:var(--mk-removal-bg);' +
+        'border:var(--mk-removal-border);text-decoration:line-through;';
       l.appendChild(chip);
     }
   }
@@ -364,27 +462,32 @@
     drawChanges(l);
     for (const m of showMarks ? marks : []) {
       if (!m.anchor) continue;
-      const accent = m.agent ? 'rgba(139,92,246,.7)' : m.queued ? 'rgba(14,165,233,.55)' : '#0ea5e9';
-      const line = m.agent ? 'dotted' : m.queued ? 'dashed' : 'solid';
+      const line = m.agent ? 'var(--mk-target-line-agent)' : m.queued ? 'var(--mk-target-line-queued)' : 'var(--mk-target-line)';
       if (m.kind === 'element') {
         const found = resolveElement(m.anchor);
         if (!found) continue;
         // A radio or checkbox is drawn around its label, so the mark does not cover the text.
         const el = found instanceof HTMLInputElement && (found.type === 'radio' || found.type === 'checkbox') ? (found.labels?.[0] ?? found) : found;
         const r = el.getBoundingClientRect();
-        l.appendChild(box(r, `outline:2px ${line} ${accent};outline-offset:2px;border-radius:8px;background:${m.agent ? 'rgba(139,92,246,.05)' : 'rgba(14,165,233,.06)'};`));
-        l.appendChild(badge(m.n, r.right + 8, r.top + r.height / 2 - 11, m.queued, m.agent));
+        l.appendChild(
+          box(
+            r,
+            `outline:${line};outline-offset:var(--mk-target-offset);border-radius:var(--mk-target-radius);box-shadow:var(--mk-target-shadow);` +
+              `background:${m.agent ? 'var(--mk-target-bg-agent)' : 'var(--mk-target-bg)'};`,
+          ),
+        );
+        l.appendChild(badge(m, r.right + 8, r.top + r.height / 2 - 11));
       } else if (m.kind === 'text') {
         const range = resolveText(m.anchor);
         if (!range) continue;
         const rects = [...range.getClientRects()];
-        for (const r of rects) l.appendChild(box(r, m.agent ? 'background:rgba(139,92,246,.16);border-radius:3px;' : 'background:rgba(250,204,21,.35);border-radius:3px;'));
+        for (const r of rects) l.appendChild(box(r, `background:${m.agent ? 'var(--mk-text-bg-agent)' : 'var(--mk-text-bg)'};box-shadow:var(--mk-text-line);border-radius:3px;`));
         const last = rects[rects.length - 1];
-        if (last) l.appendChild(badge(m.n, last.right + 6, last.top + last.height / 2 - 11, m.queued, m.agent));
+        if (last) l.appendChild(badge(m, last.right + 6, last.top + last.height / 2 - 11));
       }
     }
     if (picking && hoverEl) {
-      l.appendChild(box(hoverEl.getBoundingClientRect(), 'outline:2px solid #0ea5e9;outline-offset:2px;border-radius:8px;background:rgba(14,165,233,.08);'));
+      l.appendChild(box(hoverEl.getBoundingClientRect(), 'outline:var(--mk-hover-line);outline-offset:2px;border-radius:var(--mk-target-radius);background:var(--mk-hover-bg);'));
     }
   }
 
@@ -689,7 +792,10 @@
     if (e.source !== window.parent || e.origin !== parentOrigin) return;
     const d = e.data as { vivamark?: number; type?: string; [k: string]: unknown };
     if (!d || d.vivamark !== 1) return;
-    if (d.type === 'mode') {
+    if (d.type === 'theme') {
+      setTheme(d);
+      redraw();
+    } else if (d.type === 'mode') {
       picking = !!d.pick;
       hoverEl = null;
       document.documentElement.style.cursor = picking ? 'crosshair' : '';

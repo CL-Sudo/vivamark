@@ -6,6 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <title>vivamark</title>
 <link rel="icon" href="data:,">
+<script src="/_vivamark/theme.js"></script>
 <link rel="stylesheet" href="/_vivamark/chrome.css">
 <script src="/_vivamark/chrome.js" defer></script>
 </head>
@@ -16,6 +17,7 @@
     <div class="file"><span id="file-name">…</span><span class="chip" id="reload-chip" hidden>updated</span></div>
     <button type="button" class="toggle" id="show-changes" aria-pressed="false" disabled title="Nothing has changed since you last sent">Show changes</button>
     <button type="button" class="toggle" id="show-marks" aria-pressed="true" title="Hide the outlines and numbers on noted places; the notes stay in the panel">Show marks</button>
+    <label class="theme-pick" title="How this review page looks; this browser remembers your choice"><span>Theme</span><select id="theme"></select></label>
     <div class="status">
       <span class="turn" id="turn" data-turn="reviewer">Your turn</span>
       <div class="presence" id="presence" data-state="away"><span class="dot" aria-hidden="true"></span><span id="presence-text">Agent away</span></div>
@@ -23,20 +25,25 @@
   </header>
   <div class="body">
     <main class="stage">
-      <iframe id="page" title="Page under review"
-        sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
-        referrerpolicy="no-referrer"></iframe>
+      <div class="sheet" id="sheet">
+        <iframe id="page" title="Page under review"
+          sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+          referrerpolicy="no-referrer"></iframe>
+      </div>
       <div class="banner" id="banner" hidden></div>
     </main>
     <aside class="side" aria-label="Notes">
+      <div class="who" id="who"><span class="face" id="face" aria-hidden="true"><i></i><i></i></span><span class="who-text"><b>Agent</b><small id="who-status">away</small></span></div>
       <div class="side-title">Notes <span class="count" id="note-count">0</span></div>
+      <div class="legend" id="legend"><span><i class="glyph circle" aria-hidden="true"></i>Addressed</span><span><i class="glyph triangle" aria-hidden="true"></i>Asks you</span><span><i class="glyph square" aria-hidden="true"></i>Draft</span><span><i class="glyph square sent" aria-hidden="true"></i>Sent</span></div>
       <div class="thread" id="thread" aria-live="polite"></div>
       <div class="ended" id="ended" role="status" hidden><div class="ended-head" id="ended-head">This review has ended</div><p class="ended-message" id="ended-message" hidden></p></div>
       <form class="composer" id="composer" autocomplete="off">
         <div class="target" id="target">
+          <span class="comp-num" id="comp-num" aria-hidden="true">1</span>
           <span class="target-label">On</span>
           <span class="target-text" id="target-text">the whole page</span>
-          <button type="button" class="icon" id="target-clear" title="Clear target" hidden>×</button>
+          <button type="button" class="icon" id="target-clear" title="Clear target" aria-label="Clear target" hidden>×</button>
         </div>
         <textarea id="comment" rows="3" placeholder="Add a note… (paste or drop a file or image to attach it)" aria-label="Note"></textarea>
         <div class="composer-images" id="composer-images" hidden></div>

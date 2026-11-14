@@ -26,6 +26,7 @@ import type { AgentNote, AgentStatus, Anchor, Attachment, Decision, DraftNote, L
 import { randomToken, readJson, readServerInfo, serverInfoPath, Store } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
+import { DEFAULT_THEME, THEMES, themeById } from './ui/themes.js';
 
 export const DEFAULT_PORT = 47470;
 /** Fallback ports: explicit, and below the 32768-60999 ephemeral range most systems use. */
@@ -234,6 +235,32 @@ export function imageLimits(env: NodeJS.ProcessEnv = process.env): ImageLimits {
   return { imageBytes, noteBytes: Math.max(noteBytes, imageBytes) };
 }
 
+/**
+ * The review page's theme when the reviewer has chosen none in their browser:
+ * VIVAMARK_THEME, else "theme" in the config file, else Gumdrop. A name that
+ * is not a theme is reported and ignored.
+ */
+export function themeConfig(env: NodeJS.ProcessEnv = process.env): { theme: string; from: string } {
+  let file: { theme?: unknown } = {};
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(configPath(env), 'utf8'));
+    if (parsed && typeof parsed === 'object') file = parsed as typeof file;
+  } catch {
+    // No config file, or one the notify reader has already complained about.
+  }
+  const names = THEMES.map((t) => t.id).join(', ');
+  for (const [raw, from] of [
+    [env.VIVAMARK_THEME, 'VIVAMARK_THEME'],
+    [file.theme, configPath(env)],
+  ] as const) {
+    if (raw === undefined || raw === '') continue;
+    const id = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    if (themeById(id)) return { theme: id, from };
+    console.error(`vivamark: ignoring theme ${JSON.stringify(raw)} from ${from}: not one of ${names}`);
+  }
+  return { theme: DEFAULT_THEME, from: 'default' };
+}
+
 export class Daemon {
   readonly store: Store;
   readonly events: EventLog;
@@ -250,15 +277,18 @@ export class Daemon {
   private timers: NodeJS.Timeout[] = [];
   private disconnectGraceMs: number;
   readonly imageLimits: ImageLimits;
+  /** The review page's theme until the reviewer picks one in their browser. */
+  readonly theme: string;
   private stopping = false;
   private stopped?: Promise<void>;
 
-  constructor(store: Store, idleMs: number, opts: { disconnectGraceMs?: number; imageLimits?: ImageLimits } = {}) {
+  constructor(store: Store, idleMs: number, opts: { disconnectGraceMs?: number; imageLimits?: ImageLimits; theme?: string } = {}) {
     this.store = store;
     this.events = new EventLog(store.dir);
     this.idleMs = idleMs;
     this.disconnectGraceMs = opts.disconnectGraceMs ?? DISCONNECT_GRACE_MS;
     this.imageLimits = opts.imageLimits ?? { ...IMAGE_LIMITS };
+    this.theme = themeById(opts.theme)?.id ?? DEFAULT_THEME;
   }
 
   private liveFor(s: Session): Live {
@@ -507,8 +537,11 @@ export class Daemon {
       void this.shutdown('stop requested');
       return;
     }
-    if ((m = /^\/_vivamark\/(sdk\.js|chrome\.js|chrome\.css)$/.exec(p)) && method === 'GET') {
+    if ((m = /^\/_vivamark\/(sdk\.js|chrome\.js|chrome\.css|theme\.js)$/.exec(p)) && method === 'GET') {
       return this.serveUiAsset(res, m[1]);
+    }
+    if ((m = /^\/_vivamark\/fonts\/([a-z0-9-]+\.woff2)$/.exec(p)) && method === 'GET') {
+      return this.serveFont(res, m[1]);
     }
     if ((m = /^\/s\/(s_[a-z0-9]+)$/.exec(p)) && method === 'GET') {
       this.session(m[1]);
@@ -644,6 +677,17 @@ export class Daemon {
     send(res, 200, body, { 'Content-Type': MIME[path.extname(name)] });
   }
 
+  /** A font the themes use, shipped in the package: the review page never fetches one from anywhere else. */
+  private serveFont(res: ServerResponse, name: string): void {
+    let body: Buffer;
+    try {
+      body = fs.readFileSync(path.join(UI_DIR, 'fonts', name));
+    } catch {
+      throw new HttpError(404, 'not found');
+    }
+    send(res, 200, body, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=86400' });
+  }
+
   private serveChrome(req: IncomingMessage, res: ServerResponse): void {
     const host = req.headers.host!;
     const csp = [
@@ -658,7 +702,8 @@ export class Daemon {
       "base-uri 'none'",
       "form-action 'none'",
     ].join('; ');
-    const body = fs.readFileSync(path.join(UI_DIR, 'chrome.html'));
+    // The configured theme, for the boot script to apply when this browser has chosen none.
+    const body = fs.readFileSync(path.join(UI_DIR, 'chrome.html'), 'utf8').replace('<html lang="en">', `<html lang="en" data-default-theme="${this.theme}">`);
     send(res, 200, body, {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': csp,
@@ -1200,7 +1245,9 @@ export async function runDaemon(): Promise<void> {
   const port = envPort !== undefined && /^\d+$/.test(envPort) && Number(envPort) < 65536 ? Number(envPort) : DEFAULT_PORT;
   const idleMs = Number(process.env.VIVAMARK_IDLE_MS) || 30 * 60_000;
   const disconnectGraceMs = Number(process.env.VIVAMARK_DISCONNECT_GRACE_MS) || DISCONNECT_GRACE_MS;
-  const daemon = new Daemon(store, idleMs, { disconnectGraceMs, imageLimits: imageLimits() });
+  const theme = themeConfig();
+  const daemon = new Daemon(store, idleMs, { disconnectGraceMs, imageLimits: imageLimits(), theme: theme.theme });
+  console.error(`vivamark: review pages open in the ${theme.theme} theme unless the reviewer chose another (${theme.from})`);
   // The notify hook comes from the user's environment or config file only, read once here.
   const notify = notifyConfig();
   if (notify) {

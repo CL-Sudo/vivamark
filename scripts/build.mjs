@@ -41,9 +41,13 @@ await build({
   logLevel: 'warning',
 });
 
-for (const name of ['sdk', 'chrome']) {
+for (const [name, entry] of [
+  ['sdk', 'sdk'],
+  ['chrome', 'chrome'],
+  ['theme', 'theme-boot'],
+]) {
   await build({
-    entryPoints: [path.join(root, `src/ui/${name}.ts`)],
+    entryPoints: [path.join(root, `src/ui/${entry}.ts`)],
     outfile: path.join(dist, 'ui', `${name}.js`),
     bundle: true,
     platform: 'browser',
@@ -53,6 +57,15 @@ for (const name of ['sdk', 'chrome']) {
     logLevel: 'warning',
   });
 }
-for (const name of ['chrome.html', 'chrome.css']) {
-  fs.copyFileSync(path.join(root, 'src/ui', name), path.join(dist, 'ui', name));
-}
+fs.copyFileSync(path.join(root, 'src/ui/chrome.html'), path.join(dist, 'ui/chrome.html'));
+// One stylesheet: the bundled fonts, the base layout, then each theme, so a
+// switch needs no request. Each theme's rules are scoped to its data-theme.
+const themesDir = path.join(root, 'src/ui/themes');
+const css = [
+  path.join(root, 'src/ui/fonts.css'),
+  path.join(root, 'src/ui/chrome.css'),
+  ...fs.readdirSync(themesDir).filter((f) => f.endsWith('.css')).sort().map((f) => path.join(themesDir, f)),
+].map((f) => fs.readFileSync(f, 'utf8'));
+fs.writeFileSync(path.join(dist, 'ui/chrome.css'), css.join('\n'));
+// The fonts and their licences ship in the package and are served by the daemon only.
+fs.cpSync(path.join(root, 'src/ui/fonts'), path.join(dist, 'ui/fonts'), { recursive: true });

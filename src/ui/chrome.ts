@@ -2,6 +2,10 @@
 // token (from the URL fragment), shows the page in a sandboxed frame, keeps
 // the reviewer's queued notes, and is the only thing that sends them.
 
+import { MARK_TOKENS } from './mark-tokens.js';
+import { THEME_KEY, THEMES, themeById } from './themes.js';
+import type { Layout, Theme } from './themes.js';
+
 type Kind = 'element' | 'text' | 'page';
 interface Anchor {
   stable_id: string | null;
@@ -185,6 +189,10 @@ let ended: Ended | null = null;
 /** Files for the note being written, uploaded already, added to it on Add note. */
 let pendingFiles: Attached[] = [];
 let limits = { image_bytes: 10 * 1024 * 1024, note_image_bytes: 25 * 1024 * 1024 };
+/** The theme in use; the boot script has already applied it to the page. */
+let theme: Theme = themeById(document.documentElement.dataset.theme) ?? THEMES[0];
+/** Runs after each render while a layout needs to place things itself (Pinboard's canvas). */
+let layoutHook: (() => void) | null = null;
 
 function loadQueue(): Draft[] {
   try {
@@ -349,6 +357,7 @@ function thumbStrip(files: Attached[], remove?: (i: number) => void): HTMLElemen
       const rm = el('button', 'icon remove-image', '×');
       rm.type = 'button';
       rm.title = image ? 'Remove this image' : 'Remove this file';
+      rm.setAttribute('aria-label', a.name ? `Remove ${a.name}` : rm.title);
       rm.addEventListener('click', (e) => {
         e.stopPropagation();
         remove(i);
@@ -430,6 +439,7 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
     const rm = el('button', 'icon remove', '×');
     rm.type = 'button';
     rm.title = 'Remove this note';
+    rm.setAttribute('aria-label', 'Remove this note');
     rm.addEventListener('click', () => {
       queue.splice(queuedIndex, 1);
       saveQueue();
@@ -473,6 +483,23 @@ function noteCard(n: number, d: Draft, queuedIndex: number | null, line?: number
   } else if (files.length) card.append(thumbStrip(files));
   if (queuedIndex === null) sentExtras(card, n, d as Note);
   return card;
+}
+
+/** Sticker's word for the agent's answer, stuck on its reply. */
+const STICKER: Record<string, string> = { addressed: 'Done!', question: 'Question', declined: 'Declined', reply: 'Reply' };
+
+/**
+ * Whether this is the first render to show something, so a theme can animate
+ * its arrival (a sticker popping in, a square rounding into a circle) once
+ * and not on every render. The first render of the page shows everything as
+ * already there.
+ */
+const seen = new Set<string>();
+let firstRender = true;
+function fresh(key: string): boolean {
+  if (seen.has(key)) return false;
+  seen.add(key);
+  return !firstRender;
 }
 
 const STATUS_LABEL: Record<NoteStatus, string> = {
@@ -550,9 +577,10 @@ function sentExtras(card: HTMLElement, n: number, note: Note): void {
   const status = note.status ?? 'open';
   card.dataset.status = status;
   card.dataset.id = note.id;
+  if (fresh(`s${note.id}:${status}`) && status !== 'open') card.classList.add('changed-now');
   for (const r of replies.filter((x) => x.note === note.id)) {
-    const box = el('div', `note-reply ${r.status ?? ''}`);
-    box.append(el('div', 'reply-head', `Agent · ${r.status ?? 'reply'}`));
+    const box = el('div', `note-reply ${r.status ?? ''}${fresh(`r${r.seq}`) ? ' fresh' : ''}`);
+    box.append(el('span', 'sticker', STICKER[r.status ?? 'reply']), el('div', 'reply-head', `Agent · ${r.status ?? 'reply'}`));
     if (r.text.trim()) {
       const body = el('div', 'md');
       // Rendered on the server from Markdown with raw HTML disabled; the page's CSP blocks scripts as well.
@@ -771,9 +799,13 @@ function render(): void {
   turnEl.title = turn === 'agent' ? 'Notes are waiting on the agent' : 'Nothing is waiting on the agent';
   // The how-to hint is for an empty review; once there are notes the thread needs the room.
   $('hint').hidden = sent.length + queue.length > 0;
+  $('comp-num').textContent = String(sent.length + queue.length + 1);
+  $('who-status').textContent = `${$('presence').dataset.state === 'listening' ? 'listening' : 'away'} · ${turn === 'agent' ? "agent's turn" : 'your turn'}`;
   renderChanges();
   postMarks();
   postFields();
+  layoutHook?.();
+  firstRender = false;
 }
 
 /** An ended review keeps its thread readable and takes nothing more. */
@@ -817,6 +849,8 @@ function setPresence(state: 'listening' | 'away'): void {
   const p = $('presence');
   p.dataset.state = state;
   $('presence-text').textContent = state === 'listening' ? 'Agent listening' : 'Agent away';
+  $('who').dataset.state = state;
+  $('who-status').textContent = `${state === 'listening' ? 'listening' : 'away'} · ${turn === 'agent' ? "agent's turn" : 'your turn'}`;
 }
 
 // ---- the frame -------------------------------------------------------------------------
@@ -835,13 +869,13 @@ function postMarks(): void {
       // An orphaned note is not drawn at all; a moved one is drawn where it is now.
       if (a?.state === 'orphaned') return [];
       const anchor = a?.current && a.state === 'moved' ? { ...a, stable_id: a.current.stable_id, selector: a.current.selector } : a;
-      return [{ n: i + 1, kind: e.note.kind, anchor, queued: false }];
+      return [{ n: i + 1, kind: e.note.kind, anchor, queued: false, state: e.note.status ?? 'open' }];
     }),
-    ...queue.map((d, i) => ({ n: sent.length + i + 1, kind: d.kind, anchor: d.anchor, queued: true })),
+    ...queue.map((d, i) => ({ n: sent.length + i + 1, kind: d.kind, anchor: d.anchor, queued: true, state: 'queued' })),
     ...agentNotes.flatMap((a) => {
       if (a.status !== 'shown' || a.anchor?.state === 'orphaned') return [];
       const anchor = a.anchor?.current && a.anchor.state === 'moved' ? { ...a.anchor, stable_id: a.anchor.current.stable_id, selector: a.anchor.current.selector } : a.anchor;
-      return [{ n: agentLabel(a.id), kind: a.kind, anchor, queued: false, agent: true }];
+      return [{ n: agentLabel(a.id), kind: a.kind, anchor, queued: false, agent: true, state: 'agent' }];
     }),
   ];
   toFrame({ type: 'marks', marks, show: showMarks });
@@ -885,6 +919,7 @@ window.addEventListener('message', (e) => {
   if (!d || d.vivamark !== 1 || d.load !== loadNonce) return;
   switch (d.type) {
     case 'ready':
+      postTheme();
       toFrame({ type: 'restore', ...lastScroll });
       setPicking(pointBtn.getAttribute('aria-pressed') === 'true');
       postMarks();
@@ -1010,6 +1045,10 @@ async function sendDecision(decision: Decision): Promise<void> {
     }
     mergeNotes(res.notes.filter((e) => e.type === 'note'));
     const n = notes.length;
+    document.body.classList.remove('just-sent');
+    void document.body.offsetWidth;
+    document.body.classList.add('just-sent');
+    setTimeout(() => document.body.classList.remove('just-sent'), 400);
     banner(SENT_TEXT[decision].replace('{n}', `${n} note${n === 1 ? '' : 's'}`), false, 2500);
     await refresh();
   } catch (err) {
@@ -1115,6 +1154,56 @@ async function refresh(): Promise<void> {
     // The server is restarting; the socket loop retries.
   }
 }
+
+// ---- themes ------------------------------------------------------------------------------
+
+/**
+ * Switches the theme at once: no reload, so the note being written, the
+ * queue and the page's scroll position stay. This browser remembers it.
+ */
+function applyTheme(id: string, remember: boolean): void {
+  const next = themeById(id);
+  if (!next) return;
+  const root = document.documentElement;
+  root.dataset.theme = next.id;
+  root.dataset.layout = next.layout;
+  if (remember) {
+    try {
+      localStorage.setItem(THEME_KEY, next.id);
+    } catch {
+      // Storage blocked: the theme lasts as long as this page.
+    }
+  }
+  const layoutChanged = next.layout !== theme.layout;
+  theme = next;
+  themeSelect.value = next.id;
+  if (layoutChanged) setLayout(next.layout);
+  postTheme();
+  render();
+}
+
+/** Layouts that place things themselves start and stop here. */
+let stopLayout: (() => void) | null = null;
+function setLayout(layout: Layout): void {
+  stopLayout?.();
+  stopLayout = null;
+  layoutHook = null;
+  void layout;
+}
+
+/** Sends the active theme's mark tokens to the page, so its marks follow the theme. */
+function postTheme(): void {
+  const cs = getComputedStyle(document.documentElement);
+  const tokens: Record<string, string> = {};
+  for (const name of MARK_TOKENS) tokens[name] = cs.getPropertyValue(name).trim();
+  toFrame({ type: 'theme', id: theme.id, tokens, pinPrefix: theme.pinPrefix ?? '', pinShapes: !!theme.pinShapes });
+}
+
+const themeSelect = $<HTMLSelectElement>('theme');
+for (const t of THEMES) themeSelect.append(new Option(t.name, t.id));
+themeSelect.value = theme.id;
+themeSelect.addEventListener('change', () => applyTheme(themeSelect.value, true));
+setLayout(theme.layout);
 
 async function start(): Promise<void> {
   if (!token) {
