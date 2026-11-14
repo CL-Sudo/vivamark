@@ -2,6 +2,8 @@
 // token (from the URL fragment), shows the page in a sandboxed frame, keeps
 // the reviewer's queued notes, and is the only thing that sends them.
 
+import { startCanvas } from './canvas.js';
+import type { Canvas } from './canvas.js';
 import { MARK_TOKENS } from './mark-tokens.js';
 import { THEME_KEY, THEMES, themeById } from './themes.js';
 import type { Layout, Theme } from './themes.js';
@@ -917,9 +919,11 @@ window.addEventListener('message', (e) => {
   if (e.source !== frame.contentWindow || e.origin !== 'null') return;
   const d = e.data as { vivamark?: number; load?: string; type?: string; kind?: Kind; anchor?: Anchor; x?: number; y?: number };
   if (!d || d.vivamark !== 1 || d.load !== loadNonce) return;
+  if (canvas?.onMessage(d as Record<string, unknown>)) return;
   switch (d.type) {
     case 'ready':
       postTheme();
+      canvas?.frameReady();
       toFrame({ type: 'restore', ...lastScroll });
       setPicking(pointBtn.getAttribute('aria-pressed') === 'true');
       postMarks();
@@ -1019,6 +1023,7 @@ $('show-marks').addEventListener('click', () => {
   saveShowMarks();
   renderMarksToggle();
   postMarks();
+  layoutHook?.();
 });
 
 const SENT_TEXT: Record<Decision, string> = {
@@ -1174,22 +1179,44 @@ function applyTheme(id: string, remember: boolean): void {
       // Storage blocked: the theme lasts as long as this page.
     }
   }
-  const layoutChanged = next.layout !== theme.layout;
   theme = next;
   themeSelect.value = next.id;
-  if (layoutChanged) setLayout(next.layout);
+  setLayout(next.layout);
   postTheme();
   render();
 }
 
-/** Layouts that place things themselves start and stop here. */
-let stopLayout: (() => void) | null = null;
+/**
+ * Layouts that place things themselves start and stop here. Pinboard's
+ * canvas needs the room of a desktop window; narrower, Pinboard stacks the
+ * sheet and its cards like the panel.
+ */
+let canvas: Canvas | null = null;
+const wide = matchMedia('(min-width: 861px)');
 function setLayout(layout: Layout): void {
-  stopLayout?.();
-  stopLayout = null;
-  layoutHook = null;
-  void layout;
+  const want = layout === 'canvas' && wide.matches;
+  if (want === !!canvas) return;
+  if (canvas) {
+    canvas.stop();
+    canvas = null;
+    layoutHook = null;
+    return;
+  }
+  canvas = startCanvas({
+    stage: document.querySelector<HTMLElement>('.stage')!,
+    sheet: $('sheet'),
+    frame,
+    thread,
+    composer: $('composer'),
+    ended: $('ended'),
+    toFrame,
+    probe: () => (target.anchor && target.kind !== 'page' ? { kind: target.kind, anchor: target.anchor } : null),
+    marksShown: () => showMarks,
+    scrollY: () => lastScroll.y,
+  });
+  layoutHook = () => canvas?.layout();
 }
+wide.addEventListener('change', () => setLayout(theme.layout));
 
 /** Sends the active theme's mark tokens to the page, so its marks follow the theme. */
 function postTheme(): void {

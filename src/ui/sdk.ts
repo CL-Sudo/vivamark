@@ -489,7 +489,75 @@ import { MARK_TOKENS } from './mark-tokens.js';
     if (picking && hoverEl) {
       l.appendChild(box(hoverEl.getBoundingClientRect(), 'outline:var(--mk-hover-line);outline-offset:2px;border-radius:var(--mk-target-radius);background:var(--mk-hover-bg);'));
     }
+    if (canvas) postGeometry();
   }
+
+  // ---- canvas (Pinboard) ----------------------------------------------------------
+  //
+  // In Pinboard the review page shows this page whole, as a sheet on a
+  // zoomable table, with the notes pinned beside it. It then needs to know
+  // how tall the page is and where each noted place is, in page pixels; this
+  // reports them, along with the place the note being written points at
+  // (`probe`). Positions only: no text of the page leaves it this way.
+
+  type Box = { x: number; y: number; w: number; h: number };
+  let canvas = false;
+  let probe: { kind?: unknown; anchor?: Anchor } | null = null;
+  let lastGeometry = '';
+
+  function placeOf(kind: unknown, anchor: Anchor | null | undefined): Box | null {
+    if (!anchor) return null;
+    let r: DOMRect | undefined;
+    if (kind === 'element') {
+      const found = resolveElement(anchor);
+      const el = found instanceof HTMLInputElement && (found.type === 'radio' || found.type === 'checkbox') ? (found.labels?.[0] ?? found) : found;
+      r = el?.getBoundingClientRect();
+    } else if (kind === 'text') {
+      r = resolveText(anchor)?.getBoundingClientRect();
+    }
+    if (!r || (!r.width && !r.height)) return null;
+    const round = (n: number) => Math.round(n);
+    return { x: round(r.left + scrollX), y: round(r.top + scrollY), w: round(r.width), h: round(r.height) };
+  }
+
+  function postGeometry(): void {
+    const root = document.documentElement;
+    const height = Math.max(root.scrollHeight, document.body?.scrollHeight ?? 0);
+    const width = Math.max(root.scrollWidth, document.body?.scrollWidth ?? 0);
+    const places = marks.flatMap((m) => {
+      const b = placeOf(m.kind, m.anchor);
+      return b ? [{ n: String(m.n), ...b }] : [];
+    });
+    const msg = { type: 'geometry', width, height, marks: places, probe: probe ? placeOf(probe.kind, probe.anchor) : null };
+    const json = JSON.stringify(msg);
+    if (json === lastGeometry) return;
+    lastGeometry = json;
+    post(msg);
+  }
+
+  // The wheel pans and zooms the table, not this page, which is shown whole.
+  window.addEventListener(
+    'wheel',
+    (e) => {
+      if (!canvas) return;
+      e.preventDefault();
+      post({ type: 'wheel', dx: e.deltaX, dy: e.deltaY, mode: e.deltaMode, zoom: e.ctrlKey || e.metaKey, x: e.clientX, y: e.clientY });
+    },
+    { passive: false },
+  );
+
+  // A double-click on the sheet starts a note on what was clicked.
+  window.addEventListener(
+    'dblclick',
+    (e) => {
+      if (!canvas || picking || isField(e.target)) return;
+      const el = pickTarget(e.target);
+      if (!el) return;
+      document.getSelection()?.removeAllRanges();
+      post({ type: 'pick', kind: 'element', anchor: elementAnchor(el, { x: e.clientX, y: e.clientY }) });
+    },
+    true,
+  );
 
   let drawQueued = false;
   function redraw(): void {
@@ -784,7 +852,11 @@ import { MARK_TOKENS } from './mark-tokens.js';
     { passive: true },
   );
   window.addEventListener('resize', redraw);
-  if ('ResizeObserver' in window) new ResizeObserver(redraw).observe(document.documentElement);
+  if ('ResizeObserver' in window)
+    new ResizeObserver(() => {
+      redraw();
+      if (canvas) postGeometry();
+    }).observe(document.documentElement);
 
   // ---- messages from the review UI ----------------------------------------------------
 
@@ -804,6 +876,7 @@ import { MARK_TOKENS } from './mark-tokens.js';
       marks = Array.isArray(d.marks) ? (d.marks as Mark[]) : [];
       showMarks = d.show !== false;
       redraw();
+      if (canvas) postGeometry();
     } else if (d.type === 'changes') {
       const list = (v: unknown): Change[] =>
         Array.isArray(v) ? v.filter((c): c is Change => !!c && typeof c.at === 'number' && typeof c.text === 'string') : [];
@@ -811,6 +884,13 @@ import { MARK_TOKENS } from './mark-tokens.js';
       redraw();
     } else if (d.type === 'restore') {
       window.scrollTo(Number(d.x) || 0, Number(d.y) || 0);
+    } else if (d.type === 'canvas') {
+      canvas = d.on === true;
+      probe = d.probe && typeof d.probe === 'object' ? (d.probe as typeof probe) : null;
+      lastGeometry = '';
+      redraw();
+      // Directly as well: a frame scrolled off screen gets no animation frames until it is back.
+      if (canvas) postGeometry();
     } else if (d.type === 'fields') {
       const list = Array.isArray(d.fields)
         ? (d.fields as unknown[]).filter((f): f is FieldState => !!f && typeof (f as FieldState).key === 'string' && typeof (f as FieldState).text === 'string')

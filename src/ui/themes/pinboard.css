@@ -1,0 +1,179 @@
+/* Pinboard: the page is a sheet on a table. Zoom out to see every note
+   pinned beside its spot with a dashed thread to what it means; notes whose
+   cards are off screen shrink to pills; a minimap shows where the notes are
+   on a long page; Fit snaps back to reading width. Canvas behaviour is in
+   canvas.ts; on a narrow window the sheet and the cards stack. Figtree. */
+:root[data-theme="pinboard"] {
+  --bg: #eceff3 radial-gradient(#cdd3dc 1px, transparent 1.2px) 0 0 / 16px 16px;
+  --bar-bg: #ffffff;
+  --bar-fg: #1b2230;
+  --bar-line: 1px solid #d5dae2;
+  --blur: none;
+  --side-bg: transparent;
+  --side-line: 0 solid transparent;
+  --side-pad: 12px 12px 12px 0;
+  --side-width: 360px;
+  --stage-pad: 12px;
+  --frame-bg: #ffffff;
+  --frame-line: 0 solid transparent;
+  --frame-radius: 2px;
+  --frame-shadow: 0 10px 30px rgba(27, 34, 48, .14);
+  --card: #ffffff;
+  --card-solid: #ffffff;
+  --card-line: #d5dae2;
+  --card-bw: 1px;
+  --r: 10px;
+  --r-sm: 8px;
+  --shadow: 0 6px 18px rgba(27, 34, 48, .1);
+  --queued-bg: #fff8d6;
+  --queued-line: #c9b64f;
+  --fg: #1b2230;
+  --fg2: #3b4456;
+  --muted: #545d6e;
+  --line: #d5dae2;
+  --accent: #7c5cff;
+  --accent-strong: #5a3fd6;
+  --accent-soft: #f0ecff;
+  --on-accent: #ffffff;
+  --chip: #f0ecff;
+  --chip-fg: #4a33b8;
+  --mark: #fff3b8;
+  --mark-fg: #5c4a00;
+  --ok: #1a7f54;
+  --ok-fg: #1a7f54;
+  --ok-soft: #ddf3e8;
+  --ok-line: #9bd3b8;
+  --q: #5a3fd6;
+  --q-fg: #5a3fd6;
+  --q-soft: #f0ecff;
+  --q-line: #b7a6ff;
+  --bad-fg: #b42343;
+  --bad-soft: #fff1f3;
+  --bad-line: #f2b3c0;
+  --warn-fg: #8a5300;
+  --warn-soft: #fff1d6;
+  --agent-bg: #f8f6ff;
+  --agent-line: #d6ccff;
+  --reply-bg: #f1f3f7;
+  --reply-line: transparent;
+  --reply-fg: #3b4456;
+  --reply-head: #1b2230;
+  --btn-bg: #ffffff;
+  --btn-hover: #f6f7f9;
+  --btn-fg: #1b2230;
+  --btn-line: #d5dae2;
+  --btn-bw: 1px;
+  --btn-radius: 7px;
+  --btn-shadow: none;
+  --primary-bg: #6a48f0;
+  --primary-hover: #5a3fd6;
+  --primary-fg: #ffffff;
+  --primary-line: #6a48f0;
+  --primary-shadow: none;
+  --approve-bg: #ffffff;
+  --approve-fg: #1a7f54;
+  --approve-line: #9bd3b8;
+  --pressed-bg: #6a48f0;
+  --pressed-fg: #ffffff;
+  --pressed-line: #6a48f0;
+  --input-bg: #ffffff;
+  --input-line: #d5dae2;
+  --input-shadow: none;
+  --input-focus: 0 0 0 3px #e4dcff;
+  --focus: #5a3fd6;
+  --focus-w: 2px;
+  --num-bg: #6a48f0;
+  --num-fg: #ffffff;
+  --ui: "Figtree", system-ui, sans-serif;
+  --fs: 13.5px;
+
+  --mk-font: 700 11px/1 "Figtree", system-ui, sans-serif;
+  --mk-pin-bg: #6a48f0;
+  --mk-pin-fg: #ffffff;
+  --mk-pin-border: 0 solid transparent;
+  --mk-pin-radius: 999px;
+  --mk-pin-shadow: 0 2px 6px rgba(27, 34, 48, .2);
+  --mk-pin-queued-bg: #fff8d6;
+  --mk-pin-queued-fg: #1b2230;
+  --mk-pin-queued-border: 1.5px dashed #6a48f0;
+  --mk-pin-agent-bg: #ffffff;
+  --mk-pin-agent-fg: #4a33b8;
+  --mk-pin-agent-border: 1.5px dotted #6a48f0;
+  --mk-pin-done-bg: #1a7f54;
+  --mk-pin-done-fg: #ffffff;
+  --mk-pin-done-border: 0 solid transparent;
+  --mk-pin-ask-bg: #ffffff;
+  --mk-pin-ask-fg: #4a33b8;
+  --mk-pin-ask-border: 2px solid #6a48f0;
+  --mk-target-line: 2px solid #7c5cff;
+  --mk-target-line-queued: 2px dashed #7c5cff;
+  --mk-target-line-agent: 2px dotted #7c5cff;
+  --mk-target-offset: 1px;
+  --mk-target-radius: 4px;
+  --mk-target-bg: rgba(124, 92, 255, .08);
+  --mk-target-bg-agent: rgba(124, 92, 255, .05);
+  --mk-target-shadow: none;
+  --mk-text-bg: rgba(124, 92, 255, .14);
+  --mk-text-bg-agent: rgba(124, 92, 255, .08);
+  --mk-text-line: inset 0 -1.5px 0 #7c5cff;
+  --mk-hover-line: 2px solid #7c5cff;
+  --mk-hover-bg: rgba(124, 92, 255, .08);
+  --mk-insert-bg: rgba(26, 127, 84, .16);
+  --mk-insert-line: 2px solid #1a7f54;
+  --mk-removal-fg: #b42343;
+  --mk-removal-bg: #fff1f3;
+  --mk-removal-border: 1px solid #f2b3c0;
+  --mk-thread: #7c5cff;
+}
+[data-theme="pinboard"] .bar { padding: 8px 14px; gap: 6px 14px; }
+[data-theme="pinboard"] .logo { background: #6a48f0; box-shadow: none; border-radius: 50%; width: 14px; height: 14px; }
+[data-theme="pinboard"] .chip { background: #ddf3e8; color: #1a7f54; font-weight: 600; }
+[data-theme="pinboard"] .presence[data-state="listening"] { color: #1a7f54; font-weight: 600; }
+[data-theme="pinboard"] .turn { background: #f0ecff; color: #4a33b8; }
+[data-theme="pinboard"] .note-head { font-size: 12px; font-weight: 700; color: #545d6e; }
+[data-theme="pinboard"] .num { width: 18px; height: 18px; font-size: 10.5px; }
+[data-theme="pinboard"] .note.queued { border-style: solid; border-color: #e9d77a; background: #fff8d6; box-shadow: var(--shadow); }
+[data-theme="pinboard"] .note.queued .num { background: #fff8d6; color: #1b2230; border: 1.5px dashed #6a48f0; }
+[data-theme="pinboard"] .note-head .state.status-addressed { color: #1a7f54; font-weight: 700; }
+[data-theme="pinboard"] .note-head .state.status-question { color: #5a3fd6; font-weight: 700; }
+[data-theme="pinboard"] .note-reply { border-radius: 8px; }
+
+/* ---- the canvas: a desktop window in Pinboard ---- */
+.body:has(.pb-canvas) { grid-template-columns: minmax(0, 1fr); }
+.body:has(.pb-canvas) .side { display: none; }
+.stage.pb-canvas { padding: 0; overflow: hidden; background: var(--bg); touch-action: none; cursor: grab; }
+.stage.pb-canvas.pb-dragging { cursor: grabbing; }
+.pb-canvas .sheet { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; }
+.pb-canvas #page { height: 100%; }
+.pb-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; z-index: 2; }
+.pb-world > .thread { position: absolute; left: 0; top: 0; width: 0; height: 0; margin: 0; padding: 0; overflow: visible; display: block; }
+.pb-world > .thread > * { position: absolute; margin: 0; cursor: auto; }
+.pb-world .note-head { cursor: move; }
+.pb-world > .thread > .empty { width: 300px; }
+.pb-wires, .pb-overlay { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.pb-wires { width: 1px; height: 1px; }
+.pb-overlay { width: 100%; height: 100%; z-index: 1; }
+.pb-wires path, .pb-overlay path { fill: none; stroke: var(--mk-thread); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.pb-toolbar, .pb-dock, .pb-pills { position: absolute; z-index: 4; cursor: auto; }
+.pb-toolbar { left: 12px; top: 10px; display: flex; gap: 4px; align-items: center; background: #ffffff; border: 1px solid #d5dae2; border-radius: 10px; padding: 4px 6px; box-shadow: 0 2px 6px rgba(27, 34, 48, .08); }
+.pb-tool { font: 600 12.5px var(--ui); min-width: 28px; height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #1b2230; cursor: pointer; }
+.pb-tool:hover { background: #f1f3f7; }
+.pb-fit { border-color: #d5dae2; }
+.pb-zoom { min-width: 44px; text-align: center; font-weight: 700; font-size: 12.5px; }
+.pb-pills { left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 400px); }
+.pb-pill { font: 600 12px var(--ui); padding: 5px 12px; border-radius: 999px; border: 1px solid #d5dae2; background: #ffffff; color: #1b2230; box-shadow: 0 4px 14px rgba(27, 34, 48, .12); cursor: pointer; white-space: nowrap; }
+.pb-pill:hover { background: #f6f7f9; }
+.pb-dock { right: 12px; bottom: 12px; width: 350px; max-height: calc(100% - 24px); overflow: auto; display: flex; flex-direction: column; gap: 10px; background: #ffffff; border: 1px solid #d5dae2; border-radius: 12px; padding: 10px; box-shadow: 0 4px 14px rgba(27, 34, 48, .12); }
+.pb-dock .ended { box-shadow: none; }
+.pb-dock .composer textarea { min-height: 56px; }
+.pb-mini { position: relative; width: 120px; height: 84px; flex: none; border: 1px solid #d5dae2; border-radius: 4px; background: #f6f7f9; overflow: hidden; cursor: pointer; }
+.pb-mini i { position: absolute; display: block; }
+.pb-mini-sheet { background: #ffffff; outline: 1px solid #c3cad5; }
+.pb-mini-card { background: #6a48f0; border-radius: 1px; }
+.pb-mini-view { border: 1.5px solid #7c5cff; border-radius: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  /* Pan and zoom ease; cards settle with a short spring. */
+  .pb-anim { transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
+  .pb-world > .thread > * { transition: left .22s cubic-bezier(.34, 1.4, .64, 1), top .22s cubic-bezier(.34, 1.4, .64, 1); }
+  .pb-dragging .pb-world > .thread > * { transition: none; }
+}
