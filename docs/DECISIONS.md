@@ -232,3 +232,27 @@ connection to close, one the loopback relay had dropped, so it never closed.
 | Unchanged | The idle timeout, the port, `server.json`, the CLI and the wire format. | |
 
 This extends "One server per state directory" (2026-10-05).
+
+## 2026-11-14: Themes for the review page, Gumdrop by default
+
+Asked: "can you build the following themes so that I can switch whenever I
+feel like in vivamark? raster, raw, pinboard, signal, sticker, riso, bauhaus,
+gumdrop." Answers to the follow-up questions: full themes now, each with its
+own layout and interaction as designed; bundle the fonts; Gumdrop is the
+default. The looks come from the design study's second round.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Which themes | Nine: Gumdrop, Raster, Raw, Pinboard, Signal, Sticker, Riso, Bauhaus, and Smooth glass, the one look until now, kept as a choice. Three change the layout as well as the look: Raster lays the notes out as a numbered index on a 7/5 grid, Sticker as a chat thread with a face for the agent, and Pinboard shows the page whole as a sheet on a zoomable table with the notes pinned beside it (narrower than 861 px, it stacks). | The Boss wants to switch as they like; each theme is what its mock and notes showed, not only its colours. |
+| Switching | A Theme picker in the bar. The theme applies at once, with no reload: the draft, the queue, the page and its scroll position stay. The browser remembers the choice (`localStorage`). | A look is a viewing preference, like Show marks. |
+| The default | Gumdrop. `VIVAMARK_THEME`, or `"theme"` in the config file, sets another, read when the server starts; an unknown name is reported and ignored. A choice made in a browser wins over it. No new CLI flag. | The same place as every other setting of the server; the CLI contract is unchanged. |
+| Presentation only | No theme changes the notes, the log, `wait` or any JSON an agent reads, or what reaches the agent. Every theme has every control. | Themes are how the review looks, not what it does. |
+| The floor | Every theme keeps Signal's rules: a visible focus ring, text at 4.5:1 or better (3:1 for large text), every state in words or a shape as well as colour, real labels on buttons, no motion with `prefers-reduced-motion`. A browser test checks each theme at desktop and phone width. Smooth glass's grey, purple and send blue are darkened to pass. | Recommended by both rounds of the study; a look must not cost a reader the page. |
+| Marks in the page | The marks the page script draws (targets, pins, highlights, change marks, the outline while pointing) take every colour and shape from the theme's `--mk-*` tokens, sent to the page with each switch. The page script has no colours of its own beyond plain ink before the first. Bauhaus's pins take the note's state as a shape; Signal's say "Note 3". | The marks were hard-coded sky blue and yellow; a theme that left them so would not be whole. |
+| Fonts | Each theme's typeface ships in the package as a Latin WOFF2 file (SIL Open Font Licence 1.1, licence beside it, listed in THIRD-PARTY-NOTICES.md) and is served by the daemon from `/_vivamark/fonts/`. About 300 KB in all; a face loads only when its theme is used. | "Bundle the fonts", and non-negotiable 2: the review page fetches nothing from anywhere else, which a test checks. |
+| Pinboard and the page | While Pinboard's canvas is on, the page script reports the page's height and where each noted place is, in page pixels, and passes the wheel to the table. Positions only. The sheet keeps its place in the document (moving the frame would reload the page). | The canvas cannot read the page, which runs in a sandboxed frame of its own origin. |
+
+This supersedes the "Look" row of the founding decisions (2026-10-04):
+Smooth glass is no longer the only look of the review page, and no longer
+the default. The guide's `design` topic, the look for pages agents write,
+is unchanged.

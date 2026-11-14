@@ -136,6 +136,39 @@ The rules, close to those of `xdg-open` and Python's `webbrowser`:
   tried, and after the last the system's default. A browser that starts and
   then fails is not noticed. The URL is printed either way.
 
+### Choosing the theme
+
+The review page has nine themes. Switch with **Theme** in the bar, at any
+time: the change applies at once, with no reload, and your draft and queued
+notes stay. This browser remembers the choice.
+
+| Theme | What it is |
+|---|---|
+| **Gumdrop** (default) | Black outlines, candy fills, hard shadows; controls press flat |
+| **Raster** | A Swiss grid: the notes as a numbered index, one red |
+| **Raw** | Brutalist: thick borders, hard shadows, a yellow bar |
+| **Pinboard** | The page whole, as a sheet on a table, notes pinned beside it with threads. Scroll to pan, Ctrl or ⌘ with the wheel to zoom, **Fit** for reading width; notes off screen show as pills; a minimap. Stacks on a narrow window |
+| **Signal** | Big type and controls, every state in a word and a symbol |
+| **Sticker** | A chat with the agent: your notes as bubbles, its answers with stickers, a face that shows it is listening |
+| **Riso** | Two inks: pink is you, blue is the agent, purple overprint when a note is addressed |
+| **Bauhaus** | A shape for each state, on the note and its pin: circle addressed, triangle asks you, square yours |
+| **Smooth glass** | The look vivamark had before themes |
+
+The marks drawn on the agent's page follow the theme. Every theme keeps
+the same controls, a visible focus ring, text at 4.5:1 contrast or better,
+and no motion when your system asks for less. Their fonts ship with
+vivamark and are served by the local server; nothing is fetched.
+
+To set the theme a browser starts in, before anyone picks one there:
+
+```sh
+export VIVAMARK_THEME=raster
+```
+
+or `"theme": "raster"` in `~/.config/vivamark/config.json`. It is read when
+the server starts, so run `vivamark stop` after changing it. A choice made in
+the browser wins over it.
+
 ![The review page: sent notes, an approval, and Show changes](docs/screenshots/review-ui.png)
 
 ## Writing a page worth reviewing

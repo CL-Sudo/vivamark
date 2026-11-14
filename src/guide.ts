@@ -214,11 +214,22 @@ Pointing things out yourself
   vivamark note add <file> --target '#risk-rollback' --text "I guessed this number."
   The reviewer sees it labelled as yours. It reaches wait only if the reviewer
   endorses it or replies to it. Use it for guesses and things you are unsure of.
+
+Themes of the review page
+  The review page around your page has themes the reviewer switches with
+  Theme in its bar: Gumdrop (the default), Raster, Raw, Pinboard, Signal,
+  Sticker, Riso, Bauhaus and Smooth glass. Their default is set with
+  VIVAMARK_THEME or "theme" in ~/.config/vivamark/config.json, read when the
+  server starts. A theme changes only how the review page and the marks on
+  your page look, never your page's own styles or what wait returns. Do not
+  style your page to suit one.
 `;
 
 const DESIGN = `design: the Smooth glass look
 
 White, a faint sky tint, frosted panels, rounded pills, one sky-blue accent.
+This is the look of the page you write; the review page around it has its
+own themes, which the reviewer chooses (see: vivamark guide workflow).
 Paste the CSS below into a <style> element in the page's <head>, and wrap the
 content in <main>. It defines tokens (colour, type, spacing) for light and
 dark, and an explicit page background.
