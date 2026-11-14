@@ -279,9 +279,9 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
   await page.click('#add');
   await page.click('#send');
   await page.waitForSelector('.note[data-status="open"]');
-  await world.cli(['reply', file, '--note', 'n_0001', '--status', 'addressed', '-m', 'Named it.']);
-  await world.cli(['reply', file, '--note', 'n_0002', '--status', 'question', '-m', 'Start at 00:00?']);
-  await world.cli(['note', 'add', file, '--target', '#finding-speed', '--text', 'Checked the logs.', '--source', 'agent']);
+  for (const r of [await world.cli(['reply', file, '--note', 'n_0001', '--status', 'addressed', '-m', 'Named it.'])]) assert.equal(r.code, 0, r.stderr);
+  for (const r of [await world.cli(['reply', file, '--note', 'n_0002', '--status', 'question', '-m', 'Start at 00:00?'])]) assert.equal(r.code, 0, r.stderr);
+  for (const r of [await world.cli(['note', 'add', file, '--target', '#finding-speed', '--text', 'Checked the logs.', '--source', 'agent'])]) assert.equal(r.code, 0, r.stderr);
   await page.waitForSelector('.note-reply.question');
   await page.waitForSelector('.note.agent');
   await point(page, doc.locator('#finding-steps'));
@@ -309,6 +309,10 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
         const b = bar.getBoundingClientRect();
         return {
           sideways: document.documentElement.scrollWidth > window.innerWidth,
+          frame: (() => {
+            const r = document.getElementById('page').getBoundingClientRect();
+            return { w: Math.round(r.width), h: Math.round(r.height) };
+          })(),
           controls: ['point', 'attach', 'add', 'send', 'approve', 'dismiss', 'end', 'show-changes', 'show-marks', 'theme', 'comment'].filter((id) => !shown(id)),
           unnamed: [...document.querySelectorAll('button')].filter((x) => x.getClientRects().length && !(x.getAttribute('aria-label') || x.textContent).trim()).map((x) => x.outerHTML.slice(0, 60)),
           states: [...document.querySelectorAll('#thread .note .note-head .state')].map((x) => x.textContent.trim()),
@@ -325,6 +329,7 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
         };
       });
       if (m.sideways) failures.push(`${at}: the page scrolls sideways`);
+      if (m.frame.w < Math.min(320, width - 40) || m.frame.h < 200) failures.push(`${at}: the agent's page is squeezed to ${m.frame.w} x ${m.frame.h}`);
       if (m.controls.length) failures.push(`${at}: not shown: ${m.controls.join(', ')}`);
       if (m.unnamed.length) failures.push(`${at}: buttons without a label: ${m.unnamed.join(' | ')}`);
       if (m.states.length !== 4 || m.states.some((s) => !s)) failures.push(`${at}: note states not all in words: ${JSON.stringify(m.states)}`);
