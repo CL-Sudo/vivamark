@@ -218,3 +218,17 @@ passage worth keeping goes in a `.superseded` block as before. In "Every
 decision has a field for the reviewer's own words" (2026-11-13), the fields
 are now disabled only on an ended review, as there are no earlier versions
 to show.
+
+## 2026-11-14: A daemon stops on time
+
+Test runs left daemons running after their state directories were deleted,
+and those daemons no longer stopped on SIGTERM. Each was waiting for one last
+connection to close, one the loopback relay had dropped, so it never closed.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Stopping | A daemon that stops (`vivamark stop`, SIGTERM, SIGINT, idle) still closes its pages and answers its waiting commands, then exits within 2 s, even if a connection is still open. A second signal while it stops changes nothing. | It waited for every connection to close. One page that stopped answering, or one stalled loopback connection, kept it running for good, and every later signal waited behind the first. |
+| State directory gone | Every 2 s the daemon checks that its state directory is still there and is the same directory. If it was removed or replaced, the daemon stops. | Its `server.json` went with the directory, so no command can find it, stop it or read its log. |
+| Unchanged | The idle timeout, the port, `server.json`, the CLI and the wire format. | |
+
+This extends "One server per state directory" (2026-10-05).

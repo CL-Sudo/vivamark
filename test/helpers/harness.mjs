@@ -1,9 +1,15 @@
 // Test helpers: an isolated state directory per test, the built CLI run as a
 // child process, and a small HTTP client for the review UI's API. Each world
-// gets an explicit random port from 20000-32000, below the ephemeral range.
+// gets an explicit random port from 20000-32000, below the ephemeral range,
+// or one from VIVAMARK_TEST_PORTS when that is set (see testPort).
 // Not port 0: in some agent sandboxes a socket on an OS-assigned port cannot
 // be connected to. If the port is taken, the daemon retries other explicit
 // ports in the same range, and tests read the real one from server.json.
+//
+// No daemon outlives its world. cleanup() stops it with `vivamark stop`, then
+// stops by pid any daemon of that world still running (one that did not
+// answer, or one a failed start left behind). If a test file ends without
+// cleaning up a world, or is interrupted, the same happens as the process exits.
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -29,6 +35,9 @@ export function browserUrl(url) {
   return process.env.VIVAMARK_CHROME ? url.replace(/^http:\/\/127\.0\.0\.1:/, 'http://localhost:') : url;
 }
 
+/** Worlds not yet cleaned up, so an exit or interrupt can stop their daemons. */
+const worlds = new Set();
+
 export function makeWorld({ guardEgress = false } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vivamark-test-'));
   const stateDir = path.join(base, 'state');
@@ -43,7 +52,7 @@ export function makeWorld({ guardEgress = false } = {}) {
     VIVAMARK_NOTIFY_CMD: '',
     XDG_CONFIG_HOME: path.join(base, 'config'),
     VIVAMARK_STATE_DIR: stateDir,
-    VIVAMARK_PORT: String(randomTestPort()),
+    VIVAMARK_PORT: String(testPort()),
     VIVAMARK_NO_BROWSER: '1',
     VIVAMARK_IDLE_MS: '120000',
   };
@@ -51,7 +60,8 @@ export function makeWorld({ guardEgress = false } = {}) {
     env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --import ${pathToImport(EGRESS_GUARD)}`.trim();
     env.VIVAMARK_EGRESS_LOG = egressLog;
   }
-  return {
+  let cleaned = false;
+  const world = {
     base,
     stateDir,
     pageDir,
@@ -63,16 +73,145 @@ export function makeWorld({ guardEgress = false } = {}) {
     session: (id) => JSON.parse(fs.readFileSync(path.join(stateDir, 'sessions', `${id}.json`), 'utf8')),
     egress: () => (fs.existsSync(egressLog) ? fs.readFileSync(egressLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
     async cleanup() {
+      if (cleaned) return;
+      cleaned = true;
       // First any child a failed test left running: a leftover wait would start the daemon again after stop.
       killChildren();
-      await runCli(['stop'], env).catch(() => undefined);
+      await runCli(['stop'], env, { timeoutMs: 20_000 }).catch(() => undefined);
+      // Then any daemon of this world still running: stop failed, or it never wrote server.json.
+      const stopped = await stopDaemons(stateDir);
+      if (stopped.length) process.stderr.write(`# harness: daemon ${stopped.join(', ')} of ${stateDir} was still running after stop; stopped it by pid\n`);
       fs.rmSync(base, { recursive: true, force: true });
+      worlds.delete(world);
     },
   };
+  worlds.add(world);
+  return world;
 }
 
-function randomTestPort() {
+/** Explicit test ports from VIVAMARK_TEST_PORTS: "20730-20739", or a list split by commas or spaces. */
+const reservedPorts = (process.env.VIVAMARK_TEST_PORTS ?? '')
+  .split(/[\s,]+/)
+  .filter(Boolean)
+  .flatMap((part) => {
+    const m = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!m) throw new Error(`VIVAMARK_TEST_PORTS: not a port or range: ${part}`);
+    const [lo, hi] = [Number(m[1]), Number(m[2] ?? m[1])];
+    return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  });
+let nextReserved = reservedPorts.length ? process.pid % reservedPorts.length : 0;
+
+/**
+ * An explicit port for something a test listens on. With VIVAMARK_TEST_PORTS
+ * set, the next of those ports in turn, so a suite stays inside a block of
+ * ports reserved for it; otherwise a random port from 20000-32000.
+ */
+export function testPort() {
+  if (reservedPorts.length) return reservedPorts[nextReserved++ % reservedPorts.length];
   return 20000 + Math.floor(Math.random() * 12001);
+}
+
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+function signal(pid, sig) {
+  try {
+    process.kill(pid, sig);
+  } catch {
+    // Already gone.
+  }
+}
+
+/**
+ * The running daemons of one state directory, started from this checkout's
+ * CLI. On Linux, every process whose command line is `<CLI> __daemon` and
+ * whose environment names this state directory, server.json or not.
+ * Elsewhere, the live pids that server.json and the daemon log name.
+ */
+export function runningDaemons(stateDir) {
+  if (process.platform === 'linux') {
+    const found = [];
+    let entries = [];
+    try {
+      entries = fs.readdirSync('/proc');
+    } catch {
+      return found;
+    }
+    for (const entry of entries) {
+      if (!/^\d+$/.test(entry)) continue;
+      try {
+        const args = fs.readFileSync(`/proc/${entry}/cmdline`, 'utf8').split('\0');
+        if (!args.includes(CLI) || !args.includes('__daemon')) continue;
+        if (fs.readFileSync(`/proc/${entry}/environ`, 'utf8').split('\0').includes(`VIVAMARK_STATE_DIR=${stateDir}`)) found.push(Number(entry));
+      } catch {
+        // Gone, or not ours to read.
+      }
+    }
+    return found;
+  }
+  const pids = new Set();
+  try {
+    pids.add(JSON.parse(fs.readFileSync(path.join(stateDir, 'server.json'), 'utf8')).pid);
+  } catch {
+    // No server.json.
+  }
+  try {
+    for (const m of fs.readFileSync(path.join(stateDir, 'daemon.log'), 'utf8').matchAll(/\(pid (\d+)\)/g)) pids.add(Number(m[1]));
+  } catch {
+    // No log.
+  }
+  return [...pids].filter((pid) => Number.isInteger(pid) && pid !== process.pid && isAlive(pid));
+}
+
+async function until(pred, ms) {
+  const end = Date.now() + ms;
+  while (!pred() && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+  return pred();
+}
+
+/**
+ * Stops by pid every daemon of `stateDir` still running after a short grace
+ * (a daemon told to stop exits within 2 s): SIGTERM, then SIGKILL. SIGCONT
+ * first, for a daemon a test paused. Resolves with the pids it had to signal.
+ */
+export async function stopDaemons(stateDir, { graceMs = 3_000 } = {}) {
+  let pids = runningDaemons(stateDir);
+  if (!pids.length) return [];
+  await until(() => pids.every((pid) => !isAlive(pid)), graceMs);
+  pids = pids.filter(isAlive);
+  for (const pid of pids) {
+    signal(pid, 'SIGCONT');
+    signal(pid, 'SIGTERM');
+  }
+  if (!(await until(() => pids.every((pid) => !isAlive(pid)), 3_000))) {
+    for (const pid of pids.filter(isAlive)) signal(pid, 'SIGKILL');
+    await until(() => pids.every((pid) => !isAlive(pid)), 2_000);
+  }
+  return pids;
+}
+
+/** The last resort, when a test file exits or is interrupted with worlds not cleaned up. */
+function stopEverything() {
+  killChildren();
+  for (const w of worlds) {
+    for (const pid of runningDaemons(w.stateDir)) signal(pid, 'SIGKILL');
+    fs.rmSync(w.base, { recursive: true, force: true });
+  }
+  worlds.clear();
+}
+process.on('exit', stopEverything);
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.once(sig, () => {
+    stopEverything();
+    // Then die of the same signal, as the test runner expects.
+    process.kill(process.pid, sig);
+  });
 }
 
 function pathToImport(p) {
@@ -168,11 +307,14 @@ export function startCli(args, env, { timeoutMs = 60_000 } = {}) {
   return { child, done, stderr: () => stderr, stdout: () => stdout, waitForStdout, stop };
 }
 
+/** How long one request from a test may take before it fails. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /**
  * One request to the daemon. `origin: true` adds the review UI's own Origin,
- * as a browser would on a POST from the review page.
+ * as a browser would on a POST from the review page. Fails after 30 s.
  */
-export function api(port, method, urlPath, { token, body, headers = {}, origin = false, host } = {}) {
+export function api(port, method, urlPath, { token, body, headers = {}, origin = false, host, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
     const h = { Host: host ?? `127.0.0.1:${port}`, ...headers };
@@ -196,6 +338,7 @@ export function api(port, method, urlPath, { token, body, headers = {}, origin =
         resolve({ status: res.statusCode, headers: res.headers, text, json });
       });
     });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`${method} ${urlPath}: no answer within ${timeoutMs} ms`)));
     req.on('error', reject);
     req.end(payload);
   });
@@ -290,6 +433,7 @@ export function uploadImage(s, bytes, { origin = true, token = s.token, name } =
         resolve({ status: res.statusCode, text, json });
       });
     });
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => req.destroy(new Error(`upload: no answer within ${REQUEST_TIMEOUT_MS} ms`)));
     req.on('error', reject);
     req.end(bytes);
   });

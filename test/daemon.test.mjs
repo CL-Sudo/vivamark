@@ -6,11 +6,13 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
 import WebSocket from 'ws';
-import { CLI, ELEMENT_NOTE, makeWorld, openSession, sendNotes, startCli } from './helpers/harness.mjs';
+import { CLI, ELEMENT_NOTE, makeWorld, openSession, runningDaemons, sendNotes, startCli } from './helpers/harness.mjs';
 
 const posix = process.platform !== 'win32';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -157,4 +159,109 @@ test('commands started at the same moment share one daemon', async () => {
     }
   });
   assert.deepEqual(alive, [owner], 'only the daemon named in server.json is running');
+});
+
+// ---- stopping ----------------------------------------------------------------
+
+/** Resolves true once `pid` has exited, false if it is still running after `ms`. */
+async function exits(pid, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    await sleep(50);
+  }
+  return false;
+}
+
+/**
+ * A review page that stopped answering: it completes the WebSocket handshake,
+ * then never reads again, so it never answers the daemon's close frame. A
+ * daemon that waited for its connections to close would wait for it.
+ */
+function silentPage(s) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host: '127.0.0.1', port: s.port });
+    let head = '';
+    const onData = (d) => {
+      head += d;
+      if (!head.includes('\r\n\r\n')) return;
+      socket.off('data', onData);
+      socket.pause();
+      if (head.startsWith('HTTP/1.1 101')) resolve(socket);
+      else reject(new Error(`no WebSocket upgrade: ${head}`));
+    };
+    socket.on('data', onData);
+    socket.once('error', reject);
+    socket.once('connect', () =>
+      socket.write(
+        [
+          `GET /api/s/${s.id}/events HTTP/1.1`,
+          `Host: 127.0.0.1:${s.port}`,
+          `Origin: http://127.0.0.1:${s.port}`,
+          'Upgrade: websocket',
+          'Connection: Upgrade',
+          `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+          'Sec-WebSocket-Version: 13',
+          `Sec-WebSocket-Protocol: vivamark.v1, vivamark.token.${s.token}`,
+          '',
+          '',
+        ].join('\r\n'),
+      ),
+    );
+  });
+}
+
+for (const dirGone of [false, true]) {
+  test(`SIGTERM stops a daemon within seconds, even with a page that stopped answering${dirGone ? ' and its state directory removed' : ''}`, { skip: !posix && 'needs signals' }, async (t) => {
+    world = makeWorld();
+    const s = await openSession(world);
+    const page = await silentPage(s);
+    t.after(() => page.destroy());
+    const { pid } = world.server();
+    if (dirGone) fs.rmSync(world.stateDir, { recursive: true, force: true });
+
+    process.kill(pid, 'SIGTERM');
+    process.kill(pid, 'SIGTERM'); // A second signal while it stops changes nothing.
+    assert.ok(await exits(pid, 5_000), `daemon ${pid} still running 5 s after SIGTERM`);
+  });
+}
+
+test('a daemon whose state directory is removed stops by itself', async (t) => {
+  world = makeWorld();
+  const s = await openSession(world);
+  // A connected page keeps it from stopping as idle; the page has stopped answering, too.
+  const page = await silentPage(s);
+  t.after(() => page.destroy());
+  const { pid } = world.server();
+
+  fs.rmSync(world.stateDir, { recursive: true, force: true });
+  assert.ok(await exits(pid, 10_000), `daemon ${pid} still running 10 s after its state directory was removed`);
+});
+
+test('a daemon whose state directory is replaced by a new one stops by itself', async () => {
+  world = makeWorld();
+  await openSession(world);
+  const { pid } = world.server();
+
+  fs.rmSync(world.stateDir, { recursive: true, force: true });
+  fs.mkdirSync(world.stateDir);
+  assert.ok(await exits(pid, 10_000), `daemon ${pid} still running 10 s after its state directory was replaced`);
+});
+
+test('world cleanup stops a daemon that does not answer stop', { skip: !posix && 'needs SIGSTOP' }, async () => {
+  const w = makeWorld();
+  try {
+    await openSession(w);
+    const { pid } = w.server();
+    if (process.platform === 'linux') assert.deepEqual(runningDaemons(w.stateDir), [pid], 'the harness finds the daemon by its command line and state directory');
+    process.kill(pid, 'SIGSTOP');
+    await w.cleanup();
+    assert.ok(await exits(pid, 1_000), `daemon ${pid} survived cleanup`);
+  } finally {
+    await w.cleanup();
+  }
 });

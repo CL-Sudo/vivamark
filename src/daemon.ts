@@ -39,6 +39,14 @@ const PRESENCE_GRACE_MS = 4_000;
 /** How long a wait goes on with no review page connected before it returns `disconnected`. */
 export const DISCONNECT_GRACE_MS = 10_000;
 const RELOAD_DEBOUNCE_MS = 150;
+/**
+ * How long a stopping daemon waits for its connections to close before it
+ * exits anyway. A page that stopped answering, or a loopback connection that
+ * stalled, would otherwise keep it from ever exiting, deaf to every later signal.
+ */
+const SHUTDOWN_DEADLINE_MS = 2_000;
+/** How often the daemon checks that its state directory is still the one it started in. */
+const STATE_DIR_CHECK_MS = 2_000;
 
 const UI_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ui');
 
@@ -243,6 +251,7 @@ export class Daemon {
   private disconnectGraceMs: number;
   readonly imageLimits: ImageLimits;
   private stopping = false;
+  private stopped?: Promise<void>;
 
   constructor(store: Store, idleMs: number, opts: { disconnectGraceMs?: number; imageLimits?: ImageLimits } = {}) {
     this.store = store;
@@ -397,6 +406,17 @@ export class Daemon {
         else if (Date.now() - this.idleSince > this.idleMs) void this.shutdown('idle');
       }, Math.min(60_000, Math.max(1_000, this.idleMs / 4))),
     );
+    // A daemon whose state directory is gone, or was replaced, serves a log no
+    // command can reach: server.json went with the directory. It stops.
+    const dir = dirIdentity(this.store.dir);
+    if (dir && dir !== 'unknown') {
+      this.timers.push(
+        setInterval(() => {
+          const now = dirIdentity(this.store.dir);
+          if (now !== dir && now !== 'unknown') void this.shutdown('state directory removed');
+        }, STATE_DIR_CHECK_MS),
+      );
+    }
     for (const t of this.timers) t.unref();
   }
 
@@ -405,20 +425,31 @@ export class Daemon {
     return false;
   }
 
-  async shutdown(reason: string): Promise<void> {
+  /** Stops the daemon. Called again while stopping (a second signal), it returns the same stop. */
+  shutdown(reason: string): Promise<void> {
+    this.stopped ??= this.stop(reason);
+    return this.stopped;
+  }
+
+  private async stop(reason: string): Promise<void> {
     this.stopping = true;
-    console.error(`vivamark daemon stopping (${reason})`);
-    for (const t of this.timers) clearInterval(t);
-    for (const l of this.live.values()) {
-      for (const w of l.waiters) w.done(null);
-      for (const ws of l.sockets) ws.close(1001, 'server stopping');
-      l.watcher?.close();
+    // The process exits by this deadline whatever happens below.
+    setTimeout(() => process.exit(0), SHUTDOWN_DEADLINE_MS).unref();
+    try {
+      console.error(`vivamark daemon stopping (${reason})`);
+      for (const t of this.timers) clearInterval(t);
+      for (const l of this.live.values()) {
+        for (const w of l.waiters) w.done(null);
+        for (const ws of l.sockets) ws.close(1001, 'server stopping');
+        l.watcher?.close();
+      }
+      const info = readServerInfo(this.store.dir);
+      if (info && info.pid === process.pid) fs.rmSync(serverInfoPath(this.store.dir), { force: true });
+      await Promise.all(this.servers.map((s) => new Promise<void>((r) => s.close(() => r()))));
+      for (const s of this.servers) s.closeAllConnections();
+    } finally {
+      setTimeout(() => process.exit(0), 50).unref();
     }
-    const info = readServerInfo(this.store.dir);
-    if (info && info.pid === process.pid) fs.rmSync(serverInfoPath(this.store.dir), { force: true });
-    await Promise.all(this.servers.map((s) => new Promise<void>((r) => s.close(() => r()))));
-    for (const s of this.servers) s.closeAllConnections();
-    setTimeout(() => process.exit(0), 50).unref();
   }
 
   // ---- routing ------------------------------------------------------------
@@ -1127,6 +1158,21 @@ export class Daemon {
   private unwatch(l: Live): void {
     l.watcher?.close();
     l.watcher = undefined;
+  }
+}
+
+/**
+ * The directory's device and inode, so a directory removed and created again
+ * reads as a different one; null when it is gone, 'unknown' when it cannot be
+ * checked for another reason.
+ */
+function dirIdentity(dir: string): string | null {
+  try {
+    const st = fs.statSync(dir);
+    return st.isDirectory() ? `${st.dev}:${st.ino}` : null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR' ? null : 'unknown';
   }
 }
 

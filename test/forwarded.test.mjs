@@ -6,17 +6,17 @@ import assert from 'node:assert/strict';
 import net from 'node:net';
 import { after, before, test } from 'node:test';
 import WebSocket from 'ws';
-import { ELEMENT_NOTE, api, makeWorld, openSession, sendNotes, startCli } from './helpers/harness.mjs';
+import { ELEMENT_NOTE, api, makeWorld, openSession, sendNotes, startCli, testPort } from './helpers/harness.mjs';
 
 let world;
 let s;
 let forwarder;
 let fwdPort;
 
-/** A TCP forwarder on 127.0.0.1:<explicit random port> that pipes every connection to `target`. */
+/** A TCP forwarder on 127.0.0.1:<explicit test port> that pipes every connection to `target`. */
 async function startForwarder(target) {
   for (let attempt = 0; attempt < 20; attempt++) {
-    const port = 20000 + Math.floor(Math.random() * 12001);
+    const port = testPort();
     if (port === target) continue;
     const server = net.createServer((client) => {
       const upstream = net.connect({ host: '127.0.0.1', port: target });

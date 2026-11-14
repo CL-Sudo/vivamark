@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { CHROME_NAMES, RENDER_SCHEMA, RESOLVER_CHECK_HOST, RenderError, chromeArgs, findChrome, renderPage } from '../dist/internal.js';
-import { EGRESS_GUARD, ROOT, runCli } from './helpers/harness.mjs';
+import { EGRESS_GUARD, ROOT, runCli, testPort } from './helpers/harness.mjs';
 
 const NO_STATE = '/nonexistent/vivamark-render-should-not-be-created';
 const env = { ...process.env, VIVAMARK_STATE_DIR: NO_STATE };
@@ -148,7 +148,7 @@ test('a page that asks for external things makes no request: refused by the brow
     hits++;
     res.end();
   });
-  const port = 20000 + Math.floor(Math.random() * 12000);
+  const port = testPort();
   await new Promise((resolve, reject) => server.once('error', reject).listen(port, '127.0.0.1', resolve));
   try {
     // The listener works, so a silent run means something.

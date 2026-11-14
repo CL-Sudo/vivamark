@@ -59,9 +59,10 @@ function connectBrowser(s) {
 
 let s;
 
-test('a whole review is logged, one metadata-only event per step, and no text ever appears', async () => {
+test('a whole review is logged, one metadata-only event per step, and no text ever appears', async (t) => {
   s = await openPage('events.html', ['--label', 'task=ev1']);
   const ws = await connectBrowser(s);
+  t.after(() => ws.terminate());
 
   const sent = await sendNotes(s, [
     { kind: 'text', comment: SECRET.comment, anchor: { stable_id: 'summary', selector: '#summary', quote: SECRET.quote, prefix: SECRET.prefix, suffix: ' enrols their own certif' } },
@@ -119,12 +120,14 @@ test('a whole review is logged, one metadata-only event per step, and no text ev
   assert.deepEqual({ by: endEv.by, has_message: endEv.has_message }, { by: 'agent', has_message: true });
 });
 
-test('a page reload is not logged as a disconnect', async () => {
+test('a page reload is not logged as a disconnect', async (t) => {
   const p = await openPage('events-reload.html');
   const first = await connectBrowser(p);
+  t.after(() => first.terminate());
   first.close();
   await sleep(100);
   const second = await connectBrowser(p);
+  t.after(() => second.terminate());
   await sleep(1300);
   const types = readLog()
     .filter((e) => e.session === p.id)
