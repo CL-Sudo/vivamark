@@ -368,6 +368,7 @@ export function startCanvas(host: CanvasHost): Canvas {
   resize.observe(stage);
 
   let lastProbe = '';
+  let fitted = false;
   function tellFrame(force = false): void {
     const probe = host.probe();
     const json = JSON.stringify(probe);
@@ -406,6 +407,11 @@ export function startCanvas(host: CanvasHost): Canvas {
         const h = Math.min(MAX_H, Math.max(stage.clientHeight, Math.ceil(g.height)));
         if (Math.abs(h - docH) > 1) docH = h;
         layout();
+        // The first time the page says where its notes are, fit the table to them.
+        if (!fitted) {
+          fitted = true;
+          fit(false);
+        }
         // Never leave the sheet wholly out of view: the frame draws nothing while it is.
         const v = view();
         if (v.y > docH - 80 || v.y + v.h < 0) {

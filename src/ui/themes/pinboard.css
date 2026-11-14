@@ -40,7 +40,7 @@
   --mark: #fff3b8;
   --mark-fg: #5c4a00;
   --ok: #1a7f54;
-  --ok-fg: #1a7f54;
+  --ok-fg: #146b46;
   --ok-soft: #ddf3e8;
   --ok-line: #9bd3b8;
   --q: #5a3fd6;
@@ -127,14 +127,14 @@
 }
 [data-theme="pinboard"] .bar { padding: 8px 14px; gap: 6px 14px; }
 [data-theme="pinboard"] .logo { background: #6a48f0; box-shadow: none; border-radius: 50%; width: 14px; height: 14px; }
-[data-theme="pinboard"] .chip { background: #ddf3e8; color: #1a7f54; font-weight: 600; }
+[data-theme="pinboard"] .chip { background: #ddf3e8; color: #146b46; font-weight: 600; }
 [data-theme="pinboard"] .presence[data-state="listening"] { color: #1a7f54; font-weight: 600; }
 [data-theme="pinboard"] .turn { background: #f0ecff; color: #4a33b8; }
 [data-theme="pinboard"] .note-head { font-size: 12px; font-weight: 700; color: #545d6e; }
 [data-theme="pinboard"] .num { width: 18px; height: 18px; font-size: 10.5px; }
 [data-theme="pinboard"] .note.queued { border-style: solid; border-color: #e9d77a; background: #fff8d6; box-shadow: var(--shadow); }
 [data-theme="pinboard"] .note.queued .num { background: #fff8d6; color: #1b2230; border: 1.5px dashed #6a48f0; }
-[data-theme="pinboard"] .note-head .state.status-addressed { color: #1a7f54; font-weight: 700; }
+[data-theme="pinboard"] .note-head .state.status-addressed { color: #146b46; font-weight: 700; }
 [data-theme="pinboard"] .note-head .state.status-question { color: #5a3fd6; font-weight: 700; }
 [data-theme="pinboard"] .note-reply { border-radius: 8px; }
 

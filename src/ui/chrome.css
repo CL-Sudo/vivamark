@@ -164,7 +164,7 @@ textarea:focus-visible { outline-offset: 1px; }
 .chip { font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--pill-radius); background: var(--chip); color: var(--chip-fg); }
 .toggle { font: 600 var(--fs-sm) var(--ui); padding: 5px 12px; border-radius: var(--btn-radius); border: var(--btn-bw) solid var(--btn-line); background: var(--btn-bg); color: var(--fg2); cursor: pointer; white-space: nowrap; box-shadow: var(--btn-shadow); }
 .toggle:hover:not(:disabled) { background: var(--btn-hover); }
-.toggle[aria-pressed="true"] { background: var(--pressed-bg); color: var(--pressed-fg); border-color: var(--pressed-line); }
+.toggle[aria-pressed="true"], .toggle[aria-pressed="true"]:hover:not(:disabled) { background: var(--pressed-bg); color: var(--pressed-fg); border-color: var(--pressed-line); }
 /* Pressed is said by a tick as well as by colour. */
 .toggle[aria-pressed="true"]::before, .btn[aria-pressed="true"]::before { content: "✓\00a0"; }
 .toggle:disabled { opacity: .55; cursor: default; }
@@ -278,7 +278,7 @@ textarea:focus { border-color: var(--accent-strong); box-shadow: var(--input-foc
 .btn { font: 600 var(--fs) var(--ui); border-radius: var(--btn-radius); padding: 9px 16px; border: var(--btn-bw) solid var(--btn-line); cursor: pointer; box-shadow: var(--btn-shadow); transition: background .15s, box-shadow .15s, opacity .15s, transform .09s; }
 .btn.ghost { background: var(--btn-bg); color: var(--btn-fg); }
 .btn.ghost:hover:not(:disabled) { background: var(--btn-hover); }
-.btn.ghost[aria-pressed="true"] { background: var(--pressed-bg); color: var(--pressed-fg); border-color: var(--pressed-line); }
+.btn.ghost[aria-pressed="true"], .btn.ghost[aria-pressed="true"]:hover:not(:disabled) { background: var(--pressed-bg); color: var(--pressed-fg); border-color: var(--pressed-line); }
 .btn.primary { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-line); box-shadow: var(--primary-shadow); }
 .btn.primary:hover:not(:disabled) { background: var(--primary-hover); }
 .btn.ok { background: var(--approve-bg); color: var(--approve-fg); border-color: var(--approve-line); }

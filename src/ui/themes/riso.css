@@ -144,8 +144,8 @@
 /* The numbered index: a big pink numeral, printed slightly out of register with the blue. */
 [data-theme="riso"] .note { position: relative; padding: 8px 10px 9px 46px; min-height: 44px; }
 [data-theme="riso"] .num { position: absolute; left: 6px; top: 4px; width: 36px; height: auto; justify-content: center; font: 700 28px/1 var(--ui); color: #ff48b0; text-shadow: 1.5px 1px 0 rgba(0, 120, 191, .75); -webkit-text-stroke: .6px #1b1f5e; }
-[data-theme="riso"] .note.queued .num { border: 0; background: transparent; color: #ffffff; -webkit-text-stroke: 1px #ff48b0; }
-[data-theme="riso"] .num.agent { font-size: 18px; top: 8px; left: 4px; padding: 0; color: #0078bf; border: 0; background: transparent; text-shadow: none; -webkit-text-stroke: 0; }
+[data-theme="riso"] .note.queued .num { border: 0; background: transparent; text-decoration: underline dashed 2px #ff48b0; text-underline-offset: 3px; }
+[data-theme="riso"] .num.agent { font-size: 18px; top: 8px; left: 4px; padding: 0; color: #00609a; border: 0; background: transparent; text-shadow: none; -webkit-text-stroke: 0; }
 [data-theme="riso"] .note-head { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #00609a; }
 [data-theme="riso"] .note .where { color: #00609a; font-size: 10.5px; }
 [data-theme="riso"] .kind { font-size: 10.5px; border-radius: 0; }
