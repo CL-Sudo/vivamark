@@ -532,12 +532,19 @@ test('Pinboard: the page as a sheet on a table, notes pinned beside it with thre
   assert.ok(Math.abs(parseFloat(await page.evaluate(() => document.getElementById('sheet').style.height)) - pageHeight) <= 2);
   assert.equal(await page.isVisible('aside.side'), false);
   assert.equal(await page.evaluate(() => document.getElementById('thread').parentElement.className), 'pb-world');
-  // Each card beside the sheet at its target, with a thread.
-  const cards = await page.evaluate(() => [...document.querySelectorAll('.pb-world .thread > .note')].map((c) => ({ n: c.dataset.n, left: parseFloat(c.style.left), top: parseFloat(c.style.top) })));
+  // Each card beside the sheet at its target, with a thread. The page takes Pinboard's page tokens
+  // as it switches and moves once more when their face arrives: the cards follow it there.
+  const at = async () => {
+    const cards = await page.evaluate(() => [...document.querySelectorAll('.pb-world .thread > .note')].map((c) => ({ n: c.dataset.n, left: parseFloat(c.style.left), top: parseFloat(c.style.top) })));
+    const targets = await frame().evaluate(() => ['finding-stale', 'sources'].map((id) => document.getElementById(id).getBoundingClientRect().top + scrollY));
+    return { cards, targets, ok: cards.length === 2 && Math.abs(cards[0].top - targets[0]) < 60 && Math.abs(cards[1].top - targets[1]) < 60 };
+  };
+  let placedNow = await at();
+  for (const until = Date.now() + 5000; !placedNow.ok && Date.now() < until; placedNow = await at()) await page.waitForTimeout(100);
+  const { cards, targets } = placedNow;
   assert.equal(cards.length, 2);
   assert.ok(cards.every((c) => c.left > 880), JSON.stringify(cards));
-  const targets = await frame().evaluate(() => ['finding-stale', 'sources'].map((id) => document.getElementById(id).getBoundingClientRect().top + scrollY));
-  assert.ok(Math.abs(cards[0].top - targets[0]) < 60 && Math.abs(cards[1].top - targets[1]) < 60, `cards sit at their targets: ${JSON.stringify({ cards, targets })}`);
+  assert.ok(placedNow.ok, `cards sit at their targets: ${JSON.stringify({ cards, targets })}`);
   assert.equal(await page.locator('.pb-wires path').count(), 2);
   // The far note is off screen: a pill takes the reader there.
   const pill = page.locator('.pb-pill', { hasText: '2' });

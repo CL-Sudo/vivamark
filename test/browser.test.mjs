@@ -731,7 +731,6 @@ test('own words: the field fits a styled page at desktop and phone width, in lig
   await card.locator('input[type=radio]').nth(1).check();
   await field.fill('Yes, but keep it behind a flag for the first week.');
   await page.waitForFunction(() => document.querySelector('.note.queued.suggested p.comment')?.textContent.endsWith('first week.'));
-  const colors = {};
   for (const run of [
     { name: 'desktop-light', width: 1360, height: 900, scheme: 'light' },
     { name: 'desktop-dark', width: 1360, height: 900, scheme: 'dark' },
@@ -746,17 +745,23 @@ test('own words: the field fits a styled page at desktop and phone width, in lig
       const c = document.getElementById('decision-placement').getBoundingClientRect();
       const ta = document.querySelector('#decision-placement vivamark-field').shadowRoot.querySelector('textarea');
       const f = ta.getBoundingClientRect();
-      return { inCard: f.left >= c.left - 0.5 && f.right <= c.right + 0.5, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth, color: getComputedStyle(ta).color };
+      return {
+        inCard: f.left >= c.left - 0.5 && f.right <= c.right + 0.5,
+        sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        color: getComputedStyle(ta).color,
+        pageColor: getComputedStyle(document.querySelector('#decision-placement vivamark-field')).color,
+      };
     });
     assert.ok(m.inCard, `${run.name}: the field stays inside its card`);
     assert.equal(m.sideways, false, `${run.name}: the page does not scroll sideways`);
-    colors[run.scheme] = m.color;
+    // The field takes its colour from the page, whatever the page's colours are. In vivamark this
+    // page follows the reviewer's theme through the page tokens, so it is light in both schemes.
+    assert.equal(m.color, m.pageColor, `${run.name}: the field takes its colour from the page`);
     if (process.env.VIVAMARK_SCREENSHOT_DIR) {
       await page.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, `own-words-${run.name}.png`) });
       await card.screenshot({ path: path.join(process.env.VIVAMARK_SCREENSHOT_DIR, `own-words-card-${run.name}.png`) });
     }
   }
-  assert.notEqual(colors.light, colors.dark, 'the field takes its colour from the page, light or dark');
   assert.deepEqual(offLoopback, []);
   assert.deepEqual(problems, []);
   await page.close();
