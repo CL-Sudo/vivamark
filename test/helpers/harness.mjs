@@ -199,6 +199,9 @@ export async function stopDaemons(stateDir, { graceMs = 3_000 } = {}) {
 /** The last resort, when a test file exits or is interrupted with worlds not cleaned up. */
 function stopEverything() {
   killChildren();
+  // A command killed here may have started a daemon a moment ago: the scan below finds it.
+  for (const child of cliRuns) child.kill('SIGKILL');
+  cliRuns.clear();
   for (const w of worlds) {
     for (const pid of runningDaemons(w.stateDir)) signal(pid, 'SIGKILL');
     fs.rmSync(w.base, { recursive: true, force: true });
@@ -206,11 +209,13 @@ function stopEverything() {
   worlds.clear();
 }
 process.on('exit', stopEverything);
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.once(sig, () => {
+for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+  process.on(sig, () => {
     stopEverything();
-    // Then die of the same signal, as the test runner expects.
-    process.kill(process.pid, sig);
+    // Then exit, as the signal would have. Not by raising it again: while
+    // anything else listens for it the process would live on, run more tests
+    // and start daemons nothing stops.
+    process.exit(code);
   });
 }
 
@@ -222,6 +227,7 @@ function pathToImport(p) {
 export function runCli(args, env, { input, timeoutMs = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    cliRuns.add(child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
@@ -233,11 +239,15 @@ export function runCli(args, env, { input, timeoutMs = 30_000 } = {}) {
     child.on('error', reject);
     child.on('close', (code) => {
       clearTimeout(timer);
+      cliRuns.delete(child);
       resolve({ code, stdout, stderr });
     });
     child.stdin.end(input ?? '');
   });
 }
+
+/** Commands runCli started and that have not exited yet; only the last resort kills them. */
+const cliRuns = new Set();
 
 /** Children started by startCli and not yet exited, so cleanup can kill any a failed test left behind. */
 const liveChildren = new Set();
