@@ -256,3 +256,28 @@ This supersedes the "Look" row of the founding decisions (2026-10-04):
 Smooth glass is no longer the only look of the review page, and no longer
 the default. The guide's `design` topic, the look for pages agents write,
 is unchanged.
+
+## 2026-11-14: A page can follow the reviewer's theme (page tokens)
+
+The Boss opened `examples/plan.html` and saw its content, light and generic,
+not matching the review page's theme. Asked how content should follow the
+theme, they chose: "Opt-in tokens (Recommended): vivamark sends the active
+theme's colours and fonts to the page as CSS variables on every switch, as
+it already does for its marks. The example pages and vivamark guide use
+them, so pages written that way follow the theme and switch live. Pages
+with their own design are left alone." They rejected forcing the theme onto
+every page, and fixing only the examples.
+
+| Topic | Decision | Why |
+|---|---|---|
+| The tokens | Twenty custom properties named `--vivamark-*`, the same set in all nine themes: `bg`, `surface`, `text`, `muted`, `border`, `accent` and `accent-bg`, `ok`, `warn`, `bad` and `ask` each with a `-bg` tint, `font-body`, `font-heading`, `radius`, `shadow` and `scheme`. The values are in `src/ui/page-tokens.ts`. | Enough for a page in the design CSS to look like the theme (colours, type, a card's corners and shadow) and for a table badge; small enough to learn from one table. A prefix of our own, so a page's own names never clash. |
+| Opt-in | A page opts in by reading a token, with its own value after the comma (`var(--vivamark-bg, #fff)`), which shows when it is opened anywhere else. A page that reads none renders exactly as without vivamark, which a test checks element by element. | "Pages with their own design are left alone." The saved file stays the source of truth and opens the same without vivamark. |
+| How they reach the page | By the marks' route: the review page sends them with the mark tokens in its `theme` message on every switch. For the first paint, the frame's URL names the theme (`vmtheme`); the daemon checks it against the list and puts it on the one injected script tag (`data-vivamark-theme`), and the page script applies that theme's set before the page's body is parsed. They sit in a stylesheet the page script adopts and sets through the CSSOM: nothing is added to the page's markup. No page-side script, and no change to the frame's sandbox. | No flash of the page without the theme, on first load or after an edit reloads it. |
+| Fonts | The font tokens name the theme's bundled faces, registered in the page as "vivamark Lexend" and so on, so a page that asks for "Lexend" itself still gets its own. A face loads only when a page uses it, from `/_vivamark/fonts/`. Those responses carry `Access-Control-Allow-Origin: null`: fonts are fetched with CORS, and the page's frame has an opaque origin. Only the font files carry it. Smooth glass, which bundles no face, names Inter and the system's faces, as its review page does. | Non-negotiable 2: nothing is fetched from anywhere else. The fonts are the package's own OFL files, with nothing private in them. |
+| The floor | Every theme's tokens are opaque colours, each text colour at 4.5:1 or better on the background, the surface and every tint, and each status on its own tint (a unit test). The browser test that checks each theme at desktop and phone width also checks the example page's colours, fonts and contrast. | The same floor as the review page. |
+| Who uses them | The design CSS in `vivamark guide design`, both examples, and the template that shows Markdown pages. Each keeps its old look as the fallback. | "The example pages and vivamark guide use them." |
+| Presentation only | Nothing changes in the notes, the log, `wait`, any JSON an agent reads, or the CLI contract. The review page's own look per theme is unchanged. | As for the themes. |
+
+This supersedes the last sentence of the themes entry above: the guide's
+`design` topic now reads the page tokens, though opened on its own a page
+in that CSS looks as it did.

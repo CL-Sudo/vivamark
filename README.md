@@ -159,6 +159,39 @@ the same controls, a visible focus ring, text at 4.5:1 contrast or better,
 and no motion when your system asks for less. Their fonts ship with
 vivamark and are served by the local server; nothing is fetched.
 
+The agent's page can follow the theme too, if it asks to. vivamark gives
+the page the active theme's colours and fonts as CSS custom properties on
+`:root`, in place before the page first paints and updated on every
+switch, with no reload. A page that reads them restyles with the theme; a
+page with its own design, which never reads them, looks exactly as
+written. [`examples/plan.html`](examples/plan.html),
+[`examples/report.html`](examples/report.html), the CSS that
+`vivamark guide design` hands an agent, and Markdown pages all use them.
+To opt in, read each token with your page's own value after the comma,
+which is what the page shows when it is opened anywhere else:
+
+```css
+body { background: var(--vivamark-bg, #ffffff); color: var(--vivamark-text, #1f2937);
+       font-family: var(--vivamark-font-body, system-ui, sans-serif); }
+.pill.bad { color: var(--vivamark-bad, #be123c); background: var(--vivamark-bad-bg, #fdedf0); }
+```
+
+| Token | What it is for |
+|---|---|
+| `--vivamark-bg`, `--vivamark-surface` | The page, and cards or panels on it |
+| `--vivamark-text`, `--vivamark-muted` | Body text and headings; small print |
+| `--vivamark-border` | Rules and borders |
+| `--vivamark-accent`, `--vivamark-accent-bg` | Links and highlights; a tint for callouts and code |
+| `--vivamark-ok`, `--vivamark-warn`, `--vivamark-bad`, `--vivamark-ask`, each with `-bg` | A status's text colour and the tint of its badge |
+| `--vivamark-font-body`, `--vivamark-font-heading` | Font-family lists, from the bundled faces |
+| `--vivamark-radius`, `--vivamark-shadow`, `--vivamark-scheme` | A card's corners and shadow; `light` or `dark` |
+
+In every theme each text colour reads at 4.5:1 or better on the
+background, the surface and each tint; a status still needs its word. The
+fonts are served by the local server, like the review page's own, and load
+only when a page uses them. The values live in
+[`src/ui/page-tokens.ts`](src/ui/page-tokens.ts).
+
 To set the theme a browser starts in, before anyone picks one there:
 
 ```sh
@@ -175,7 +208,7 @@ the browser wins over it.
 
 `vivamark guide` tells an agent how to run a review and how to write the page:
 the loop and how to wait from an agent harness, the Smooth glass look as a
-ready CSS block that fetches nothing, stable ids on everything worth a note
+ready CSS block that fetches nothing and follows the reviewer's theme, stable ids on everything worth a note
 (so notes survive edits), decisions laid out as options to point at, and a
 playbook each for a plan, a report, a comparison, an explainer and a diff.
 
