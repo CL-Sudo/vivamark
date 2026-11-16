@@ -88,7 +88,22 @@ re-attached to the new file: `anchored`, `moved` (with where it is now), or
 guess. **Show changes** highlights what changed since you last sent. **Show
 marks**, beside it, hides or shows the outlines and numbers drawn on noted
 places, so you can read the page clean; the notes stay in the panel, and this
-browser remembers the choice. Running `wait` again returns the same notes;
+browser remembers the choice.
+
+To give the page the whole width, press **Hide notes** at the top of the
+notes panel. The panel folds to a strip at the right edge (a bar along the
+bottom on a narrow window) with the note count, **Show notes** and
+**Point**; whose turn it is and whether the agent is listening stay in the
+bar. Folding only hides: the note you are writing and the queued notes
+stay. The panel opens by itself when you need it: when you pick something
+on the page or select text, press Point, or paste a file to attach, and
+when the agent replies, adds a note, asks you a question or ends the
+review. This browser remembers whether you left it open or folded. The
+themes with the panel beside the page fold it: Gumdrop, Raw, Signal,
+Bauhaus and Smooth glass. Raster and Riso (the index), Sticker (the chat)
+and Pinboard (the table) keep their notes as they are.
+
+Running `wait` again returns the same notes;
 `wait examples/plan.html --after <seq>` waits for newer ones.
 
 The agent, or a tool, can point things out to the reviewer. Such a note is

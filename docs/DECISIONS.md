@@ -298,3 +298,20 @@ followed.
 
 This narrows "Opt-in" in the entry above: a page in the design CSS, old copy
 or new, takes the theme without doing anything more.
+
+## 2026-11-16: The notes panel folds away
+
+Asked, with a screenshot of the panel in Gumdrop: "I want to make this
+section expandable/collapsable in vivamark". Asked which part, the Boss
+chose the whole side panel: the notes list and the note box fold away so
+the page gets the full width.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Which layouts | The panel layout only: Gumdrop, Raw, Signal, Bauhaus and Smooth glass. Raster and Riso (the index on its grid), Sticker (the chat) and Pinboard (the table, which already hides the panel) keep their notes as they are, and offer no toggle. | In those the notes are the layout's point, and Raster's bar is drawn on the panel's column. |
+| The control | **Hide notes** at the top of the panel, beside the count; folded, the panel is a strip at the right edge with **Show notes**, the count and **Point**, their words running down the strip. One button, with `aria-expanded`, its words saying what it does. Whose turn it is and the agent's presence stay where they are, in the bar. | A label in words; the bar already says whose turn it is, and is full on a narrow window. Point on the strip starts a note without opening the panel by hand. |
+| Narrow windows | Below 861 px, where the panel stacks under the page, folded it is a bar along the bottom with the same three, and the page takes the height. | The same control in the same place in the layout; the page gets the most room where room is least. |
+| What folds | Only how the panel shows. The note being written, its files and target, the queue, and the thread stay; nothing reaches the agent, the log or `wait` differently. The page's frame takes the width, and the page script redraws its marks on its own resize. | Presentation only, like the themes. |
+| Opening by itself | When the reviewer starts a note (a pick or text selected on the page, Point on the strip, a file pasted for the note being written) and when something needs them: a reply from the agent, a note from the agent or a tool, a question on one of their notes, the end of the review. Each opens it once: folded again, it stays folded until something new comes. When the page loads it opens for a question still unanswered or an ended review, not for replies already seen. In other layouts nothing changes. | What the reviewer would otherwise miss, without fighting a reviewer who folds it again. |
+| Remembered | Per browser, in `localStorage` (`vivamark:panel`) beside the theme, open by default; the boot script applies it before the first paint. It holds the state the panel was last left in, opened by itself or by hand. | The theme switcher's way; a reload shows what the reviewer last saw. |
+
