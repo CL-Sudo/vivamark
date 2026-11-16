@@ -70,6 +70,13 @@ export function startCanvas(host: CanvasHost): Canvas {
   let tx = 24;
   let ty = 16;
   let docH = Math.max(600, stage.clientHeight);
+  /**
+   * The reviewer's text size zooms the review page's root. A pointer's
+   * clientX and getBoundingClientRect are in the window's pixels, the table's
+   * offsets and clientWidth in the stage's own: this turns the first into the
+   * second. 1 where nothing is zoomed, or the browser does not say.
+   */
+  const zoom = () => (stage as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom || 1;
   let geo: Geometry = { width: SHEET_W, height: docH, marks: [], probe: null };
   /** Cards the reviewer dragged aside, by note, in table coordinates. */
   const moved = new Map<string, { x: number; y: number }>();
@@ -259,8 +266,8 @@ export function startCanvas(host: CanvasHost): Canvas {
       const cr = composer.getBoundingClientRect();
       const x1 = tx + (probe.x + probe.w) * s;
       const y1 = ty + (probe.y + Math.min(probe.h / 2, 20)) * s;
-      const x2 = cr.left - sr.left;
-      const y2 = cr.top - sr.top + 20;
+      const x2 = (cr.left - sr.left) / zoom();
+      const y2 = (cr.top - sr.top) / zoom() + 20;
       if (x1 < x2 && y1 > -40 && y1 < stage.clientHeight + 40) {
         const mid = (x1 + x2) / 2;
         const path = document.createElementNS(SVG, 'path');
@@ -296,8 +303,9 @@ export function startCanvas(host: CanvasHost): Canvas {
   const onMini = (e: MouseEvent) => {
     const k = Number(mini.dataset.k) || 1;
     const r = mini.getBoundingClientRect();
-    const wx = (e.clientX - r.left) / k + Number(mini.dataset.left || 0);
-    const wy = (e.clientY - r.top) / k;
+    const z = zoom();
+    const wx = (e.clientX - r.left) / z / k + Number(mini.dataset.left || 0);
+    const wy = (e.clientY - r.top) / z / k;
     tx = stage.clientWidth / 2 - wx * s;
     ty = stage.clientHeight / 2 - wy * s;
     apply(true);
@@ -308,7 +316,8 @@ export function startCanvas(host: CanvasHost): Canvas {
     if ((e.target as Element).closest('.pb-dock, .pb-toolbar')) return;
     e.preventDefault();
     const r = stage.getBoundingClientRect();
-    wheel(e.deltaX, e.deltaY, e.deltaMode, e.ctrlKey || e.metaKey, e.clientX - r.left, e.clientY - r.top);
+    const z = zoom();
+    wheel(e.deltaX, e.deltaY, e.deltaMode, e.ctrlKey || e.metaKey, (e.clientX - r.left) / z, (e.clientY - r.top) / z);
   };
   stage.addEventListener('wheel', onWheel, { passive: false });
 
@@ -332,8 +341,8 @@ export function startCanvas(host: CanvasHost): Canvas {
   };
   const onMove = (e: PointerEvent) => {
     if (!drag) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
+    const dx = (e.clientX - drag.x) / zoom();
+    const dy = (e.clientY - drag.y) / zoom();
     if (drag.kind === 'pan') {
       tx = drag.tx + dx;
       ty = drag.ty + dy;

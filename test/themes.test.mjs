@@ -2,7 +2,8 @@
 // the themes use (bundled, licensed, served by the daemon and nothing else),
 // the marks in the agent's page drawn from theme tokens only, and the page
 // tokens each theme offers the page (complete, opaque, at the floor), and the
-// design CSS's own names mapped to them for pages written before them.
+// design CSS's own names mapped to them for pages written before them; and
+// the text sizes the reviewer can pick.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { api, makeWorld, openSession, ROOT } from './helpers/harness.mjs';
 
-const { DEFAULT_THEME, GUIDE_NAMES, GUIDE_SIGNATURE, MARK_TOKENS, PAGE_CSS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, THEMES, contrast, guideNamesRule, pageContrastFailures, themeConfig } = await import(
+const { DEFAULT_TEXT_SIZE, DEFAULT_THEME, GUIDE_NAMES, GUIDE_SIGNATURE, MARK_TOKENS, PAGE_CSS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, TEXT_SIZES, TEXT_SIZE_KEY, THEMES, contrast, guideNamesRule, pageContrastFailures, themeConfig } = await import(
   path.join(ROOT, 'dist', 'internal.js'),
 );
 
@@ -219,4 +220,28 @@ test("the design CSS's own names map to the page tokens exactly as PAGE_CSS read
   assert.match(rule, /^:root\{color-scheme:var\(--vivamark-scheme\) !important;--bg:var\(--vivamark-bg\) !important;/);
   assert.doesNotMatch(rule, /url\(|@|#[0-9a-f]{3}/i);
   for (const v of Object.values(GUIDE_NAMES)) for (const [, token] of v.matchAll(/var\((--vivamark-[a-z-]+)\)/g)) assert.ok(PAGE_TOKENS.includes(token), token);
+});
+
+test('the text sizes: four, in words, smallest first; Normal is the default and zooms nothing; the CSS reads the zoom from one place', () => {
+  assert.deepEqual(
+    TEXT_SIZES.map((x) => [x.id, x.name, x.zoom]),
+    [
+      ['small', 'Small', 0.9],
+      ['normal', 'Normal', 1],
+      ['large', 'Large', 1.15],
+      ['x-large', 'Extra large', 1.3],
+    ],
+  );
+  assert.equal(DEFAULT_TEXT_SIZE, 'normal');
+  assert.equal(TEXT_SIZE_KEY, 'vivamark:text-size');
+  const css = fs.readFileSync(path.join(ROOT, 'src', 'ui', 'chrome.css'), 'utf8');
+  assert.match(css, /html \{ zoom: var\(--vm-zoom, 1\); \}/);
+  // Every size the CSS names is a size, and no stylesheet zooms by a number of its own.
+  const sheets = [css, ...fs.readdirSync(path.join(ROOT, 'src', 'ui', 'themes')).map((f) => fs.readFileSync(path.join(ROOT, 'src', 'ui', 'themes', f), 'utf8'))];
+  for (const sheet of sheets) {
+    for (const [, id] of sheet.matchAll(/data-text-size="([^"]+)"/g)) assert.ok(TEXT_SIZES.some((x) => x.id === id), id);
+    assert.doesNotMatch(sheet.replace(/\/\*[\s\S]*?\*\//g, ''), /zoom:\s*[0-9.]/);
+    // Narrow layouts are measured on the app, in its own (zoomed) pixels, not on the window.
+    assert.doesNotMatch(sheet, /@media \(max-width/);
+  }
 });

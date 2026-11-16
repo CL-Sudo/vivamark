@@ -143,13 +143,24 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* The reviewer's text size: the whole review drawn larger or smaller, the
+   agent's page in its frame with it. --vm-zoom is set on the root by the
+   boot script and the picker (themes.ts); unset, nothing is zoomed. A zoomed
+   element's own vh is the window's height times the zoom, so heights in vh
+   below divide by it. */
+html { zoom: var(--vm-zoom, 1); }
 body { background: var(--bg); color: var(--fg); font: var(--fs)/1.5 var(--ui); -webkit-font-smoothing: antialiased; }
 [hidden] { display: none !important; }
-.app { height: 100%; display: flex; flex-direction: column; }
+/* The app is the container narrow windows are measured on (the queries below
+   and in the themes): its width is in its own pixels, so a larger text size
+   reaches the narrow layout sooner, as browser zoom would. */
+.app { height: 100%; display: flex; flex-direction: column; container-type: inline-size; }
 button, select, textarea { font-family: inherit; }
 
 /* Signal's floor: a focus ring that shows on any theme and any page beside it. */
 :focus-visible { outline: var(--focus-w) solid var(--focus); outline-offset: 2px; }
+/* At a smaller text size a 2px ring would be drawn thinner than 2 screen pixels. */
+:root[data-text-size="small"] :focus-visible { outline-width: max(var(--focus-w), calc(2px / var(--vm-zoom, 1))); }
 textarea:focus-visible { outline-offset: 1px; }
 
 /* Parts only some themes show. */
@@ -282,7 +293,7 @@ textarea:focus-visible { outline-offset: 1px; }
 .target-label { flex: none; }
 .target-text { color: var(--fg2); background: var(--chip); border-radius: var(--pill-radius); padding: 2px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .target[data-kind="text"] .target-text { background: var(--mark); color: var(--mark-fg); }
-textarea { width: 100%; resize: vertical; min-height: 64px; max-height: 40vh; padding: 10px 14px; border-radius: var(--r); border: var(--card-bw) solid var(--input-line); background: var(--input-bg); color: var(--fg); font: inherit; box-shadow: var(--input-shadow); }
+textarea { width: 100%; resize: vertical; min-height: 64px; max-height: calc(40vh / var(--vm-zoom, 1)); padding: 10px 14px; border-radius: var(--r); border: var(--card-bw) solid var(--input-line); background: var(--input-bg); color: var(--fg); font: inherit; box-shadow: var(--input-shadow); }
 textarea::placeholder { color: var(--muted); opacity: 1; }
 textarea:focus { border-color: var(--accent-strong); box-shadow: var(--input-focus); }
 .actions { display: flex; gap: 8px; align-items: center; }
@@ -314,17 +325,24 @@ textarea:focus { border-color: var(--accent-strong); box-shadow: var(--input-foc
 .ended-head { font-weight: 600; }
 .ended-message { margin: 6px 0 0; white-space: pre-wrap; }
 
-@media (max-width: 860px) {
+@container (width < 861px) {
   .bar, .status { gap: 8px 16px; }
   .bar { padding: 10px 16px; }
   .body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
-  .side { border-left: 0; border-top: var(--side-line); max-height: 50vh; }
+  .side { border-left: 0; border-top: var(--side-line); max-height: calc(50vh / var(--vm-zoom, 1)); }
   .stage { padding: min(var(--stage-pad), 8px); }
   /* Folded on a narrow window, the panel is a bar along the bottom. */
   :root[data-layout="panel"][data-panel="collapsed"] .body { grid-template-columns: 1fr; }
   :root[data-layout="panel"][data-panel="collapsed"] .side { padding: 8px 16px; }
   :root[data-layout="panel"][data-panel="collapsed"] .side-title { flex-direction: row; }
   :root[data-layout="panel"][data-panel="collapsed"] .side-title .btn { writing-mode: horizontal-tb; padding: 4px 10px; }
+  /* Larger text on a narrow window: the two pickers share a row, each word
+     label over its menu, and the panel takes less of the height and scrolls
+     as one, so the page keeps room and Send and Approve stay in reach. At
+     Normal and Small nothing here applies. */
+  :root:is([data-text-size="large"], [data-text-size="x-large"]) .theme-pick { flex-direction: column; align-items: flex-start; gap: 2px; }
+  :root:is([data-text-size="large"], [data-text-size="x-large"]) .side { max-height: calc(35vh / var(--vm-zoom, 1)); overflow-y: auto; }
+  :root:is([data-text-size="large"], [data-text-size="x-large"]) .side .thread { flex: none; overflow: visible; }
 }
 
 /* Signal's floor: no motion for a reader who asks for less. */

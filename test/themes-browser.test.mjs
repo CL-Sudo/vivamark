@@ -16,7 +16,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { browserUrl, makeWorld, ROOT } from './helpers/harness.mjs';
 
-const { PAGE_THEMES, THEMES } = await import(path.join(ROOT, 'dist', 'internal.js'));
+const { PAGE_THEMES, TEXT_SIZES, THEMES } = await import(path.join(ROOT, 'dist', 'internal.js'));
 
 /** `#rrggbb` as getComputedStyle writes it. */
 const rgb = (hex) => {
@@ -278,7 +278,7 @@ function contrastFailures() {
   return out;
 }
 
-test('every theme keeps the floor: every control there and labelled, a focus ring, text at 4.5:1, states in words, nothing past the edge, no motion when asked; the panel layout folded too', { timeout: 240_000 }, async (t) => {
+test('every theme keeps the floor: every control there and labelled, a focus ring, text at 4.5:1, states in words, nothing past the edge, no motion when asked; the panel layout folded too, and at every text size', { timeout: 480_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = copyReport('floor.html');
   const url = await openReview(file);
@@ -312,136 +312,150 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
   const layouts = Object.fromEntries(THEMES.map((x) => [x.id, x.layout]));
   for (const theme of THEMES.map((x) => x.id)) {
     await page.selectOption('#theme', theme);
-    for (const width of [1280, 390]) {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
-      await page.evaluate(() => document.fonts.ready);
-      await page.waitForTimeout(150);
-      const at = `${theme} at ${width}px`;
-      const m = await page.evaluate(() => {
-        const shown = (id) => {
-          const e = document.getElementById(id);
-          return !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
-        };
-        const bar = document.querySelector('.bar');
-        const b = bar.getBoundingClientRect();
-        return {
-          sideways: document.documentElement.scrollWidth > window.innerWidth,
-          frame: (() => {
-            const r = document.getElementById('page').getBoundingClientRect();
-            return { w: Math.round(r.width), h: Math.round(r.height) };
-          })(),
-          controls: ['point', 'attach', 'add', 'send', 'approve', 'dismiss', 'end', 'show-changes', 'show-marks', 'theme', 'comment'].filter((id) => !shown(id)),
-          unnamed: [...document.querySelectorAll('button')].filter((x) => x.getClientRects().length && !(x.getAttribute('aria-label') || x.textContent).trim()).map((x) => x.outerHTML.slice(0, 60)),
-          states: [...document.querySelectorAll('#thread .note .note-head .state')].map((x) => x.textContent.trim()),
-          answer: [...document.querySelectorAll('.btn.answer')].filter((x) => x.getClientRects().length).length,
-          words: [document.getElementById('turn').textContent.trim(), document.getElementById('presence-text').textContent.trim()],
-          ticks: [...document.querySelectorAll('[aria-pressed="true"]')].map((x) => getComputedStyle(x, '::before').content),
-          barOut: [...bar.children]
-            .filter((c) => getComputedStyle(c).display !== 'none')
-            .filter((c) => {
-              const r = c.getBoundingClientRect();
-              return r.left < b.left - 0.5 || r.right > b.right + 0.5 || c.scrollWidth > c.clientWidth + 1;
-            })
-            .map((c) => c.id || c.className),
-        };
-      });
-      if (m.sideways) failures.push(`${at}: the page scrolls sideways`);
-      if (m.frame.w < Math.min(320, width - 40) || m.frame.h < 200) failures.push(`${at}: the agent's page is squeezed to ${m.frame.w} x ${m.frame.h}`);
-      if (m.controls.length) failures.push(`${at}: not shown: ${m.controls.join(', ')}`);
-      if (m.unnamed.length) failures.push(`${at}: buttons without a label: ${m.unnamed.join(' | ')}`);
-      if (m.states.length !== 4 || m.states.some((s) => !s)) failures.push(`${at}: note states not all in words: ${JSON.stringify(m.states)}`);
-      if (m.answer !== 1) failures.push(`${at}: the Answer button is not there`);
-      if (m.words.some((w) => !w)) failures.push(`${at}: turn or presence without words`);
-      if (m.ticks.some((c) => !c.includes('✓'))) failures.push(`${at}: a pressed toggle shows no tick: ${m.ticks.join(' ')}`);
-      if (m.barOut.length) failures.push(`${at}: past the bar's edge or cut: ${m.barOut.join(', ')}`);
-      const low = await page.evaluate(contrastFailures);
-      if (low.length) failures.push(`${at}: text under 4.5:1: ${low.join('; ')}`);
-      // The example page uses the page tokens: it takes this theme's colours and keeps the floor too.
-      const own = await frame().evaluate(() => ({
-        bg: getComputedStyle(document.documentElement).backgroundColor,
-        text: getComputedStyle(document.body).color,
-        link: getComputedStyle(document.querySelector('main a')).color,
-        heading: getComputedStyle(document.querySelector('h1')).fontFamily,
-      }));
-      const want = PAGE_THEMES[theme];
-      if (own.bg !== rgb(want['--vivamark-bg']) || own.text !== rgb(want['--vivamark-text']) || own.link !== rgb(want['--vivamark-accent']))
-        failures.push(`${at}: the example page is not in the theme's colours: ${JSON.stringify(own)}`);
-      if (own.heading.replace(/\s+/g, ' ') !== want['--vivamark-font-heading'].replace(/\s+/g, ' ')) failures.push(`${at}: the example page's headings are in ${own.heading}`);
-      pageLooks.add(JSON.stringify(own));
-      const lowPage = await frame().evaluate(contrastFailures);
-      if (lowPage.length) failures.push(`${at}: text in the example page under 4.5:1: ${lowPage.join('; ')}`);
-      // A focus ring from the keyboard.
-      await page.focus('#point');
-      await page.keyboard.press('Tab');
-      const ring = await page.evaluate(() => {
-        const e = document.activeElement;
-        const cs = getComputedStyle(e);
-        return { id: e.id, ok: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2) || cs.boxShadow !== 'none' };
-      });
-      if (ring.id !== 'attach' || !ring.ok) failures.push(`${at}: no focus ring on ${ring.id}`);
-      if (layouts[theme] !== 'panel') {
-        if (await page.isVisible('#panel-toggle')) failures.push(`${at}: the panel toggle is offered outside the panel layout`);
-        continue;
+    // The panel themes at every text size; the others at Normal.
+    for (const size of layouts[theme] === 'panel' ? TEXT_SIZES.map((x) => x.id) : ['normal']) {
+      await page.selectOption('#text-size', size);
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
+        await page.evaluate(() => document.fonts.ready);
+        await page.waitForTimeout(150);
+        const at = `${theme} at ${width}px${size === 'normal' ? '' : `, ${size} text`}`;
+        const m = await page.evaluate(() => {
+          const shown = (id) => {
+            const e = document.getElementById(id);
+            return !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+          };
+          const bar = document.querySelector('.bar');
+          const b = bar.getBoundingClientRect();
+          return {
+            sideways: document.documentElement.scrollWidth > window.innerWidth,
+            frame: (() => {
+              const r = document.getElementById('page').getBoundingClientRect();
+              return { w: Math.round(r.width), h: Math.round(r.height) };
+            })(),
+            controls: ['point', 'attach', 'add', 'send', 'approve', 'dismiss', 'end', 'show-changes', 'show-marks', 'theme', 'text-size', 'comment'].filter((id) => !shown(id)),
+            // Send and Approve within the window, or in a panel that scrolls to them.
+            unreachable: ['send', 'approve'].filter((id) => {
+              const e = document.getElementById(id);
+              const r = e.getBoundingClientRect();
+              if (r.bottom <= innerHeight + 0.5 && r.right <= innerWidth + 0.5) return false;
+              const box = e.closest('.side');
+              return !(box && getComputedStyle(box).overflowY === 'auto' && box.scrollHeight > box.clientHeight);
+            }),
+            unnamed: [...document.querySelectorAll('button')].filter((x) => x.getClientRects().length && !(x.getAttribute('aria-label') || x.textContent).trim()).map((x) => x.outerHTML.slice(0, 60)),
+            states: [...document.querySelectorAll('#thread .note .note-head .state')].map((x) => x.textContent.trim()),
+            answer: [...document.querySelectorAll('.btn.answer')].filter((x) => x.getClientRects().length).length,
+            words: [document.getElementById('turn').textContent.trim(), document.getElementById('presence-text').textContent.trim()],
+            ticks: [...document.querySelectorAll('[aria-pressed="true"]')].map((x) => getComputedStyle(x, '::before').content),
+            barOut: [...bar.children]
+              .filter((c) => getComputedStyle(c).display !== 'none')
+              .filter((c) => {
+                const r = c.getBoundingClientRect();
+                return r.left < b.left - 0.5 || r.right > b.right + 0.5 || c.scrollWidth > c.clientWidth + 1;
+              })
+              .map((c) => c.id || c.className),
+          };
+        });
+        if (m.sideways) failures.push(`${at}: the page scrolls sideways`);
+        if (m.frame.w < Math.min(320, width - 40) || m.frame.h < 200) failures.push(`${at}: the agent's page is squeezed to ${m.frame.w} x ${m.frame.h}`);
+        if (m.controls.length) failures.push(`${at}: not shown: ${m.controls.join(', ')}`);
+        if (m.unreachable.length) failures.push(`${at}: past the window and out of reach: ${m.unreachable.join(', ')}`);
+        if (m.unnamed.length) failures.push(`${at}: buttons without a label: ${m.unnamed.join(' | ')}`);
+        if (m.states.length !== 4 || m.states.some((s) => !s)) failures.push(`${at}: note states not all in words: ${JSON.stringify(m.states)}`);
+        if (m.answer !== 1) failures.push(`${at}: the Answer button is not there`);
+        if (m.words.some((w) => !w)) failures.push(`${at}: turn or presence without words`);
+        if (m.ticks.some((c) => !c.includes('✓'))) failures.push(`${at}: a pressed toggle shows no tick: ${m.ticks.join(' ')}`);
+        if (m.barOut.length) failures.push(`${at}: past the bar's edge or cut: ${m.barOut.join(', ')}`);
+        const low = await page.evaluate(contrastFailures);
+        if (low.length) failures.push(`${at}: text under 4.5:1: ${low.join('; ')}`);
+        // The example page uses the page tokens: it takes this theme's colours and keeps the floor too.
+        const own = await frame().evaluate(() => ({
+          bg: getComputedStyle(document.documentElement).backgroundColor,
+          text: getComputedStyle(document.body).color,
+          link: getComputedStyle(document.querySelector('main a')).color,
+          heading: getComputedStyle(document.querySelector('h1')).fontFamily,
+        }));
+        const want = PAGE_THEMES[theme];
+        if (own.bg !== rgb(want['--vivamark-bg']) || own.text !== rgb(want['--vivamark-text']) || own.link !== rgb(want['--vivamark-accent']))
+          failures.push(`${at}: the example page is not in the theme's colours: ${JSON.stringify(own)}`);
+        if (own.heading.replace(/\s+/g, ' ') !== want['--vivamark-font-heading'].replace(/\s+/g, ' ')) failures.push(`${at}: the example page's headings are in ${own.heading}`);
+        pageLooks.add(JSON.stringify(own));
+        const lowPage = await frame().evaluate(contrastFailures);
+        if (lowPage.length) failures.push(`${at}: text in the example page under 4.5:1: ${lowPage.join('; ')}`);
+        // A focus ring from the keyboard, at least 2 pixels on screen at any text size.
+        await page.focus('#point');
+        await page.keyboard.press('Tab');
+        const ring = await page.evaluate(() => {
+          const e = document.activeElement;
+          const cs = getComputedStyle(e);
+          return { id: e.id, ok: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) * e.currentCSSZoom >= 1.99) || cs.boxShadow !== 'none' };
+        });
+        if (ring.id !== 'attach' || !ring.ok) failures.push(`${at}: no focus ring on ${ring.id}`);
+        if (layouts[theme] !== 'panel') {
+          if (await page.isVisible('#panel-toggle')) failures.push(`${at}: the panel toggle is offered outside the panel layout`);
+          continue;
+        }
+        // Folded to a strip: the page takes the room, the strip keeps the count and a labelled way back, the bar keeps the rest.
+        await page.click('#panel-toggle');
+        await page.waitForTimeout(150);
+        const f = await page.evaluate(() => {
+          const shown = (id) => {
+            const e = document.getElementById(id);
+            return !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+          };
+          const bar = document.querySelector('.bar');
+          const b = bar.getBoundingClientRect();
+          const r = document.getElementById('page').getBoundingClientRect();
+          const toggle = document.getElementById('panel-toggle');
+          return {
+            sideways: document.documentElement.scrollWidth > window.innerWidth,
+            frame: { w: Math.round(r.width), h: Math.round(r.height) },
+            shown: ['panel-toggle', 'note-count', 'strip-point', 'turn', 'presence', 'show-marks', 'theme', 'text-size'].filter((id) => !shown(id)),
+            folded: ['comment', 'thread', 'point', 'send'].filter(shown),
+            expanded: toggle.getAttribute('aria-expanded'),
+            name: toggle.getAttribute('aria-label') ?? toggle.textContent,
+            words: [document.getElementById('turn').textContent.trim(), document.getElementById('presence-text').textContent.trim(), toggle.textContent.trim()],
+            barOut: [...bar.children]
+              .filter((c) => getComputedStyle(c).display !== 'none')
+              .filter((c) => {
+                const x = c.getBoundingClientRect();
+                return x.left < b.left - 0.5 || x.right > b.right + 0.5 || c.scrollWidth > c.clientWidth + 1;
+              })
+              .map((c) => c.id || c.className),
+            stripOut: [...document.querySelectorAll('.side-title > *')]
+              .filter((c) => c.getClientRects().length)
+              .filter((c) => {
+                const x = c.getBoundingClientRect();
+                return x.right > window.innerWidth + 0.5 || x.bottom > window.innerHeight + 0.5 || c.scrollWidth > c.clientWidth + 1 || c.scrollHeight > c.clientHeight + 1;
+              })
+              .map((c) => c.id || c.className),
+          };
+        });
+        if (f.sideways) failures.push(`${at}, folded: the page scrolls sideways`);
+        if (width > 860 && f.frame.w < m.frame.w + 250) failures.push(`${at}, folded: the page did not take the room: ${m.frame.w} -> ${f.frame.w}`);
+        if (width <= 860 && f.frame.h < m.frame.h + 100) failures.push(`${at}, folded: the page did not take the room: ${m.frame.h} -> ${f.frame.h}`);
+        if (f.shown.length) failures.push(`${at}, folded: not shown: ${f.shown.join(', ')}`);
+        if (f.folded.length) failures.push(`${at}, folded: still shown: ${f.folded.join(', ')}`);
+        if (f.expanded !== 'false' || !/^Show notes, \d+ notes?$/.test(f.name)) failures.push(`${at}, folded: the toggle says ${f.expanded} / ${f.name}`);
+        if (f.words.some((w) => !w)) failures.push(`${at}, folded: turn, presence or toggle without words`);
+        if (f.barOut.length) failures.push(`${at}, folded: past the bar's edge or cut: ${f.barOut.join(', ')}`);
+        if (f.stripOut.length) failures.push(`${at}, folded: past the window or cut in the strip: ${f.stripOut.join(', ')}`);
+        const lowFolded = await page.evaluate(contrastFailures);
+        if (lowFolded.length) failures.push(`${at}, folded: text under 4.5:1: ${lowFolded.join('; ')}`);
+        await page.focus('#strip-point');
+        await page.keyboard.press('Shift+Tab');
+        const foldedRing = await page.evaluate(() => {
+          const e = document.activeElement;
+          const cs = getComputedStyle(e);
+          return { id: e.id, ok: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) * e.currentCSSZoom >= 1.99) || cs.boxShadow !== 'none' };
+        });
+        if (foldedRing.id !== 'panel-toggle' || !foldedRing.ok) failures.push(`${at}, folded: no focus ring on ${foldedRing.id}`);
+        await page.keyboard.press('Enter');
+        if ((await page.getAttribute('#panel-toggle', 'aria-expanded')) !== 'true') failures.push(`${at}: the toggle did not open the panel from the keyboard`);
       }
-      // Folded to a strip: the page takes the room, the strip keeps the count and a labelled way back, the bar keeps the rest.
-      await page.click('#panel-toggle');
-      await page.waitForTimeout(150);
-      const f = await page.evaluate(() => {
-        const shown = (id) => {
-          const e = document.getElementById(id);
-          return !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
-        };
-        const bar = document.querySelector('.bar');
-        const b = bar.getBoundingClientRect();
-        const r = document.getElementById('page').getBoundingClientRect();
-        const toggle = document.getElementById('panel-toggle');
-        return {
-          sideways: document.documentElement.scrollWidth > window.innerWidth,
-          frame: { w: Math.round(r.width), h: Math.round(r.height) },
-          shown: ['panel-toggle', 'note-count', 'strip-point', 'turn', 'presence', 'show-marks', 'theme'].filter((id) => !shown(id)),
-          folded: ['comment', 'thread', 'point', 'send'].filter(shown),
-          expanded: toggle.getAttribute('aria-expanded'),
-          name: toggle.getAttribute('aria-label') ?? toggle.textContent,
-          words: [document.getElementById('turn').textContent.trim(), document.getElementById('presence-text').textContent.trim(), toggle.textContent.trim()],
-          barOut: [...bar.children]
-            .filter((c) => getComputedStyle(c).display !== 'none')
-            .filter((c) => {
-              const x = c.getBoundingClientRect();
-              return x.left < b.left - 0.5 || x.right > b.right + 0.5 || c.scrollWidth > c.clientWidth + 1;
-            })
-            .map((c) => c.id || c.className),
-          stripOut: [...document.querySelectorAll('.side-title > *')]
-            .filter((c) => c.getClientRects().length)
-            .filter((c) => {
-              const x = c.getBoundingClientRect();
-              return x.right > window.innerWidth + 0.5 || x.bottom > window.innerHeight + 0.5 || c.scrollWidth > c.clientWidth + 1 || c.scrollHeight > c.clientHeight + 1;
-            })
-            .map((c) => c.id || c.className),
-        };
-      });
-      if (f.sideways) failures.push(`${at}, folded: the page scrolls sideways`);
-      if (width > 860 && f.frame.w < m.frame.w + 250) failures.push(`${at}, folded: the page did not take the room: ${m.frame.w} -> ${f.frame.w}`);
-      if (width <= 860 && f.frame.h < m.frame.h + 100) failures.push(`${at}, folded: the page did not take the room: ${m.frame.h} -> ${f.frame.h}`);
-      if (f.shown.length) failures.push(`${at}, folded: not shown: ${f.shown.join(', ')}`);
-      if (f.folded.length) failures.push(`${at}, folded: still shown: ${f.folded.join(', ')}`);
-      if (f.expanded !== 'false' || !/^Show notes, \d+ notes?$/.test(f.name)) failures.push(`${at}, folded: the toggle says ${f.expanded} / ${f.name}`);
-      if (f.words.some((w) => !w)) failures.push(`${at}, folded: turn, presence or toggle without words`);
-      if (f.barOut.length) failures.push(`${at}, folded: past the bar's edge or cut: ${f.barOut.join(', ')}`);
-      if (f.stripOut.length) failures.push(`${at}, folded: past the window or cut in the strip: ${f.stripOut.join(', ')}`);
-      const lowFolded = await page.evaluate(contrastFailures);
-      if (lowFolded.length) failures.push(`${at}, folded: text under 4.5:1: ${lowFolded.join('; ')}`);
-      await page.focus('#strip-point');
-      await page.keyboard.press('Shift+Tab');
-      const foldedRing = await page.evaluate(() => {
-        const e = document.activeElement;
-        const cs = getComputedStyle(e);
-        return { id: e.id, ok: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2) || cs.boxShadow !== 'none' };
-      });
-      if (foldedRing.id !== 'panel-toggle' || !foldedRing.ok) failures.push(`${at}, folded: no focus ring on ${foldedRing.id}`);
-      await page.keyboard.press('Enter');
-      if ((await page.getAttribute('#panel-toggle', 'aria-expanded')) !== 'true') failures.push(`${at}: the toggle did not open the panel from the keyboard`);
+      await page.setViewportSize({ width: 1280, height: 800 });
     }
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.selectOption('#text-size', 'normal');
   }
   // No motion for a reader who asks for less, in any theme.
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -699,6 +713,214 @@ test('Pinboard: the page as a sheet on a table, notes pinned beside it with thre
   assert.equal(await page.evaluate(() => document.getElementById('sheet').style.cssText), '');
   assert.equal(await page.inputValue('#comment'), 'A draft.');
   await frame().waitForFunction(() => document.documentElement.scrollHeight > innerHeight + 100);
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});
+
+// ---- text size --------------------------------------------------------------------------
+
+/**
+ * How big the panel's and the page's text is drawn, in the window's pixels.
+ * The page's text is an h2: a size of its own, which neither example page
+ * changes on a narrow window.
+ */
+async function drawnText(page, frame) {
+  const panel = await page.evaluate(() => document.querySelector('.side-name, .side-title').getBoundingClientRect().height);
+  const scale = await page.evaluate(() => document.getElementById('page').getBoundingClientRect().width);
+  const own = await frame().evaluate(() => ({ size: parseFloat(getComputedStyle(document.querySelector('h2')).fontSize), width: innerWidth }));
+  return { panel, page: (own.size * scale) / own.width };
+}
+
+test('the text size: Normal by default with nothing zoomed; each size draws the bar, the notes and the page larger or smaller at once, with no reload, no lost draft and the marks on their items; remembered and in place before the first paint', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = copyReport('text-size.html');
+  const url = await openReview(file);
+  // Records the text size when the bar is first parsed, before the review page's script ran.
+  const firstPaint = () => {
+    new MutationObserver((_, obs) => {
+      if (!document.querySelector('.bar')) return;
+      window.__sizeAtParse = [document.documentElement.dataset.textSize, document.documentElement.style.getPropertyValue('--vm-zoom')];
+      obs.disconnect();
+    }).observe(document, { childList: true, subtree: true });
+  };
+  const { page, offLoopback, problems, frame } = await reviewPage(url, { init: firstPaint });
+  const doc = page.frameLocator('#page');
+  await doc.locator('#finding-stale').waitFor();
+
+  // Normal: nothing zoomed, nothing stored, a picker labelled in words beside Theme.
+  assert.equal(await page.getAttribute('html', 'data-text-size'), 'normal');
+  assert.equal(await page.inputValue('#text-size'), 'normal');
+  assert.deepEqual(await page.evaluate(() => [document.documentElement.style.getPropertyValue('--vm-zoom'), document.documentElement.currentCSSZoom]), ['', 1]);
+  assert.equal(await frame().evaluate(() => devicePixelRatio), 1, 'the page is not zoomed either');
+  assert.equal(await page.evaluate(() => localStorage.getItem('vivamark:text-size')), null, 'nothing is stored until the reviewer chooses');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#text-size option')].map((o) => [o.value, o.textContent])), TEXT_SIZES.map((x) => [x.id, x.name]));
+  assert.equal(await page.getByRole('combobox', { name: 'Text size', exact: true }).count(), 1, 'the picker is labelled');
+  assert.equal(await page.evaluate(() => document.getElementById('theme').closest('label').nextElementSibling?.contains(document.getElementById('text-size'))), true, 'next to Theme');
+
+  // A queued note with its pin, and a draft being written.
+  await point(page, doc.locator('#finding-stale'));
+  await page.fill('#comment', 'Name the cache key.');
+  await page.click('#add');
+  await page.fill('#comment', 'A draft, half written');
+  /** Where note 1's pin sits against its item, in the page's own pixels: just past its right edge, centred on it. */
+  const pin = () =>
+    frame().evaluate(() => {
+      const p = [...(document.getElementById('__vivamark_layer')?.children ?? [])].find((c) => c.dataset.vivamarkPin && c.textContent === '1');
+      if (!p) return null;
+      const a = p.getBoundingClientRect();
+      const b = document.getElementById('finding-stale').getBoundingClientRect();
+      return { dx: Math.round(a.left - b.right), dy: Math.round(a.top + a.height / 2 - (b.top + b.height / 2)) };
+    });
+  await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === '1'));
+  const pinAt = await pin();
+  assert.ok(pinAt);
+  const base = await drawnText(page, frame);
+  await page.evaluate(() => (window.__sameLoad = true));
+  await frame().evaluate(() => (window.__frameLoad = true));
+
+  for (const size of [...TEXT_SIZES.filter((x) => x.id !== 'normal'), TEXT_SIZES.find((x) => x.id === 'normal')]) {
+    await page.selectOption('#text-size', size.id);
+    assert.equal(await page.getAttribute('html', 'data-text-size'), size.id);
+    assert.ok(Math.abs((await page.evaluate(() => document.documentElement.currentCSSZoom)) - size.zoom) < 0.001, `${size.id}: the review is drawn at ${size.zoom}`);
+    await frame().waitForFunction((z) => Math.abs(devicePixelRatio - z) < 0.001, size.zoom);
+    // The frame takes its new width a moment after the zoom.
+    let now = await drawnText(page, frame);
+    for (const until = Date.now() + 3000; Math.abs(now.page / base.page - size.zoom) >= 0.02 && Date.now() < until; now = await drawnText(page, frame)) await page.waitForTimeout(50);
+    assert.ok(Math.abs(now.panel / base.panel - size.zoom) < 0.06, `${size.id}: the panel's text grows with it: ${base.panel} -> ${now.panel}`);
+    assert.ok(Math.abs(now.page / base.page - size.zoom) < 0.02, `${size.id}: the page's text grows with it: ${base.page} -> ${now.page}`);
+    assert.equal(await page.evaluate(() => window.__sameLoad), true, `${size.id}: no reload`);
+    assert.equal(await frame().evaluate(() => window.__frameLoad), true, `${size.id}: the agent's page was not reloaded`);
+    assert.equal(await page.inputValue('#comment'), 'A draft, half written', `${size.id}: the draft stays`);
+    assert.equal(await page.locator('.note.queued').count(), 1, `${size.id}: the queue stays`);
+    // The page reflows at its new width; the pin follows its item there.
+    await frame().waitForFunction((w) => {
+      const p = [...(document.getElementById('__vivamark_layer')?.children ?? [])].find((c) => c.dataset.vivamarkPin && c.textContent === '1');
+      if (!p) return false;
+      const a = p.getBoundingClientRect();
+      const b = document.getElementById('finding-stale').getBoundingClientRect();
+      return Math.abs(a.left - b.right - w.dx) <= 1 && Math.abs(a.top + a.height / 2 - (b.top + b.height / 2) - w.dy) <= 1;
+    }, pinAt, { timeout: 5000 }).catch(async () => assert.fail(`${size.id}: the pin left its item: ${JSON.stringify(await pin())} vs ${JSON.stringify(pinAt)}`));
+    assert.equal(await page.evaluate(() => localStorage.getItem('vivamark:text-size')), size.id);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${size.id}: no sideways scroll`);
+  }
+  assert.deepEqual(await page.evaluate(() => [document.documentElement.style.getPropertyValue('--vm-zoom'), document.documentElement.currentCSSZoom]), ['', 1], 'back at Normal, nothing is zoomed');
+
+  // Remembered, and in place before the first paint: a reload opens at the last choice.
+  await page.selectOption('#text-size', 'x-large');
+  await page.reload();
+  await doc.locator('#finding-stale').waitFor();
+  assert.deepEqual(await page.evaluate(() => window.__sizeAtParse), ['x-large', '1.3']);
+  assert.equal(await page.inputValue('#text-size'), 'x-large');
+  assert.ok(Math.abs((await frame().evaluate(() => devicePixelRatio)) - 1.3) < 0.001, 'the page is drawn larger from its first load');
+  await page.selectOption('#text-size', 'normal');
+
+  // With storage blocked Normal applies and the picker still works.
+  const blocked = await reviewPage(url, {
+    init: () => {
+      Object.defineProperty(window, 'localStorage', {
+        get() {
+          throw new DOMException('blocked', 'SecurityError');
+        },
+      });
+    },
+  });
+  await blocked.page.frameLocator('#page').locator('#finding-stale').waitFor();
+  assert.equal(await blocked.page.getAttribute('html', 'data-text-size'), 'normal');
+  await blocked.page.selectOption('#text-size', 'large');
+  assert.equal(await blocked.page.getAttribute('html', 'data-text-size'), 'large');
+  assert.ok(Math.abs((await blocked.page.evaluate(() => document.documentElement.currentCSSZoom)) - 1.15) < 0.001);
+
+  assert.deepEqual([...offLoopback, ...blocked.offLoopback], []);
+  assert.deepEqual([...problems, ...blocked.problems], []);
+  await page.close();
+  await blocked.page.close();
+});
+
+test('the text size scales a page sized in pixels too: at the largest size on a phone it reflows, its table scrolls in its own box, its figure fits, nothing scrolls sideways', { timeout: 60_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'px-page.html');
+  fs.copyFileSync(path.join(ROOT, 'test', 'fixtures', 'px-page.html'), file);
+  const url = await openReview(file);
+  const { page, offLoopback, problems, frame } = await reviewPage(url, { width: 390, height: 844 });
+  await page.frameLocator('#page').locator('#figure').waitFor();
+  const base = await drawnText(page, frame);
+  await page.selectOption('#text-size', 'x-large');
+  await frame().waitForFunction(() => Math.abs(devicePixelRatio - 1.3) < 0.001);
+  let now = await drawnText(page, frame);
+  for (const until = Date.now() + 3000; Math.abs(now.page / base.page - 1.3) >= 0.02 && Date.now() < until; now = await drawnText(page, frame)) await page.waitForTimeout(50);
+  assert.ok(Math.abs(now.page / base.page - 1.3) < 0.02, `the page's 20px heading is drawn 1.3 times as large: ${base.page} -> ${now.page}`);
+  const m = await frame().evaluate(() => {
+    const box = document.getElementById('table-box');
+    const fig = document.querySelector('#figure svg').getBoundingClientRect();
+    const main = document.querySelector('main').getBoundingClientRect();
+    return {
+      width: innerWidth,
+      sideways: document.documentElement.scrollWidth > innerWidth,
+      tableScrolls: box.scrollWidth > box.clientWidth,
+      boxRight: box.getBoundingClientRect().right,
+      fig: { left: fig.left, right: fig.right, width: fig.width },
+      column: main.width,
+    };
+  });
+  assert.ok(m.width < 390 / 1.2, `the page lays out at the narrower width its text needs: ${m.width}`);
+  assert.equal(m.sideways, false, 'nothing scrolls the page sideways');
+  assert.equal(m.tableScrolls, true, 'the table scrolls in its own box');
+  assert.ok(m.boxRight <= m.width + 0.5, `the table's box stays in the page: ${m.boxRight} of ${m.width}`);
+  assert.ok(m.fig.left >= 0 && m.fig.right <= m.width + 0.5, `the figure fits: ${JSON.stringify(m.fig)}`);
+  assert.ok(m.fig.width > m.width * 0.8, `the figure keeps the column's width, readable: ${m.fig.width} of ${m.width}`);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'the review page does not scroll sideways');
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});
+
+test('Pinboard at a larger text size: the cards sit at their targets, the table follows the pointer, and a window it leaves too narrow stacks', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = copyReport('pinboard-size.html');
+  const url = await openReview(file);
+  const { page, offLoopback, problems, frame } = await reviewPage(url, { width: 1440, height: 900 });
+  const doc = page.frameLocator('#page');
+  await doc.locator('#finding-stale').waitFor();
+  await point(page, doc.locator('#finding-stale'));
+  await page.fill('#comment', 'Name the cache key.');
+  await page.click('#add');
+  await frame().evaluate(() => scrollTo(0, 0));
+  await page.selectOption('#text-size', 'x-large');
+  await page.selectOption('#theme', 'pinboard');
+  await page.waitForSelector('.pb-canvas');
+  // The card beside its target, in table pixels, the sheet as tall as the page.
+  const placed = async () => {
+    const card = await page.evaluate(() => {
+      const c = document.querySelector('.pb-world .thread > .note');
+      return c ? { top: parseFloat(c.style.top), sheet: parseFloat(document.getElementById('sheet').style.height) } : null;
+    });
+    const target = await frame().evaluate(() => ({ top: document.getElementById('finding-stale').getBoundingClientRect().top + scrollY, height: document.documentElement.scrollHeight }));
+    return { card, target, ok: !!card && Math.abs(card.top - target.top) < 60 && Math.abs(card.sheet - target.height) <= 2 };
+  };
+  let now = await placed();
+  for (const until = Date.now() + 5000; !now.ok && Date.now() < until; now = await placed()) await page.waitForTimeout(100);
+  assert.ok(now.ok, `the card sits at its target: ${JSON.stringify(now)}`);
+  // Dragging the table moves it as far as the pointer went.
+  const stage = await page.evaluate(() => {
+    const r = document.querySelector('.stage').getBoundingClientRect();
+    return { x: r.left + 4, y: r.top + r.height / 2 };
+  });
+  assert.equal(await page.evaluate((p) => document.elementFromPoint(p.x, p.y)?.matches('.stage, .pb-world, .pb-wires'), stage), true, 'the drag starts on the table');
+  const left = () => page.evaluate(() => document.getElementById('sheet').getBoundingClientRect().left);
+  const before = await left();
+  await page.mouse.move(stage.x, stage.y);
+  await page.mouse.down();
+  await page.mouse.move(stage.x + 60, stage.y, { steps: 3 });
+  await page.mouse.move(stage.x + 100, stage.y, { steps: 3 });
+  await page.mouse.up();
+  const moved = (await left()) - before;
+  assert.ok(Math.abs(moved - 100) <= 2, `the sheet moved with the pointer: ${moved}`);
+  // At 1000 px the table has room at Normal; at Extra large the window is too narrow for it, and Pinboard stacks.
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.waitForFunction(() => !document.querySelector('.pb-canvas') && document.getElementById('thread').parentElement.matches('aside.side'));
+  await page.selectOption('#text-size', 'normal');
+  await page.waitForSelector('.pb-canvas');
   assert.deepEqual(offLoopback, []);
   assert.deepEqual(problems, []);
   await page.close();

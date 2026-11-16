@@ -5,7 +5,7 @@ export { attachmentName, parseDraft, FEEDBACK_SCHEMA, LIMITS } from './schema.js
 export { loopbackAuthority, hostAllowed, originAllowed, tokenProof, tokensEqual, wsToken, bearer } from './guard.js';
 export { renderReply } from './daemon.js';
 export { Daemon, imageLimits, themeConfig } from './daemon.js';
-export { DEFAULT_THEME, PANEL_KEY, THEMES, THEME_KEY } from './ui/themes.js';
+export { DEFAULT_TEXT_SIZE, DEFAULT_THEME, PANEL_KEY, TEXT_SIZES, TEXT_SIZE_KEY, THEMES, THEME_KEY } from './ui/themes.js';
 export { MARK_TOKENS } from './ui/mark-tokens.js';
 export { Store } from './store.js';
 export { cssEscape, cssPath, loadDoc, locate, resolveSelector } from './doc.js';

@@ -190,7 +190,7 @@
 [data-theme="raster"] .btn.primary, [data-theme="raster"] .btn.ok { font-size: 13px; padding: 6px 14px; }
 [data-theme="raster"] .btn.quiet { color: #444444; text-decoration: underline; text-underline-offset: 3px; padding-left: 0; }
 [data-theme="raster"] .hint { color: #444444; }
-@media (max-width: 860px) {
+@container (width < 861px) {
   [data-theme="raster"] .bar { padding: 8px 14px; }
   [data-theme="raster"] .status { flex: 1 1 100%; border-left: 0; border-top: 1px solid #111111; padding: 6px 0 0; }
   [data-theme="raster"] .side { border-top: 1px solid #111111; }

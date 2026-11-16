@@ -6,7 +6,7 @@ import { startCanvas } from './canvas.js';
 import type { Canvas } from './canvas.js';
 import { MARK_TOKENS } from './mark-tokens.js';
 import { PAGE_THEMES } from './page-tokens.js';
-import { PANEL_KEY, THEME_KEY, THEMES, themeById } from './themes.js';
+import { PANEL_KEY, TEXT_SIZES, TEXT_SIZE_KEY, THEME_KEY, THEMES, applyTextSize, textSizeById, themeById } from './themes.js';
 import type { Layout, Theme } from './themes.js';
 
 type Kind = 'element' | 'text' | 'page';
@@ -1280,12 +1280,16 @@ function applyTheme(id: string, remember: boolean): void {
 /**
  * Layouts that place things themselves start and stop here. Pinboard's
  * canvas needs the room of a desktop window; narrower, Pinboard stacks the
- * sheet and its cards like the panel.
+ * sheet and its cards like the panel. The room is the app's own width, in
+ * its own pixels, as chrome.css's container queries see it: a larger text
+ * size leaves less of it.
  */
 let canvas: Canvas | null = null;
-const wide = matchMedia('(min-width: 861px)');
+const app = document.querySelector<HTMLElement>('.app')!;
+const isWide = () => app.clientWidth >= 861;
+let wasWide = isWide();
 function setLayout(layout: Layout): void {
-  const want = layout === 'canvas' && wide.matches;
+  const want = layout === 'canvas' && isWide();
   if (want === !!canvas) return;
   if (canvas) {
     canvas.stop();
@@ -1307,7 +1311,13 @@ function setLayout(layout: Layout): void {
   });
   layoutHook = () => canvas?.layout();
 }
-wide.addEventListener('change', () => setLayout(theme.layout));
+/** Starts or stops the canvas when the room crosses the line, by a resize or a text size. */
+function checkRoom(): void {
+  if (isWide() === wasWide) return;
+  wasWide = !wasWide;
+  setLayout(theme.layout);
+}
+new ResizeObserver(checkRoom).observe(app);
 
 /**
  * Sends the active theme's mark tokens to the page, so its marks follow the
@@ -1325,6 +1335,30 @@ for (const t of THEMES) themeSelect.append(new Option(t.name, t.id));
 themeSelect.value = theme.id;
 themeSelect.addEventListener('change', () => applyTheme(themeSelect.value, true));
 setLayout(theme.layout);
+
+// ---- text size ---------------------------------------------------------------------------
+
+/**
+ * Draws the review larger or smaller at once: the bar, the notes and the
+ * agent's page together, with no reload. The boot script set it before the
+ * first paint; this browser remembers a change.
+ */
+const textSizeSelect = $<HTMLSelectElement>('text-size');
+for (const z of TEXT_SIZES) textSizeSelect.append(new Option(z.name, z.id));
+textSizeSelect.value = document.documentElement.dataset.textSize ?? 'normal';
+textSizeSelect.addEventListener('change', () => {
+  const size = textSizeById(textSizeSelect.value);
+  if (!size) return;
+  applyTextSize(document.documentElement, size);
+  try {
+    localStorage.setItem(TEXT_SIZE_KEY, size.id);
+  } catch {
+    // Storage blocked: the size lasts as long as this page.
+  }
+  // Pinboard's table has less room or more; the page redraws its marks on its own resize.
+  checkRoom();
+  layoutHook?.();
+});
 
 async function start(): Promise<void> {
   if (!token) {

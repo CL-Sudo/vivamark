@@ -206,7 +206,12 @@
   [data-theme="bauhaus"] .note.changed-now[data-status="addressed"] .num { animation: bauhaus-round .2s ease-out; }
   @keyframes bauhaus-round { from { border-radius: 0; background: #ffffff; color: #121212; border-color: #121212; } }
 }
-@media (max-width: 860px) {
+@container (width < 861px) {
   [data-theme="bauhaus"] .bar > * { padding: 6px 10px; }
-  [data-theme="bauhaus"] .file { flex: 1 1 100%; order: 3; border-left: 0; border-top: 2px solid #121212; }
+  /* The file name opens the last row and shares it with whose turn it is, cut short if it must. */
+  [data-theme="bauhaus"] .file { flex: 1 1 8em; order: 3; min-width: 0; border-left: 0; border-top: 2px solid #121212; }
+  [data-theme="bauhaus"] .status { order: 4; border-top: 2px solid #121212; }
+  /* Larger text: tighter blocks, so the two pickers share a row. */
+  :root:is([data-text-size="large"], [data-text-size="x-large"])[data-theme="bauhaus"] .bar > * { padding: 4px 8px; }
+  :root:is([data-text-size="large"], [data-text-size="x-large"])[data-theme="bauhaus"] .status > * { padding: 4px 8px; }
 }

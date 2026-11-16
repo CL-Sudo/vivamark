@@ -204,6 +204,6 @@
   @keyframes sticker-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
   @keyframes sticker-pop { from { transform: rotate(6deg) scale(.2); opacity: 0; } }
 }
-@media (max-width: 860px) {
+@container (width < 861px) {
   [data-theme="sticker"] .side { padding: 8px 12px 12px; }
 }
