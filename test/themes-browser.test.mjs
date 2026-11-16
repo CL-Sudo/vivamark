@@ -16,7 +16,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { browserUrl, makeWorld, ROOT } from './helpers/harness.mjs';
 
-const { PAGE_THEMES, TEXT_SIZES, THEMES } = await import(path.join(ROOT, 'dist', 'internal.js'));
+const { PAGE_THEMES, TEXT_SIZES, THEMES, layoutFolds } = await import(path.join(ROOT, 'dist', 'internal.js'));
 
 /** `#rrggbb` as getComputedStyle writes it. */
 const rgb = (hex) => {
@@ -278,7 +278,7 @@ function contrastFailures() {
   return out;
 }
 
-test('every theme keeps the floor: every control there and labelled, a focus ring, text at 4.5:1, states in words, nothing past the edge, no motion when asked; the panel layout folded too, and at every text size', { timeout: 480_000 }, async (t) => {
+test('every theme keeps the floor: every control there and labelled, a focus ring, text at 4.5:1, states in words, nothing past the edge, no motion when asked; the panel and index layouts folded too, and at every text size', { timeout: 600_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = copyReport('floor.html');
   const url = await openReview(file);
@@ -309,11 +309,11 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
 
   const failures = [];
   const pageLooks = new Set();
-  const layouts = Object.fromEntries(THEMES.map((x) => [x.id, x.layout]));
+  const folds = Object.fromEntries(THEMES.map((x) => [x.id, layoutFolds(x.layout)]));
   for (const theme of THEMES.map((x) => x.id)) {
     await page.selectOption('#theme', theme);
-    // The panel themes at every text size; the others at Normal.
-    for (const size of layouts[theme] === 'panel' ? TEXT_SIZES.map((x) => x.id) : ['normal']) {
+    // The themes whose panel folds (the panel and index layouts) at every text size; the chat and the table at Normal.
+    for (const size of folds[theme] ? TEXT_SIZES.map((x) => x.id) : ['normal']) {
       await page.selectOption('#text-size', size);
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
@@ -391,8 +391,8 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
           return { id: e.id, ok: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) * e.currentCSSZoom >= 1.99) || cs.boxShadow !== 'none' };
         });
         if (ring.id !== 'attach' || !ring.ok) failures.push(`${at}: no focus ring on ${ring.id}`);
-        if (layouts[theme] !== 'panel') {
-          if (await page.isVisible('#panel-toggle')) failures.push(`${at}: the panel toggle is offered outside the panel layout`);
+        if (!folds[theme]) {
+          if (await page.isVisible('#panel-toggle')) failures.push(`${at}: the panel toggle is offered outside the panel and index layouts`);
           continue;
         }
         // Folded to a strip: the page takes the room, the strip keeps the count and a labelled way back, the bar keeps the rest.
@@ -413,6 +413,7 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
             shown: ['panel-toggle', 'note-count', 'strip-point', 'turn', 'presence', 'show-marks', 'theme', 'text-size'].filter((id) => !shown(id)),
             folded: ['comment', 'thread', 'point', 'send'].filter(shown),
             expanded: toggle.getAttribute('aria-expanded'),
+            controls: toggle.getAttribute('aria-controls'),
             name: toggle.getAttribute('aria-label') ?? toggle.textContent,
             words: [document.getElementById('turn').textContent.trim(), document.getElementById('presence-text').textContent.trim(), toggle.textContent.trim()],
             barOut: [...bar.children]
@@ -436,7 +437,7 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
         if (width <= 860 && f.frame.h < m.frame.h + 100) failures.push(`${at}, folded: the page did not take the room: ${m.frame.h} -> ${f.frame.h}`);
         if (f.shown.length) failures.push(`${at}, folded: not shown: ${f.shown.join(', ')}`);
         if (f.folded.length) failures.push(`${at}, folded: still shown: ${f.folded.join(', ')}`);
-        if (f.expanded !== 'false' || !/^Show notes, \d+ notes?$/.test(f.name)) failures.push(`${at}, folded: the toggle says ${f.expanded} / ${f.name}`);
+        if (f.expanded !== 'false' || f.controls !== 'side' || !/^Show notes, \d+ notes?$/.test(f.name)) failures.push(`${at}, folded: the toggle says ${f.expanded} / ${f.controls} / ${f.name}`);
         if (f.words.some((w) => !w)) failures.push(`${at}, folded: turn, presence or toggle without words`);
         if (f.barOut.length) failures.push(`${at}, folded: past the bar's edge or cut: ${f.barOut.join(', ')}`);
         if (f.stripOut.length) failures.push(`${at}, folded: past the window or cut in the strip: ${f.stripOut.join(', ')}`);

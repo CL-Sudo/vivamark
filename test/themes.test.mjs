@@ -2,8 +2,8 @@
 // the themes use (bundled, licensed, served by the daemon and nothing else),
 // the marks in the agent's page drawn from theme tokens only, and the page
 // tokens each theme offers the page (complete, opaque, at the floor), and the
-// design CSS's own names mapped to them for pages written before them; and
-// the text sizes the reviewer can pick.
+// design CSS's own names mapped to them for pages written before them; the
+// layouts whose notes panel folds; and the text sizes the reviewer can pick.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,7 +12,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { api, makeWorld, openSession, ROOT } from './helpers/harness.mjs';
 
-const { DEFAULT_TEXT_SIZE, DEFAULT_THEME, GUIDE_NAMES, GUIDE_SIGNATURE, MARK_TOKENS, PAGE_CSS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, TEXT_SIZES, TEXT_SIZE_KEY, THEMES, contrast, guideNamesRule, pageContrastFailures, themeConfig } = await import(
+const { DEFAULT_TEXT_SIZE, DEFAULT_THEME, FOLDING_LAYOUTS, GUIDE_NAMES, GUIDE_SIGNATURE, MARK_TOKENS, PANEL_KEY, PAGE_CSS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, TEXT_SIZES, TEXT_SIZE_KEY, THEMES, contrast, guideNamesRule, layoutFolds, pageContrastFailures, themeConfig } = await import(
   path.join(ROOT, 'dist', 'internal.js'),
 );
 
@@ -244,4 +244,17 @@ test('the text sizes: four, in words, smallest first; Normal is the default and 
     // Narrow layouts are measured on the app, in its own (zoomed) pixels, not on the window.
     assert.doesNotMatch(sheet, /@media \(max-width/);
   }
+});
+
+test('the notes panel folds in the panel and index layouts, one choice for both; the CSS names the same layouts', () => {
+  assert.deepEqual([...FOLDING_LAYOUTS], ['panel', 'index']);
+  assert.equal(PANEL_KEY, 'vivamark:panel');
+  assert.deepEqual(
+    THEMES.filter((t) => layoutFolds(t.layout)).map((t) => t.id),
+    ['gumdrop', 'raster', 'raw', 'signal', 'riso', 'bauhaus', 'smooth-glass'],
+  );
+  const css = fs.readFileSync(path.join(ROOT, 'src', 'ui', 'chrome.css'), 'utf8');
+  const folds = [...css.matchAll(/^\s*(:root[^{]*)\[data-panel="collapsed"\][^{]*\{/gm)].map((m) => m[1]);
+  assert.ok(folds.length >= 8, `fold rules found: ${folds.length}`);
+  for (const sel of folds) assert.equal(sel, ':root:is([data-layout="panel"], [data-layout="index"])', sel);
 });

@@ -6,7 +6,7 @@ import { startCanvas } from './canvas.js';
 import type { Canvas } from './canvas.js';
 import { MARK_TOKENS } from './mark-tokens.js';
 import { PAGE_THEMES } from './page-tokens.js';
-import { PANEL_KEY, TEXT_SIZES, TEXT_SIZE_KEY, THEME_KEY, THEMES, applyTextSize, textSizeById, themeById } from './themes.js';
+import { PANEL_KEY, TEXT_SIZES, TEXT_SIZE_KEY, THEME_KEY, THEMES, applyTextSize, layoutFolds, textSizeById, themeById } from './themes.js';
 import type { Layout, Theme } from './themes.js';
 
 type Kind = 'element' | 'text' | 'page';
@@ -1171,8 +1171,8 @@ async function refresh(): Promise<void> {
 // ---- the notes panel, folded away or open ------------------------------------------------
 
 /**
- * In the panel layout the reviewer can fold the notes panel to a strip at
- * the right edge (along the bottom on a narrow window), so the page gets the
+ * In the panel and index layouts the reviewer can fold the notes panel to a
+ * strip at the right edge (along the bottom on a narrow window), so the page gets the
  * width. Folding only hides: the note being written, its files, the queue
  * and the target all stay. The boot script has already applied the choice
  * this browser remembers; whose turn it is and the agent's presence stay in
@@ -1198,7 +1198,7 @@ function setPanel(collapsed: boolean): void {
 
 /** Opens the panel when the reviewer needs it, if it is folded away here. */
 function expandPanel(): void {
-  if (panelCollapsed && theme.layout === 'panel') setPanel(false);
+  if (panelCollapsed && layoutFolds(theme.layout)) setPanel(false);
 }
 
 function renderPanelToggle(): void {

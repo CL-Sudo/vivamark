@@ -46,9 +46,22 @@ export const THEME_KEY = 'vivamark:theme';
 /**
  * Where the review page remembers whether the notes panel is folded away,
  * per browser, as it remembers the theme. `collapsed` or `expanded`; the
- * default is expanded. Only the panel layout folds.
+ * default is expanded. Only the layouts in FOLDING_LAYOUTS fold; one choice
+ * holds for all of them.
  */
 export const PANEL_KEY = 'vivamark:panel';
+
+/**
+ * The layouts whose notes panel folds away: the panel beside the page and
+ * the numbered index (Raster, Riso), which is the same panel drawn on a
+ * grid. The chat and the canvas keep their notes as they are. chrome.css
+ * names the same two in its fold rules.
+ */
+export const FOLDING_LAYOUTS: readonly Layout[] = ['panel', 'index'];
+
+export function layoutFolds(layout: Layout): boolean {
+  return FOLDING_LAYOUTS.includes(layout);
+}
 
 export function themeById(id: unknown): Theme | undefined {
   return typeof id === 'string' ? THEMES.find((t) => t.id === id) : undefined;

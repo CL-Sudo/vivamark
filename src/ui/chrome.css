@@ -199,21 +199,23 @@ textarea:focus-visible { outline-offset: 1px; }
 .side { border-left: var(--side-line); background: var(--side-bg); backdrop-filter: var(--blur); padding: var(--side-pad); display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
 .side-title { font-weight: 600; display: flex; gap: 8px; align-items: center; font-family: var(--display); }
 
-/* The notes panel folds away to a strip at the right edge, in the panel
-   layout only: the page's frame takes the width. The strip keeps the count,
-   a way back and Point; whose turn it is and the agent's presence stay in
-   the bar. Folding only hides: the draft and the queue stay. */
+/* The notes panel folds away to a strip at the right edge, in the panel and
+   index layouts (FOLDING_LAYOUTS in themes.ts): the page's frame takes the
+   width. The strip keeps the count, a way back and Point; whose turn it is
+   and the agent's presence stay in the bar. Folding only hides: the draft
+   and the queue stay. The buttons keep their own case where a theme sets its
+   panel title in capitals. */
 .panel-toggle, .strip-point { display: none; }
-:root[data-layout="panel"] .panel-toggle { display: inline-block; margin-left: auto; }
-.side-title .btn { font-size: var(--fs-sm); padding: 4px 10px; white-space: nowrap; }
-:root[data-layout="panel"][data-panel="collapsed"] .body { grid-template-columns: minmax(0, 1fr) auto; }
-:root[data-layout="panel"][data-panel="collapsed"] .side { padding: 10px 10px 12px; gap: 0; }
-:root[data-layout="panel"][data-panel="collapsed"] .side > :not(.side-title) { display: none; }
-:root[data-layout="panel"][data-panel="collapsed"] .side-title { flex-direction: column; gap: 10px; padding: 0; border: 0; }
-:root[data-layout="panel"][data-panel="collapsed"] .side-name { display: none; }
-:root[data-layout="panel"][data-panel="collapsed"] .panel-toggle { order: -1; margin: 0; }
-:root[data-layout="panel"][data-panel="collapsed"] .strip-point { display: inline-block; }
-:root[data-layout="panel"][data-panel="collapsed"] .side-title .btn { writing-mode: vertical-rl; padding: 12px 5px; }
+:root:is([data-layout="panel"], [data-layout="index"]) .panel-toggle { display: inline-block; margin-left: auto; }
+.side-title .btn { font-size: var(--fs-sm); padding: 4px 10px; white-space: nowrap; text-transform: none; letter-spacing: normal; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .body { grid-template-columns: minmax(0, 1fr) auto; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side { padding: 10px 10px 12px; gap: 0; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side > :not(.side-title) { display: none; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side-title { flex-direction: column; gap: 10px; padding: 0; border: 0; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side-name { display: none; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .panel-toggle { order: -1; margin: 0; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .strip-point { display: inline-block; }
+:root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side-title .btn { writing-mode: vertical-rl; padding: 12px 5px; }
 .count { font-size: var(--fs-sm); background: var(--chip); color: var(--chip-fg); border-radius: var(--pill-radius); padding: 1px 8px; font-weight: 600; }
 .thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 2px; margin: -2px; }
 .thread > * { flex-shrink: 0; }
@@ -332,10 +334,10 @@ textarea:focus { border-color: var(--accent-strong); box-shadow: var(--input-foc
   .side { border-left: 0; border-top: var(--side-line); max-height: calc(50vh / var(--vm-zoom, 1)); }
   .stage { padding: min(var(--stage-pad), 8px); }
   /* Folded on a narrow window, the panel is a bar along the bottom. */
-  :root[data-layout="panel"][data-panel="collapsed"] .body { grid-template-columns: 1fr; }
-  :root[data-layout="panel"][data-panel="collapsed"] .side { padding: 8px 16px; }
-  :root[data-layout="panel"][data-panel="collapsed"] .side-title { flex-direction: row; }
-  :root[data-layout="panel"][data-panel="collapsed"] .side-title .btn { writing-mode: horizontal-tb; padding: 4px 10px; }
+  :root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .body { grid-template-columns: 1fr; }
+  :root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side { padding: 8px 16px; }
+  :root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side-title { flex-direction: row; }
+  :root:is([data-layout="panel"], [data-layout="index"])[data-panel="collapsed"] .side-title .btn { writing-mode: horizontal-tb; padding: 4px 10px; }
   /* Larger text on a narrow window: the two pickers share a row, each word
      label over its menu, and the panel takes less of the height and scrolls
      as one, so the page keeps room and Send and Approve stay in reach. At
