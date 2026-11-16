@@ -278,7 +278,7 @@ function contrastFailures() {
   return out;
 }
 
-test('every theme keeps the floor: every control there and labelled, a focus ring, text at 4.5:1, states in words, nothing past the edge, no motion when asked', { timeout: 240_000 }, async (t) => {
+test('every theme keeps the floor: every control there and labelled, a focus ring, text at 4.5:1, states in words, nothing past the edge, no motion when asked; the panel layout folded too', { timeout: 240_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = copyReport('floor.html');
   const url = await openReview(file);
@@ -309,6 +309,7 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
 
   const failures = [];
   const pageLooks = new Set();
+  const layouts = Object.fromEntries(THEMES.map((x) => [x.id, x.layout]));
   for (const theme of THEMES.map((x) => x.id)) {
     await page.selectOption('#theme', theme);
     for (const width of [1280, 390]) {
@@ -378,6 +379,67 @@ test('every theme keeps the floor: every control there and labelled, a focus rin
         return { id: e.id, ok: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2) || cs.boxShadow !== 'none' };
       });
       if (ring.id !== 'attach' || !ring.ok) failures.push(`${at}: no focus ring on ${ring.id}`);
+      if (layouts[theme] !== 'panel') {
+        if (await page.isVisible('#panel-toggle')) failures.push(`${at}: the panel toggle is offered outside the panel layout`);
+        continue;
+      }
+      // Folded to a strip: the page takes the room, the strip keeps the count and a labelled way back, the bar keeps the rest.
+      await page.click('#panel-toggle');
+      await page.waitForTimeout(150);
+      const f = await page.evaluate(() => {
+        const shown = (id) => {
+          const e = document.getElementById(id);
+          return !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+        };
+        const bar = document.querySelector('.bar');
+        const b = bar.getBoundingClientRect();
+        const r = document.getElementById('page').getBoundingClientRect();
+        const toggle = document.getElementById('panel-toggle');
+        return {
+          sideways: document.documentElement.scrollWidth > window.innerWidth,
+          frame: { w: Math.round(r.width), h: Math.round(r.height) },
+          shown: ['panel-toggle', 'note-count', 'strip-point', 'turn', 'presence', 'show-marks', 'theme'].filter((id) => !shown(id)),
+          folded: ['comment', 'thread', 'point', 'send'].filter(shown),
+          expanded: toggle.getAttribute('aria-expanded'),
+          name: toggle.getAttribute('aria-label') ?? toggle.textContent,
+          words: [document.getElementById('turn').textContent.trim(), document.getElementById('presence-text').textContent.trim(), toggle.textContent.trim()],
+          barOut: [...bar.children]
+            .filter((c) => getComputedStyle(c).display !== 'none')
+            .filter((c) => {
+              const x = c.getBoundingClientRect();
+              return x.left < b.left - 0.5 || x.right > b.right + 0.5 || c.scrollWidth > c.clientWidth + 1;
+            })
+            .map((c) => c.id || c.className),
+          stripOut: [...document.querySelectorAll('.side-title > *')]
+            .filter((c) => c.getClientRects().length)
+            .filter((c) => {
+              const x = c.getBoundingClientRect();
+              return x.right > window.innerWidth + 0.5 || x.bottom > window.innerHeight + 0.5 || c.scrollWidth > c.clientWidth + 1 || c.scrollHeight > c.clientHeight + 1;
+            })
+            .map((c) => c.id || c.className),
+        };
+      });
+      if (f.sideways) failures.push(`${at}, folded: the page scrolls sideways`);
+      if (width > 860 && f.frame.w < m.frame.w + 250) failures.push(`${at}, folded: the page did not take the room: ${m.frame.w} -> ${f.frame.w}`);
+      if (width <= 860 && f.frame.h < m.frame.h + 100) failures.push(`${at}, folded: the page did not take the room: ${m.frame.h} -> ${f.frame.h}`);
+      if (f.shown.length) failures.push(`${at}, folded: not shown: ${f.shown.join(', ')}`);
+      if (f.folded.length) failures.push(`${at}, folded: still shown: ${f.folded.join(', ')}`);
+      if (f.expanded !== 'false' || !/^Show notes, \d+ notes?$/.test(f.name)) failures.push(`${at}, folded: the toggle says ${f.expanded} / ${f.name}`);
+      if (f.words.some((w) => !w)) failures.push(`${at}, folded: turn, presence or toggle without words`);
+      if (f.barOut.length) failures.push(`${at}, folded: past the bar's edge or cut: ${f.barOut.join(', ')}`);
+      if (f.stripOut.length) failures.push(`${at}, folded: past the window or cut in the strip: ${f.stripOut.join(', ')}`);
+      const lowFolded = await page.evaluate(contrastFailures);
+      if (lowFolded.length) failures.push(`${at}, folded: text under 4.5:1: ${lowFolded.join('; ')}`);
+      await page.focus('#strip-point');
+      await page.keyboard.press('Shift+Tab');
+      const foldedRing = await page.evaluate(() => {
+        const e = document.activeElement;
+        const cs = getComputedStyle(e);
+        return { id: e.id, ok: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2) || cs.boxShadow !== 'none' };
+      });
+      if (foldedRing.id !== 'panel-toggle' || !foldedRing.ok) failures.push(`${at}, folded: no focus ring on ${foldedRing.id}`);
+      await page.keyboard.press('Enter');
+      if ((await page.getAttribute('#panel-toggle', 'aria-expanded')) !== 'true') failures.push(`${at}: the toggle did not open the panel from the keyboard`);
     }
     await page.setViewportSize({ width: 1280, height: 800 });
   }

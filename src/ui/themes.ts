@@ -43,6 +43,13 @@ export const DEFAULT_THEME = 'gumdrop';
 /** Where the review page remembers the reviewer's choice, per browser. */
 export const THEME_KEY = 'vivamark:theme';
 
+/**
+ * Where the review page remembers whether the notes panel is folded away,
+ * per browser, as it remembers the theme. `collapsed` or `expanded`; the
+ * default is expanded. Only the panel layout folds.
+ */
+export const PANEL_KEY = 'vivamark:panel';
+
 export function themeById(id: unknown): Theme | undefined {
   return typeof id === 'string' ? THEMES.find((t) => t.id === id) : undefined;
 }

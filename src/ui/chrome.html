@@ -32,9 +32,12 @@
       </div>
       <div class="banner" id="banner" hidden></div>
     </main>
-    <aside class="side" aria-label="Notes">
+    <aside class="side" id="side" aria-label="Notes">
       <div class="who" id="who"><span class="face" id="face" aria-hidden="true"><i></i><i></i></span><span class="who-text"><b>Agent</b><small id="who-status">away</small></span></div>
-      <div class="side-title">Notes <span class="count" id="note-count">0</span></div>
+      <div class="side-title"><span class="side-name">Notes</span> <span class="count" id="note-count">0</span>
+        <button type="button" class="btn ghost panel-toggle" id="panel-toggle" aria-expanded="true" aria-controls="side" title="Fold the notes panel away so the page gets the full width; this browser remembers it">Hide notes</button>
+        <button type="button" class="btn ghost strip-point" id="strip-point" title="Show the notes panel and pick an element on the page">Point</button>
+      </div>
       <div class="legend" id="legend"><span><i class="glyph circle" aria-hidden="true"></i>Addressed</span><span><i class="glyph triangle" aria-hidden="true"></i>Asks you</span><span><i class="glyph square" aria-hidden="true"></i>Draft</span><span><i class="glyph square sent" aria-hidden="true"></i>Sent</span></div>
       <div class="thread" id="thread" aria-live="polite"></div>
       <div class="ended" id="ended" role="status" hidden><div class="ended-head" id="ended-head">This review has ended</div><p class="ended-message" id="ended-message" hidden></p></div>

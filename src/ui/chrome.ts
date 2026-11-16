@@ -6,7 +6,7 @@ import { startCanvas } from './canvas.js';
 import type { Canvas } from './canvas.js';
 import { MARK_TOKENS } from './mark-tokens.js';
 import { PAGE_THEMES } from './page-tokens.js';
-import { THEME_KEY, THEMES, themeById } from './themes.js';
+import { PANEL_KEY, THEME_KEY, THEMES, themeById } from './themes.js';
 import type { Layout, Theme } from './themes.js';
 
 type Kind = 'element' | 'text' | 'page';
@@ -800,6 +800,8 @@ function render(): void {
   turnEl.dataset.turn = turn;
   turnEl.textContent = turn === 'agent' ? "Agent's turn" : 'Your turn';
   turnEl.title = turn === 'agent' ? 'Notes are waiting on the agent' : 'Nothing is waiting on the agent';
+  renderPanelToggle();
+  openForNews();
   // The how-to hint is for an empty review; once there are notes the thread needs the room.
   $('hint').hidden = sent.length + queue.length > 0;
   $('comp-num').textContent = String(sent.length + queue.length + 1);
@@ -816,6 +818,7 @@ function renderEnded(): void {
   const box = $('ended');
   box.hidden = !ended;
   $('composer').hidden = !!ended;
+  $('strip-point').hidden = !!ended;
   if (!ended) return;
   const who = ended.by === 'agent' ? 'The agent' : 'You';
   $('ended-head').textContent = `${who} ended this review at ${new Date(ended.at).toLocaleTimeString()}`;
@@ -937,6 +940,8 @@ window.addEventListener('message', (e) => {
         // A page can only propose a target. Nothing is queued or sent without the reviewer.
         target = { kind: d.kind, anchor: d.anchor };
         pointBtn.setAttribute('aria-pressed', 'false');
+        // The reviewer is making a note: the composer has to be in view.
+        expandPanel();
         render();
         comment.focus();
       }
@@ -1009,9 +1014,10 @@ document.addEventListener('paste', (e) => {
   const files = [...(e.clipboardData?.files ?? [])];
   if (!files.length) return;
   e.preventDefault();
-  // Onto the queued note that has the focus, else the note being written.
+  // Onto the queued note that has the focus, else the note being written, which then has to be in view.
   const card = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.note.queued');
   const i = card ? Number(card.dataset.n) - sent.length - 1 : -1;
+  if (i < 0 || i >= queue.length) expandPanel();
   void attachFiles(files, i >= 0 && i < queue.length ? i : null);
 });
 $('show-changes').addEventListener('click', () => {
@@ -1161,6 +1167,89 @@ async function refresh(): Promise<void> {
     // The server is restarting; the socket loop retries.
   }
 }
+
+// ---- the notes panel, folded away or open ------------------------------------------------
+
+/**
+ * In the panel layout the reviewer can fold the notes panel to a strip at
+ * the right edge (along the bottom on a narrow window), so the page gets the
+ * width. Folding only hides: the note being written, its files, the queue
+ * and the target all stay. The boot script has already applied the choice
+ * this browser remembers; whose turn it is and the agent's presence stay in
+ * the bar.
+ */
+let panelCollapsed = document.documentElement.dataset.panel === 'collapsed';
+const panelToggle = $<HTMLButtonElement>('panel-toggle');
+
+function setPanel(collapsed: boolean): void {
+  const root = document.documentElement;
+  panelCollapsed = collapsed;
+  root.dataset.panel = collapsed ? 'collapsed' : 'expanded';
+  try {
+    localStorage.setItem(PANEL_KEY, collapsed ? 'collapsed' : 'expanded');
+  } catch {
+    // Storage blocked: the choice lasts as long as this page.
+  }
+  renderPanelToggle();
+  // The page's frame has a new width; the page script redraws its marks on
+  // its own resize. A layout that places things itself places them again.
+  layoutHook?.();
+}
+
+/** Opens the panel when the reviewer needs it, if it is folded away here. */
+function expandPanel(): void {
+  if (panelCollapsed && theme.layout === 'panel') setPanel(false);
+}
+
+function renderPanelToggle(): void {
+  const n = sent.length + queue.length;
+  panelToggle.setAttribute('aria-expanded', String(!panelCollapsed));
+  panelToggle.textContent = panelCollapsed ? 'Show notes' : 'Hide notes';
+  // The words on the button come first, then the count the strip shows beside it.
+  if (panelCollapsed) panelToggle.setAttribute('aria-label', `Show notes, ${n} note${n === 1 ? '' : 's'}`);
+  else panelToggle.removeAttribute('aria-label');
+  panelToggle.title = panelCollapsed
+    ? 'Open the notes panel again; this browser remembers it'
+    : 'Fold the notes panel away so the page gets the full width; this browser remembers it';
+}
+
+/**
+ * What has opened the panel by itself already, so each thing opens it once:
+ * a reply from the agent, a note from the agent or a tool, a question on one
+ * of the reviewer's notes, the end of the review. What was there when the
+ * page loaded opens it only if the reviewer still has to act on it (a
+ * question, an ended review); the rest was there before.
+ */
+const openedFor = new Set<string>();
+let openedSeeded = false;
+function openForNews(): void {
+  if (!session) return;
+  const keys: string[] = [
+    ...replies.map((r) => `r${r.seq}`),
+    ...agentNotes.filter((a) => a.status === 'shown').map((a) => `a${a.id}`),
+    ...sent
+      .filter((e) => e.note.status === 'question')
+      .map((e) => `q${e.note.id}:${Math.max(0, ...replies.filter((r) => r.note === e.note.id && r.status === 'question').map((r) => r.seq))}`),
+    ...(ended ? ['ended'] : []),
+  ];
+  let news = false;
+  for (const k of keys) {
+    if (openedFor.has(k)) continue;
+    openedFor.add(k);
+    if (openedSeeded || k.startsWith('q') || k === 'ended') news = true;
+  }
+  openedSeeded = true;
+  if (news) expandPanel();
+}
+
+panelToggle.addEventListener('click', () => setPanel(!panelCollapsed));
+$('strip-point').addEventListener('click', () => {
+  setPanel(false);
+  setPicking(true);
+  // The strip's button is gone with the strip: the panel's own Point button, now pressed, takes the focus.
+  pointBtn.focus();
+});
+renderPanelToggle();
 
 // ---- themes ------------------------------------------------------------------------------
 

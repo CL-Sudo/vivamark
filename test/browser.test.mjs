@@ -1,8 +1,9 @@
 // The review UI in a real browser (Playwright's headless Chromium): point at
 // an element, select a text range, queue both, and nothing reaches the agent
 // until Send is clicked. Then the agent's reply appears, and an edit to the
-// file reloads the page. The browser may only talk to loopback, and every
-// vivamark process runs under the egress guard.
+// file reloads the page. The notes panel folds away and opens again. The
+// browser may only talk to loopback, and every vivamark process runs under
+// the egress guard.
 //
 // Skipped, with a message, when Playwright's Chromium is not installed.
 
@@ -69,6 +70,13 @@ function skipWithoutBrowser(t) {
   if (browser) return false;
   t.skip(`Playwright Chromium is not available (${launchError?.message.split('\n')[0] ?? 'playwright-core not installed'}); run: npx playwright install chromium`);
   return true;
+}
+
+/** A CLI step that must succeed; its stderr says why when it does not. */
+async function ok(run) {
+  const r = await run;
+  assert.equal(r.code, 0, r.stderr);
+  return r;
 }
 
 test('element pick and text selection become notes only when Send is clicked', { timeout: 90_000 }, async (t) => {
@@ -496,6 +504,195 @@ test('Show marks hides the note marks and shows them again, remembered in this b
   assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
 });
 
+test('the notes panel folds to a strip and opens again: the page takes the width, the marks stay in place, the draft stays, remembered in this browser, and it opens by itself when needed', { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  const file = path.join(world.pageDir, 'fold.html');
+  // Centred, so the text moves when the frame widens and a pin left behind would show.
+  const centred = fs.readFileSync(FIXTURE, 'utf8').replace('margin: 40px 56px;', 'margin: 40px auto;');
+  assert.notEqual(centred, fs.readFileSync(FIXTURE, 'utf8'));
+  fs.writeFileSync(file, centred);
+  const opened = await world.cli(['open', file, '--no-browser', '--json']);
+  assert.equal(opened.code, 0, opened.stderr);
+  const { url } = JSON.parse(opened.stdout);
+  // Records whether the panel was folded when the notes panel was first parsed, before the review page's script ran.
+  const firstPaint = () => {
+    new MutationObserver((_, obs) => {
+      if (!document.querySelector('.side')) return;
+      window.__panelAtParse = document.documentElement.dataset.panel;
+      obs.disconnect();
+    }).observe(document, { childList: true, subtree: true });
+  };
+  const { page, offLoopback, problems, frame } = await reviewPage(url, { init: firstPaint });
+  const doc = page.frameLocator('#page');
+  await doc.locator('#step-2').waitFor();
+  const panel = () => page.getAttribute('html', 'data-panel');
+  const frameWidth = () => page.evaluate(() => document.getElementById('page').getBoundingClientRect().width);
+  const settled = () => frame().evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  /** Where note 1's pin sits, against the item it marks, in the page's own coordinates. */
+  const pin = () =>
+    frame().evaluate(() => {
+      const p = [...(document.getElementById('__vivamark_layer')?.children ?? [])].find((c) => c.dataset.vivamarkPin && c.textContent === '1');
+      if (!p) return null;
+      const a = p.getBoundingClientRect();
+      const b = document.getElementById('step-2').getBoundingClientRect();
+      return { dx: Math.round(a.left - b.left), dy: Math.round(a.top - b.top), left: Math.round(b.left) };
+    });
+  const until = (want) => page.waitForFunction((w) => document.documentElement.dataset.panel === w, want, { timeout: 10_000 });
+
+  // Open by default, nothing stored, a toggle labelled in words.
+  assert.equal(await panel(), 'expanded');
+  assert.equal(await page.evaluate(() => localStorage.getItem('vivamark:panel')), null, 'nothing is stored until the reviewer chooses');
+  const toggle = page.getByRole('button', { name: 'Hide notes', exact: true });
+  assert.equal(await toggle.count(), 1);
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(await toggle.getAttribute('aria-controls'), 'side');
+  assert.equal(await page.isVisible('#strip-point'), false);
+
+  // A sent note with a pin, and a draft being written on another target.
+  await page.click('#point');
+  await doc.locator('#step-2').click();
+  await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'element');
+  await page.fill('#comment', 'Split this step.');
+  await page.click('#add');
+  await page.click('#send');
+  await page.waitForSelector('.note:not(.queued) >> text=Sent');
+  await page.click('#point');
+  await doc.locator('#step-3').click();
+  await page.waitForFunction(() => document.getElementById('target-text')?.textContent?.includes('li#step-3'));
+  await page.fill('#comment', 'Half a thought');
+  await frame().waitForFunction(() => [...(document.getElementById('__vivamark_layer')?.children ?? [])].some((c) => c.textContent === '1'));
+  const open = { width: await frameWidth(), pin: await pin() };
+
+  // Folded from the keyboard: a strip with the count, the page wider, the pin where it was on its item.
+  await page.focus('#panel-toggle');
+  await page.keyboard.press('Enter');
+  assert.equal(await panel(), 'collapsed');
+  assert.equal(await page.getAttribute('#panel-toggle', 'aria-expanded'), 'false');
+  assert.equal(await page.textContent('#panel-toggle'), 'Show notes');
+  assert.equal(await page.getAttribute('#panel-toggle', 'aria-label'), 'Show notes, 1 note');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'panel-toggle', 'the focus stays on the toggle');
+  assert.equal(await page.isVisible('#note-count'), true, 'the strip shows the count');
+  assert.equal(await page.isVisible('#strip-point'), true);
+  for (const id of ['comment', 'thread', 'send', 'point']) assert.equal(await page.isVisible(`#${id}`), false, `${id} is folded away`);
+  for (const id of ['turn', 'presence']) assert.equal(await page.isVisible(`#${id}`), true, `${id} stays in the bar`);
+  assert.equal(await page.evaluate(() => localStorage.getItem('vivamark:panel')), 'collapsed');
+  const folded = await frameWidth();
+  assert.ok(folded > open.width + 250, `the page takes the width: ${open.width} -> ${folded}`);
+  await frame().waitForFunction((w) => window.innerWidth >= w - 1, Math.floor(folded));
+  await settled();
+  const moved = await pin();
+  assert.notEqual(moved.left, open.pin.left, 'the page reflowed');
+  assert.deepEqual({ dx: moved.dx, dy: moved.dy }, { dx: open.pin.dx, dy: open.pin.dy }, 'the pin is redrawn on its item');
+
+  // Open again: the draft, its target and the width as they were.
+  await page.click('#panel-toggle');
+  assert.equal(await panel(), 'expanded');
+  assert.equal(await page.getAttribute('#panel-toggle', 'aria-expanded'), 'true');
+  assert.equal(await page.inputValue('#comment'), 'Half a thought');
+  assert.match(await page.textContent('#target-text'), /li#step-3/);
+  assert.ok(Math.abs((await frameWidth()) - open.width) < 1);
+  await settled();
+  assert.deepEqual(await pin(), open.pin);
+
+  // Remembered: a reload opens folded, folded from the first paint.
+  await page.click('#panel-toggle');
+  await page.reload();
+  await doc.locator('#step-2').waitFor();
+  assert.equal(await page.evaluate(() => window.__panelAtParse), 'collapsed');
+  assert.equal(await panel(), 'collapsed');
+  assert.equal(await page.getAttribute('#panel-toggle', 'aria-expanded'), 'false');
+
+  // Point on the strip opens the panel and starts picking; the pick lands in the composer.
+  await page.click('#strip-point');
+  assert.equal(await panel(), 'expanded');
+  assert.equal(await page.getAttribute('#point', 'aria-pressed'), 'true');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'point');
+  await doc.locator('#step-1').click();
+  await page.waitForFunction(() => document.getElementById('target-text')?.textContent?.includes('li#step-1'));
+
+  // Selecting text on the page while folded opens it, with the selection as the target.
+  await page.fill('#comment', 'Kept while folded');
+  await page.click('#panel-toggle');
+  const frameBox = await page.locator('#page').boundingBox();
+  const r = await frame().evaluate(() => {
+    const text = document.getElementById('summary').firstChild;
+    const at = text.data.indexOf('Director or Attestor');
+    const range = document.createRange();
+    range.setStart(text, at);
+    range.setEnd(text, at + 'Director or Attestor'.length);
+    const rects = range.getClientRects();
+    const a = rects[0];
+    const b = rects[rects.length - 1];
+    return { x1: a.left + 1, y1: a.top + a.height / 2, x2: b.right - 1, y2: b.top + b.height / 2 };
+  });
+  await page.mouse.move(frameBox.x + r.x1, frameBox.y + r.y1);
+  await page.mouse.down();
+  await page.mouse.move(frameBox.x + r.x2, frameBox.y + r.y2, { steps: 10 });
+  await page.mouse.up();
+  await until('expanded');
+  await page.waitForFunction(() => document.getElementById('target')?.dataset.kind === 'text');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'comment');
+  assert.equal(await page.inputValue('#comment'), 'Kept while folded');
+
+  // The agent's reply, a note from the agent, and a question each open it.
+  await page.click('#panel-toggle');
+  await ok(world.cli(['reply', file, '-m', 'Working on it.']));
+  await until('expanded');
+  await page.waitForSelector('.reply >> text=Working on it.');
+  await page.click('#panel-toggle');
+  await ok(world.cli(['note', 'add', file, '--target', '#step-1', '--text', 'I guessed this order.', '--source', 'agent']));
+  await until('expanded');
+  await page.waitForSelector('.note.agent[data-agent-id="a_0001"]');
+  await page.click('#panel-toggle');
+  await ok(world.cli(['reply', file, '--note', 'n_0001', '--status', 'question', '-m', 'Which half first?']));
+  await until('expanded');
+  await page.waitForSelector('.note-reply.question');
+  // Each opens it once: folded again, it stays folded while nothing new comes.
+  await page.click('#panel-toggle');
+  await page.waitForTimeout(800);
+  assert.equal(await panel(), 'collapsed');
+  // A question still waiting for an answer opens it when the page loads.
+  await page.reload();
+  await doc.locator('#step-2').waitFor();
+  await until('expanded');
+  assert.equal(await page.evaluate(() => localStorage.getItem('vivamark:panel')), 'expanded');
+
+  // Only the panel layout folds: elsewhere the panel is whole and the toggle is not offered.
+  await page.click('#panel-toggle');
+  for (const other of ['raster', 'riso', 'sticker']) {
+    await page.selectOption('#theme', other);
+    assert.equal(await page.isVisible('#panel-toggle'), false, `${other}: no toggle`);
+    assert.equal(await page.isVisible('#comment'), true, `${other}: the composer is there`);
+    assert.equal(await page.isVisible('#strip-point'), false, `${other}: no strip`);
+  }
+  await page.selectOption('#theme', 'gumdrop');
+  assert.equal(await panel(), 'collapsed', 'the choice holds for the panel layout');
+  assert.equal(await page.isVisible('#comment'), false);
+  await page.click('#panel-toggle');
+
+  // With storage blocked the panel starts open and the toggle still works.
+  const blocked = await reviewPage(url, {
+    init: () => {
+      Object.defineProperty(window, 'localStorage', {
+        get() {
+          throw new DOMException('blocked', 'SecurityError');
+        },
+      });
+    },
+  });
+  await blocked.page.frameLocator('#page').locator('#step-2').waitFor();
+  assert.equal(await blocked.page.getAttribute('html', 'data-panel'), 'expanded');
+  await blocked.page.click('#panel-toggle');
+  assert.equal(await blocked.page.getAttribute('html', 'data-panel'), 'collapsed');
+  assert.equal(await blocked.page.isVisible('#comment'), false);
+
+  assert.deepEqual([...offLoopback, ...blocked.offLoopback], [], 'the browser only talked to loopback');
+  assert.deepEqual([...problems, ...blocked.problems], [], 'no script errors or CSP violations');
+  await page.close();
+  await blocked.page.close();
+  assert.deepEqual(world.egress(), [], 'no vivamark process tried to leave the machine');
+});
+
 test('the header bar fits at every width, the file name whole and no control past the edge', { timeout: 90_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = path.join(world.pageDir, 'certificate-plan.html');
@@ -797,10 +994,18 @@ test('End review on the page ends the review: the agent is told and the page tak
   const again = await world.cli(['open', file, '--no-browser', '--json']);
   const { page: page2 } = await reviewPage(JSON.parse(again.stdout).url);
   await page2.frameLocator('#page').locator('#step-2').waitFor();
+  // With the notes panel folded away: the end opens it, so the reviewer sees it.
+  await page2.click('#panel-toggle');
+  assert.equal(await page2.getAttribute('html', 'data-panel'), 'collapsed');
   assert.equal((await world.cli(['end', file, '-m', 'Shipped; closing this one.'])).code, 0);
   await page2.waitForSelector('#ended:not([hidden])');
+  assert.equal(await page2.getAttribute('html', 'data-panel'), 'expanded');
   assert.match(await page2.textContent('#ended-head'), /The agent ended this review/);
   assert.equal(await page2.textContent('#ended-message'), 'Shipped; closing this one.');
+  // Folded again, the strip offers no Point: nothing more can be written.
+  await page2.click('#panel-toggle');
+  assert.equal(await page2.isVisible('#panel-toggle'), true);
+  assert.equal(await page2.isVisible('#strip-point'), false);
 
   assert.deepEqual(offLoopback, []);
   assert.deepEqual(problems, []);
