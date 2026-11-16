@@ -220,6 +220,26 @@ or `"theme": "raster"` in `~/.config/vivamark/config.json`. It is read when
 the server starts, so run `vivamark stop` after changing it. A choice made in
 the browser wins over it.
 
+### Text size
+
+**Text size**, beside Theme in the bar, draws the whole review larger or
+smaller: Small, Normal, Large or Extra large (130%). The bar, the notes and
+the agent's page grow together, at once, with no reload; your draft, your
+queued notes and the marks on the page stay where they were. This browser
+remembers the choice, and Normal changes nothing.
+
+Any page scales, including one sized in pixels: the page is drawn larger
+the way browser zoom draws it, so it lays out at the narrower width its
+text now needs, and its own narrow-window rules apply sooner. A page needs
+nothing extra for this. The narrow layout of the review page itself comes
+sooner too: at Extra large a 1000-pixel window gets the stacked layout. On
+a narrow window above Normal the two pickers share a row, and the notes
+panel takes about a third of the height and scrolls.
+
+The page's scaling works in Chrome, Edge and other Chromium browsers,
+which carry the zoom into the page's frame. A browser that does not would
+scale the review page and leave the page at its own size.
+
 ![The review page: sent notes, an approval, and Show changes](docs/screenshots/review-ui.png)
 
 ## Writing a page worth reviewing

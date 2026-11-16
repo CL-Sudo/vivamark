@@ -315,3 +315,20 @@ the page gets the full width.
 | Opening by itself | When the reviewer starts a note (a pick or text selected on the page, Point on the strip, a file pasted for the note being written) and when something needs them: a reply from the agent, a note from the agent or a tool, a question on one of their notes, the end of the review. Each opens it once: folded again, it stays folded until something new comes. When the page loads it opens for a question still unanswered or an ended review, not for replies already seen. In other layouts nothing changes. | What the reviewer would otherwise miss, without fighting a reviewer who folds it again. |
 | Remembered | Per browser, in `localStorage` (`vivamark:panel`) beside the theme, open by default; the boot script applies it before the first paint. It holds the state the panel was last left in, opened by itself or by hand. | The theme switcher's way; a reload shows what the reviewer last saw. |
 
+
+## 2026-11-16: A text size for the review
+
+Asked: "make the vivamark font bigger". Asked how, the Boss chose a text
+size control (the recommended option) that scales both the notes panel and
+bar and the page being reviewed.
+
+| Topic | Decision | Why |
+|---|---|---|
+| The control | **Text size** in the bar, beside Theme: a menu of Small (90%), Normal (100%), Large (115%) and Extra large (130%), labelled in words. The values are `TEXT_SIZES` in `src/ui/themes.ts`. | The Theme picker's way: a real label, the keyboard and screen readers for free, and the choice in words. Four steps cover "a bit smaller" to "much bigger" without a wall of options. |
+| How it scales | One CSS `zoom` on the review page's root, from `--vm-zoom`. Chromium carries the zoom into the page's frame as browser zoom: the page lays out at the narrower width its text now needs, and its own scripts, the marks among them, keep measuring in the page's pixels. Nothing is sent to the page and nothing is added to it. | It scales any page, px-sized ones included, which a root font size or a token would not. Zooming inside the page instead breaks `vw` and `vh` there and shifts every mark. Scaling only the review page's font sizes would mean editing about a hundred of them across nine themes, and would still leave the page. |
+| Narrow windows | The review page's narrow layout (below 861 px) is now measured on the app, by container queries, in its own zoomed pixels, and Pinboard's canvas starts and stops on the same width. A larger size reaches the narrow layout sooner, as browser zoom would. Above Normal on a narrow window, the Theme and Text size pickers share a row with their labels over them, and the notes panel takes about a third of the height and scrolls as one, so the page keeps room and Send and Approve stay in reach. In Bauhaus the file name shares the last row of the bar with whose turn it is, so the new picker costs no row there. | A 390 px phone at 130% is a 300 px one; the layout must treat it so. |
+| Pinboard | The table's pointer maths (drag, wheel, minimap, the thread to the note being written) divides window pixels by the zoom. The page's geometry needs no change: the page and the sheet share the same pixels. | Pointer positions are in the window's pixels and the table's offsets in its own. |
+| The floor | The browser test that checks each theme at desktop and phone width runs the panel themes at every size. A focus ring stays at least 2 screen pixels at Small. | "The floor test still holds at every size." |
+| Remembered | Per browser in `localStorage` (`vivamark:text-size`), applied by the boot script before the first paint. Normal leaves no zoom at all. | The theme's way; nothing changes for a reviewer who never touches it. |
+| Other browsers | A browser that does not carry CSS zoom into a frame would scale the review page and leave the page at its own size. Not checked: only Chromium is on hand to test. | Recorded, not hidden. |
+| Presentation only | Nothing changes in the notes, the log, `wait`, any JSON an agent reads, or the CLI contract. The guide asks nothing new of page authors. | As for the themes. |
