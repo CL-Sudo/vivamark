@@ -332,3 +332,21 @@ bar and the page being reviewed.
 | Remembered | Per browser in `localStorage` (`vivamark:text-size`), applied by the boot script before the first paint. Normal leaves no zoom at all. | The theme's way; nothing changes for a reviewer who never touches it. |
 | Other browsers | A browser that does not carry CSS zoom into a frame would scale the review page and leave the page at its own size. Not checked: only Chromium is on hand to test. | Recorded, not hidden. |
 | Presentation only | Nothing changes in the notes, the log, `wait`, any JSON an agent reads, or the CLI contract. The guide asks nothing new of page authors. | As for the themes. |
+
+## 2026-11-16: The index layouts fold too
+
+Asked, after setting Raster as their default theme: "note that it doesn't
+have button to collapse the side panel". Raster and Riso now fold their
+notes the way the panel layout does.
+
+| Topic | Decision | Why |
+|---|---|---|
+| Which layouts | The panel layout and the index layout: Gumdrop, Raw, Signal, Bauhaus and Smooth glass, and now Raster and Riso. Sticker (the chat) and Pinboard (the table) still keep their notes as they are and offer no toggle. The list is `FOLDING_LAYOUTS` in `src/ui/themes.ts`; chrome.css names the same two, and a test holds them together. | The index is the panel drawn on a grid: the same parts in the same place, so the same fold works. With Raster the reviewer's default, the page needs the width there too. |
+| Same fold | The same button, words, strip, narrow-window bar, auto-open triggers, storage key (`vivamark:panel`) and boot-time apply as the entry above. One choice holds for both layouts: folded in Gumdrop is folded in Raster. | Extended, not copied. A reviewer who switches theme keeps what they chose. |
+| Raster's bar | Open, the turn and the agent's status sit over the index column, as before. Folded on a wide window there is no column to follow, so they keep their rule and close up at the right instead of leaving a line over the page. | The grid line follows a column that is no longer there. |
+| Buttons in capitals | Raster and Riso set the panel title in capitals; the fold buttons keep their own case. | Words that read the same as every other button. |
+| The floor | The browser test that checks each theme at desktop and phone width runs Raster and Riso at every text size too, open and folded, and the fold test runs in Raster as well as Gumdrop. | The fold must keep the floor wherever it is offered. |
+
+This narrows "Which layouts" in the fold entry above: Raster and Riso
+fold now. It widens "The floor" in the text size entry above to the index
+layouts.

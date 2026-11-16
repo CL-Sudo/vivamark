@@ -98,10 +98,11 @@ bar. Folding only hides: the note you are writing and the queued notes
 stay. The panel opens by itself when you need it: when you pick something
 on the page or select text, press Point, or paste a file to attach, and
 when the agent replies, adds a note, asks you a question or ends the
-review. This browser remembers whether you left it open or folded. The
-themes with the panel beside the page fold it: Gumdrop, Raw, Signal,
-Bauhaus and Smooth glass. Raster and Riso (the index), Sticker (the chat)
-and Pinboard (the table) keep their notes as they are.
+review. This browser remembers whether you left it open or folded, the
+same in every theme that folds. The themes with the panel or the index
+beside the page fold it: Gumdrop, Raster, Raw, Signal, Riso, Bauhaus and
+Smooth glass. Sticker (the chat) and Pinboard (the table) keep their notes
+as they are.
 
 Running `wait` again returns the same notes;
 `wait examples/plan.html --after <seq>` waits for newer ones.
