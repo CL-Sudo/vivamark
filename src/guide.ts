@@ -224,9 +224,10 @@ Themes of the review page
   Sticker, Riso, Bauhaus and Smooth glass. Their default is set with
   VIVAMARK_THEME or "theme" in ~/.config/vivamark/config.json, read when the
   server starts. A theme changes how the review page and the marks on your
-  page look, and your page's colours and fonts only where your page reads
-  the page tokens (see: vivamark guide design); never what wait returns. Do
-  not style your page to suit one theme: use the tokens and it follows each.
+  page look, and your page's colours and fonts where your page reads the
+  page tokens or is written in the design CSS, an older copy included (see:
+  vivamark guide design); never what wait returns. Do not style your page
+  to suit one theme: use the tokens and it follows each.
 `;
 
 const DESIGN = `design: the Smooth glass look
@@ -267,7 +268,13 @@ Following the reviewer's theme
     --vivamark-font-body -font-heading            font-family lists (bundled faces)
     --vivamark-radius -shadow -scheme             card corners, card shadow, light or dark
   Every text colour reads at 4.5:1 on bg, surface and each tint. Put a status
-  on its own -bg, and say it in a word too.
+  on its own -bg, and say it in a word too. Do not name a colour in the
+  text ("the purple cards"): it changes with the theme; name the kind, or
+  use a .legend.
+  A page written with an older copy of this CSS, whose --bg, --panel, --fg2
+  and the rest hold fixed values, follows too: vivamark sets those names to
+  the tokens, light whatever the system prefers. A page with a look of its
+  own under other names is left exactly as written.
 
 Classes
   .eyebrow  small caps line above the title (the page's kind: "Plan", "Report")

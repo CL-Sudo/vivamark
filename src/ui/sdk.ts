@@ -7,10 +7,13 @@
 // Every mark is drawn from the review page's theme tokens (mark-tokens.ts);
 // until they arrive, in plain ink. The theme's page tokens (page-tokens.ts)
 // are offered to the page itself as custom properties on :root, from the
-// first paint; a page that never reads them is untouched.
+// first paint; a page that never reads them is untouched. A page that
+// declares the design CSS's own names (--bg, --panel ...) with fixed values,
+// as pages written before the tokens do, has those names mapped to the
+// tokens, so it follows too.
 
 import { MARK_TOKENS } from './mark-tokens.js';
-import { PAGE_FACES, PAGE_THEMES, PAGE_TOKENS } from './page-tokens.js';
+import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule } from './page-tokens.js';
 
 (() => {
   const script = document.currentScript as HTMLScriptElement | null;
@@ -71,6 +74,37 @@ import { PAGE_FACES, PAGE_THEMES, PAGE_TOKENS } from './page-tokens.js';
       const v = values[name];
       if (typeof v === 'string' && v.trim() && v.length <= 200) style.setProperty(name, v.trim());
       else style.removeProperty(name);
+    }
+    syncGuideNames();
+  }
+
+  /**
+   * Whether the page declares the design CSS's names on :root: unknown until
+   * its styles are read, so the mapping is in place for the first paint and
+   * taken away from a page that turns out to have a look of its own.
+   */
+  let guideNames: boolean | null = null;
+
+  /** Puts the mapping (the sheet's second rule) in or takes it out, as the page and the tokens call for. */
+  function syncGuideNames(): void {
+    if (!pageSheet) return;
+    const tokens = (pageSheet.cssRules[0] as CSSStyleRule).style.getPropertyValue('--vivamark-bg') !== '';
+    const want = guideNames !== false && tokens;
+    const has = pageSheet.cssRules.length > 1;
+    if (want && !has) pageSheet.insertRule(guideNamesRule(), 1);
+    else if (!want && has) pageSheet.deleteRule(1);
+  }
+
+  /** Whether the page's own styles declare the design CSS's names, with the mapping set aside while looking. */
+  function declaresGuideNames(): boolean {
+    if (!pageSheet) return false;
+    const had = pageSheet.cssRules.length > 1;
+    if (had) pageSheet.deleteRule(1);
+    try {
+      const cs = getComputedStyle(document.documentElement);
+      return GUIDE_SIGNATURE.every((name) => cs.getPropertyValue(name).trim() !== '');
+    } finally {
+      if (had) pageSheet.insertRule(guideNamesRule(), 1);
     }
   }
 
@@ -963,6 +997,8 @@ import { PAGE_FACES, PAGE_THEMES, PAGE_TOKENS } from './page-tokens.js';
   });
 
   const ready = () => {
+    guideNames = declaresGuideNames();
+    syncGuideNames();
     scanGroups();
     // A page script that draws its decisions later gets fields for them too.
     let scanQueued = false;
@@ -978,5 +1014,12 @@ import { PAGE_FACES, PAGE_THEMES, PAGE_TOKENS } from './page-tokens.js';
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready);
   else ready();
-  window.addEventListener('load', redraw);
+  window.addEventListener('load', () => {
+    // Styles from a linked sheet may only be in now.
+    if (guideNames === false && declaresGuideNames()) {
+      guideNames = true;
+      syncGuideNames();
+    }
+    redraw();
+  });
 })();

@@ -1,7 +1,8 @@
 // Themes without a browser: which theme a review page starts in, the fonts
 // the themes use (bundled, licensed, served by the daemon and nothing else),
 // the marks in the agent's page drawn from theme tokens only, and the page
-// tokens each theme offers the page (complete, opaque, at the floor).
+// tokens each theme offers the page (complete, opaque, at the floor), and the
+// design CSS's own names mapped to them for pages written before them.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +11,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { api, makeWorld, openSession, ROOT } from './helpers/harness.mjs';
 
-const { DEFAULT_THEME, MARK_TOKENS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, THEMES, contrast, pageContrastFailures, themeConfig } = await import(
+const { DEFAULT_THEME, GUIDE_NAMES, GUIDE_SIGNATURE, MARK_TOKENS, PAGE_CSS, PAGE_COLOURS, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, THEMES, contrast, guideNamesRule, pageContrastFailures, themeConfig } = await import(
   path.join(ROOT, 'dist', 'internal.js'),
 );
 
@@ -194,4 +195,28 @@ test('the agent\'s page is served with the reviewer\'s theme for its page tokens
   } finally {
     await other.cleanup();
   }
+});
+
+test("the design CSS's own names map to the page tokens exactly as PAGE_CSS reads them, for pages written before the tokens", () => {
+  const start = PAGE_CSS.indexOf(':root {');
+  const root = PAGE_CSS.slice(start, PAGE_CSS.indexOf('\n}', start));
+  const darkStart = PAGE_CSS.indexOf('@media (prefers-color-scheme: dark)');
+  const dark = PAGE_CSS.slice(darkStart, PAGE_CSS.indexOf('\n}\n', darkStart));
+  // Each name PAGE_CSS reads from a token maps to that same token.
+  const read = {};
+  for (const [, name, token] of root.matchAll(/(--[a-z0-9-]+): var\((--vivamark-[a-z-]+), /g)) read[name] = `var(${token})`;
+  assert.ok(Object.keys(read).length >= 20, Object.keys(read).join(' '));
+  for (const [name, v] of Object.entries(read)) assert.equal(GUIDE_NAMES[name], v, `${name} maps as PAGE_CSS reads it`);
+  // --r-sm is worked out from --r; everything else in the map is one of PAGE_CSS's names.
+  assert.match(root, /--r-sm: calc\(var\(--r\) \* \.625\)/);
+  assert.equal(GUIDE_NAMES['--r-sm'], 'calc(var(--vivamark-radius) * .625)');
+  assert.deepEqual(Object.keys(GUIDE_NAMES).sort(), [...Object.keys(read), '--r-sm'].sort());
+  // Every name an older page changes for dark is mapped, so a dark system never shows through.
+  for (const [, name] of dark.matchAll(/(--[a-z0-9-]+):/g)) assert.ok(name in GUIDE_NAMES, `${name}, set for dark, is mapped`);
+  for (const name of GUIDE_SIGNATURE) assert.ok(name in GUIDE_NAMES, `the signature name ${name} is one of the design CSS's`);
+  // Only tokens, nothing loaded; important, so it wins over the page's own :root, light or dark.
+  const rule = guideNamesRule();
+  assert.match(rule, /^:root\{color-scheme:var\(--vivamark-scheme\) !important;--bg:var\(--vivamark-bg\) !important;/);
+  assert.doesNotMatch(rule, /url\(|@|#[0-9a-f]{3}/i);
+  for (const v of Object.values(GUIDE_NAMES)) for (const [, token] of v.matchAll(/var\((--vivamark-[a-z-]+)\)/g)) assert.ok(PAGE_TOKENS.includes(token), token);
 });

@@ -167,6 +167,9 @@ page with its own design, which never reads them, looks exactly as
 written. [`examples/plan.html`](examples/plan.html),
 [`examples/report.html`](examples/report.html), the CSS that
 `vivamark guide design` hands an agent, and Markdown pages all use them.
+Pages written with an older copy of that CSS, before the tokens, follow
+too: vivamark maps the CSS's own names (`--bg`, `--panel`, `--fg2` and the
+rest) to the tokens for any page that declares them.
 To opt in, read each token with your page's own value after the comma,
 which is what the page shows when it is opened anywhere else:
 

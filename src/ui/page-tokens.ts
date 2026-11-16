@@ -293,6 +293,56 @@ export const PAGE_THEMES: Readonly<Record<string, Readonly<Record<PageToken, str
   },
 };
 
+// ---- pages with the design CSS's own names -------------------------------------------
+
+/**
+ * The design CSS (PAGE_CSS in src/guide.ts) reads each page token into a name
+ * of its own: --bg, --panel, --fg2 and the rest. Pages written before the
+ * page tokens existed declare those same names with fixed values (light, and
+ * dark under prefers-color-scheme), so on their own they would never follow
+ * the theme. For a page that declares them, the page script sets each name to
+ * the token PAGE_CSS gives it, ahead of the page's own rules: the page then
+ * follows like one written with today's CSS. A test holds this map to PAGE_CSS.
+ */
+export const GUIDE_NAMES: Readonly<Record<string, string>> = {
+  '--bg': 'var(--vivamark-bg)',
+  '--bg-tint': 'var(--vivamark-bg)',
+  '--panel': 'var(--vivamark-surface)',
+  '--fg': 'var(--vivamark-text)',
+  '--fg2': 'var(--vivamark-text)',
+  '--muted': 'var(--vivamark-muted)',
+  '--line': 'var(--vivamark-border)',
+  '--accent': 'var(--vivamark-accent)',
+  '--accent-strong': 'var(--vivamark-accent)',
+  '--accent-soft': 'var(--vivamark-accent-bg)',
+  '--ok': 'var(--vivamark-ok)',
+  '--ok-soft': 'var(--vivamark-ok-bg)',
+  '--warn': 'var(--vivamark-warn)',
+  '--warn-soft': 'var(--vivamark-warn-bg)',
+  '--bad': 'var(--vivamark-bad)',
+  '--bad-soft': 'var(--vivamark-bad-bg)',
+  '--q': 'var(--vivamark-ask)',
+  '--q-soft': 'var(--vivamark-ask-bg)',
+  '--shadow': 'var(--vivamark-shadow)',
+  '--r': 'var(--vivamark-radius)',
+  '--r-sm': 'calc(var(--vivamark-radius) * .625)',
+  '--ui': 'var(--vivamark-font-body)',
+  '--display': 'var(--vivamark-font-heading)',
+};
+
+/**
+ * A page counts as written with the design CSS when its own styles declare
+ * all of these on :root. Any other page, its own look under other names, is
+ * left exactly as it is.
+ */
+export const GUIDE_SIGNATURE = ['--bg', '--panel', '--fg2', '--accent-soft'] as const;
+
+/** The rule that maps the design CSS's names to the page tokens, important so it wins over the page's own :root, light or dark. */
+export function guideNamesRule(): string {
+  const decls = Object.entries(GUIDE_NAMES).map(([name, v]) => `${name}:${v} !important;`);
+  return `:root{color-scheme:var(--vivamark-scheme) !important;${decls.join('')}}`;
+}
+
 // ---- contrast ----------------------------------------------------------------------
 
 function luminance(hex: string): number {

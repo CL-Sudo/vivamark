@@ -281,3 +281,20 @@ every page, and fixing only the examples.
 This supersedes the last sentence of the themes entry above: the guide's
 `design` topic now reads the page tokens, though opened on its own a page
 in that CSS looks as it did.
+
+## 2026-11-16: Pages in the design CSS's older copy follow the theme too
+
+Asked, on a report already on disk opened in Gumdrop: "the content theme must
+match the layout theme in vivamark". Such a page carries the design CSS as it
+was before the page tokens: `--bg`, `--panel`, `--fg2` and the rest with fixed
+values, light and dark. It reads no token, so under the entry above it never
+followed.
+
+| Topic | Decision | Why |
+|---|---|---|
+| What follows | A page whose own styles declare the design CSS's names on `:root` (`--bg`, `--panel`, `--fg2` and `--accent-soft` all present) has each of those names set to the token the current design CSS reads into it (`--bg` to `--vivamark-bg`, `--fg2` to `--vivamark-text`, and so on; the map is `GUIDE_NAMES` in `src/ui/page-tokens.ts`, held to `PAGE_CSS` by a test). The page then follows the theme like one written today: from the first paint, live on a switch, light whatever the system prefers. | Pages already written, reports and plans in particular, are the ones a reviewer opens. |
+| How | One more rule in the page tokens' adopted sheet, marked important so it wins over the page's own `:root`, light and dark. It is in place before the page's styles are parsed; at DOMContentLoaded (and again at `load`, for a linked sheet) the page script checks the page's own styles with the rule set aside, and takes it out of a page that does not declare the names. No new values: every name points at a page token. | One route, one sheet, one set of theme values. |
+| Untouched | A page with a look of its own, under other names or with fewer of these, renders exactly as without vivamark, as before (the test from the entry above still holds). | "Pages with their own design are left alone." |
+
+This narrows "Opt-in" in the entry above: a page in the design CSS, old copy
+or new, takes the theme without doing anything more.

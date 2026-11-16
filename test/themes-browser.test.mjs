@@ -507,6 +507,66 @@ a { color: #7fdbff; }
   await page.close();
 });
 
+test("a page written before the page tokens, with the design CSS's names and fixed values, follows the theme too: from the first paint, at once on a switch, light whatever the system prefers", { timeout: 120_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // The system prefers dark, which such a page answers with its own dark palette; in vivamark it takes the theme's.
+  const context = await browser.newContext({ colorScheme: 'dark' });
+  const file = path.join(world.pageDir, 'before-tokens.html');
+  const probe = `<script>window.__first = { bg: getComputedStyle(document.documentElement).backgroundColor, ink: getComputedStyle(document.documentElement).getPropertyValue('--fg2').trim() };</script>`;
+  fs.writeFileSync(file, fs.readFileSync(path.join(ROOT, 'test', 'fixtures', 'report-before-tokens.html'), 'utf8').replace('<body>', `<body>\n${probe}`));
+  const url = await openReview(file);
+  const { page, offLoopback, problems, frame } = await reviewPage(url, { context });
+  await page.frameLocator('#page').locator('#finding-stale').waitFor();
+  const first = await frame().evaluate(() => window.__first);
+  assert.equal(first.bg, rgb(PAGE_THEMES.gumdrop['--vivamark-bg']), 'Gumdrop from the first paint');
+  await frame().evaluate(() => (window.__frameLoad = true));
+
+  const face = (list) => list.split(',')[0].replace(/"/g, '').trim();
+  const shown = () =>
+    frame().evaluate(() => {
+      const cs = (sel) => getComputedStyle(document.querySelector(sel));
+      return {
+        bg: cs('html').backgroundColor,
+        text: cs('body').color,
+        heading: cs('h1').color,
+        surface: cs('.card').backgroundColor,
+        border: cs('.card').borderBottomColor,
+        accent: cs('.eyebrow').color,
+        figure: getComputedStyle(document.querySelector('.viz svg text:not(.muted):not(.strong)')).fill,
+        scheme: cs('html').colorScheme,
+        font: cs('body').fontFamily,
+      };
+    });
+  const looks = new Set();
+  for (const theme of [...THEMES.map((x) => x.id).slice(1), 'gumdrop']) {
+    await page.selectOption('#theme', theme);
+    const k = PAGE_THEMES[theme];
+    await frame().waitForFunction((bg) => getComputedStyle(document.documentElement).backgroundColor === bg, rgb(k['--vivamark-bg']));
+    const got = await shown();
+    assert.deepEqual(
+      { ...got, font: face(got.font) },
+      {
+        bg: rgb(k['--vivamark-bg']),
+        text: rgb(k['--vivamark-text']),
+        heading: rgb(k['--vivamark-text']),
+        surface: rgb(k['--vivamark-surface']),
+        border: rgb(k['--vivamark-border']),
+        accent: rgb(k['--vivamark-accent']),
+        figure: rgb(k['--vivamark-text']),
+        scheme: k['--vivamark-scheme'],
+        font: face(k['--vivamark-font-body']),
+      },
+      `${theme}: the older page in the theme's colours and face`,
+    );
+    looks.add(JSON.stringify(got));
+    assert.equal(await frame().evaluate(() => window.__frameLoad), true, `${theme}: the page was not reloaded`);
+  }
+  assert.equal(looks.size, THEMES.length, 'each theme gives the page its own look');
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await context.close();
+});
+
 test('Pinboard: the page as a sheet on a table, notes pinned beside it with threads, zoom, fit, pills and minimap; the panel comes back', { timeout: 120_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = copyReport('pinboard.html');
