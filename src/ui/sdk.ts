@@ -336,10 +336,7 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
   }
 
   function findText(root: Element, a: Anchor, quote: string): Range | null {
-    const nodes: Text[] = [];
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
-    const full = nodes.map((n) => n.data).join('');
+    const { nodes, full } = root === document.body ? bodyText() : textNodes(root);
     let at = a.prefix ? full.indexOf(a.prefix + quote) : -1;
     at = at >= 0 ? at + (a.prefix ?? '').length : full.indexOf(quote);
     if (at < 0) return null;
@@ -444,10 +441,32 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
     return el;
   }
 
-  function box(rect: DOMRect, css: string): HTMLElement {
-    const d = document.createElement('div');
-    d.style.cssText = `position:absolute;left:${rect.left + scrollX}px;top:${rect.top + scrollY}px;width:${rect.width}px;height:${rect.height}px;${css}`;
+  // The layer's boxes and pins from the last draw, by everything set on them.
+  // Setting a style makes the browser parse it, which was about half of a
+  // redraw with many marks; one drawn again exactly as before is reused.
+  let lastPieces = new Map<string, HTMLElement[]>();
+  let pieces = new Map<string, HTMLElement[]>();
+
+  /** A div with this style, text and data attribute, set in the order the attribute list keeps. */
+  function piece(css: string, text = '', data: [string, string] | null = null, dataFirst = false): HTMLElement {
+    const key = `${dataFirst ? 1 : 0}\u0000${data ? data.join('\u0000') : '\u0000'}\u0000${css}\u0000${text}`;
+    let d = lastPieces.get(key)?.pop();
+    if (!d) {
+      d = document.createElement('div');
+      if (text) d.textContent = text;
+      if (data && dataFirst) d.dataset[data[0]] = data[1];
+      d.style.cssText = css;
+      if (data && !dataFirst) d.dataset[data[0]] = data[1];
+    }
+    const same = pieces.get(key);
+    if (same) same.push(d);
+    else pieces.set(key, [d]);
     return d;
+  }
+
+  function box(rect: DOMRect, css: string, change?: string): HTMLElement {
+    const at = `position:absolute;left:${rect.left + scrollX}px;top:${rect.top + scrollY}px;width:${rect.width}px;height:${rect.height}px;`;
+    return piece(at + css, '', change ? ['vivamarkChange', change] : null);
   }
 
   /** Which of the theme's pin styles a note's state takes. */
@@ -478,32 +497,59 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
   }
 
   function badge(m: Mark, x: number, y: number): HTMLElement {
-    const b = document.createElement('div');
-    b.textContent = `${pinPrefix}${m.n}`;
     const style = pinStyle(m);
     const v = (part: string) => `var(--mk-pin${style ? `-${style}` : ''}-${part})`;
-    b.dataset.vivamarkPin = style || 'sent';
-    b.style.cssText =
+    return piece(
       `position:absolute;left:${x + scrollX}px;top:${y + scrollY}px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;` +
-      `display:flex;align-items:center;justify-content:center;white-space:nowrap;font:var(--mk-font);text-align:center;` +
-      `background:${v('bg')};color:${v('fg')};border:${v('border')};border-radius:var(--mk-pin-radius);box-shadow:var(--mk-pin-shadow);` +
-      (pinShapes ? pinShape(style) : '');
-    return b;
+        `display:flex;align-items:center;justify-content:center;white-space:nowrap;font:var(--mk-font);text-align:center;` +
+        `background:${v('bg')};color:${v('fg')};border:${v('border')};border-radius:var(--mk-pin-radius);box-shadow:var(--mk-pin-shadow);` +
+        (pinShapes ? pinShape(style) : ''),
+      `${pinPrefix}${m.n}`,
+      ['vivamarkPin', style || 'sent'],
+      true,
+    );
   }
 
   type Change = { at: number; text: string };
   let changes: { show: boolean; inserts: Change[]; removals: Change[] } = { show: false, inserts: [], removals: [] };
 
-  /** The body's text nodes and the joined text, as the server computes it. */
-  function bodyText(): { nodes: Text[]; full: string } {
+  /** The text nodes under `root` and their joined text, as the server computes it. */
+  function textNodes(root: Node): { nodes: Text[]; full: string } {
     const nodes: Text[] = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
     return { nodes, full: nodes.map((n) => n.data).join('') };
   }
 
+  // The body's text, kept between redraws: walking every text node of a long
+  // page cost about 2 ms, and changes shown in pick mode redraw on every hover.
+  // Any change to the body's nodes or text, or a new body, starts it afresh.
+  let bodyCache: { body: HTMLElement; nodes: Text[]; full: string } | null = null;
+  const bodyWatch = new MutationObserver(() => {
+    bodyCache = null;
+  });
+
+  function bodyText(): { nodes: Text[]; full: string } {
+    const body = document.body;
+    // Records not yet delivered still count: the cache is never used past a change.
+    if (bodyWatch.takeRecords().length || bodyCache?.body !== body) {
+      bodyWatch.disconnect();
+      bodyCache = null;
+    }
+    if (bodyCache) return bodyCache;
+    const t = textNodes(body);
+    bodyWatch.observe(body, { childList: true, characterData: true, subtree: true });
+    bodyCache = { body, ...t };
+    return bodyCache;
+  }
+
+  function forgetBodyText(): void {
+    bodyWatch.disconnect();
+    bodyCache = null;
+  }
+
   /** Inserted text highlighted; removed text shown struck through where it was. Nothing in the page is changed. */
-  function drawChanges(l: HTMLElement): void {
+  function drawChanges(l: DocumentFragment): void {
     if (!changes.show || !document.body) return;
     const { nodes, full } = bodyText();
     for (const c of changes.inserts) {
@@ -512,9 +558,7 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
       const r = rangeAt(nodes, c.at, c.at + c.text.length);
       if (!r) continue;
       for (const rect of r.getClientRects()) {
-        const d = box(rect, 'background:var(--mk-insert-bg);border-bottom:var(--mk-insert-line);border-radius:2px;');
-        d.dataset.vivamarkChange = 'insert';
-        l.appendChild(d);
+        l.appendChild(box(rect, 'background:var(--mk-insert-bg);border-bottom:var(--mk-insert-line);border-radius:2px;', 'insert'));
       }
     }
     for (const c of changes.removals) {
@@ -523,14 +567,16 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
       const rect = r?.getBoundingClientRect();
       if (!rect) continue;
       const text = c.text.replace(/\s+/g, ' ').trim();
-      const chip = document.createElement('div');
-      chip.dataset.vivamarkChange = 'removal';
-      chip.textContent = text.length > 60 ? text.slice(0, 59) + '…' : text;
-      chip.style.cssText =
-        `position:absolute;left:${rect.left + scrollX}px;top:${rect.top + scrollY - 20}px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
-        'padding:1px 6px;border-radius:6px;font:var(--mk-font);line-height:18px;font-weight:400;color:var(--mk-removal-fg);background:var(--mk-removal-bg);' +
-        'border:var(--mk-removal-border);text-decoration:line-through;';
-      l.appendChild(chip);
+      l.appendChild(
+        piece(
+          `position:absolute;left:${rect.left + scrollX}px;top:${rect.top + scrollY - 20}px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;` +
+            'padding:1px 6px;border-radius:6px;font:var(--mk-font);line-height:18px;font-weight:400;color:var(--mk-removal-fg);background:var(--mk-removal-bg);' +
+            'border:var(--mk-removal-border);text-decoration:line-through;',
+          text.length > 60 ? text.slice(0, 59) + '…' : text,
+          ['vivamarkChange', 'removal'],
+          true,
+        ),
+      );
     }
   }
 
@@ -541,8 +587,14 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
   let picking = false;
 
   function draw(): void {
-    const l = layer();
-    l.replaceChildren();
+    const layerEl = layer();
+    layerEl.replaceChildren();
+    lastPieces = pieces;
+    pieces = new Map();
+    // Built off the page and attached once at the end: a box added to the live
+    // layer would make the next mark's measurement lay the page out again, so
+    // each mark cost a whole layout of a long page.
+    const l = document.createDocumentFragment();
     drawChanges(l);
     for (const m of showMarks ? marks : []) {
       if (!m.anchor) continue;
@@ -573,6 +625,7 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
     if (picking && hoverEl) {
       l.appendChild(box(hoverEl.getBoundingClientRect(), 'outline:var(--mk-hover-line);outline-offset:2px;border-radius:var(--mk-target-radius);background:var(--mk-hover-bg);'));
     }
+    layerEl.appendChild(l);
     if (canvas) postGeometry();
   }
 
@@ -978,6 +1031,8 @@ import { GUIDE_SIGNATURE, PAGE_FACES, PAGE_THEMES, PAGE_TOKENS, guideNamesRule }
       const list = (v: unknown): Change[] =>
         Array.isArray(v) ? v.filter((c): c is Change => !!c && typeof c.at === 'number' && typeof c.text === 'string') : [];
       changes = { show: !!d.show, inserts: list(d.inserts), removals: list(d.removals) };
+      // Nothing redraws from the kept text while changes are hidden: let it go.
+      if (!changes.show) forgetBodyText();
       redraw();
     } else if (d.type === 'restore') {
       window.scrollTo(Number(d.x) || 0, Number(d.y) || 0);

@@ -68,3 +68,25 @@ test('a very large edit is reported coarsely instead of slowly', () => {
   assert.equal(d.inserts.length, 1);
   assert.equal(d.removals.length, 1);
 });
+
+test('lines both texts start with are matched first, and the rest is diffed as before', () => {
+  const same = diffText('a long text\n'.repeat(50), 'a long text\n'.repeat(50));
+  assert.deepEqual(same, { inserts: [], removals: [], coarse: false });
+  // After the shared lines, the repeated line is kept and the two after it go,
+  // not the first copy: the skipped head must not change which match wins.
+  assert.deepEqual(diffText('intro\nx\ny\nx\n', 'intro\nx\n'), { inserts: [], removals: [{ at: 8, text: 'y\nx' }], coarse: false });
+  // A text starting with a line break that the other lacks shares no lines.
+  assert.deepEqual(diffText('\nabc\ndef', 'abc\ndef'), { inserts: [], removals: [], coarse: false });
+  assert.deepEqual(diffText('\nabc\ndef', 'xabc\ndef').inserts, [{ at: 0, text: 'xabc' }]);
+  // Offsets stay offsets of the whole new text, and whitespace alone is still no change.
+  const after = 'one\ntwo three\nfour six\n';
+  const d = diffText('one\ntwo  three\nfour five\n', after);
+  assert.deepEqual(d, { inserts: [{ at: 19, text: 'six' }], removals: [{ at: 19, text: 'five' }], coarse: false });
+  assert.equal(after.slice(19, 22), 'six');
+  assert.deepEqual(diffText('same\nhead\nend', 'same\nhead\nend and more').inserts, [{ at: 14, text: 'and more' }]);
+  // Too large to diff in detail: the whole text is reported, shared head and all.
+  const head = 'keep\nthe\nhead\n';
+  const coarse = diffText(head + 'old line\n'.repeat(2500), head + 'new text\n'.repeat(2500));
+  assert.equal(coarse.coarse, true);
+  assert.equal(coarse.inserts[0].at, head.length);
+});

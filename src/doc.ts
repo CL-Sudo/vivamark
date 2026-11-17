@@ -4,7 +4,7 @@
 // each block carrying the lines it came from.
 
 import MarkdownIt from 'markdown-it';
-import { parse } from 'parse5';
+import { parseWithLocations } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 import type { Anchor } from './schema.js';
 
@@ -100,19 +100,20 @@ function parent(el: Element): Element | null {
 
 /** Breadth-first search, into template contents as well. */
 function find(root: Node, pred: (el: Element) => boolean): Element | null {
-  const stack: Node[] = [root];
-  while (stack.length) {
-    const n = stack.shift()!;
+  // A queue read from the front by index: shift() and a spread push cost more on a large page.
+  const queue: Node[] = [root];
+  for (let i = 0; i < queue.length; i++) {
+    const n = queue[i];
     if (isElement(n) && pred(n)) return n;
-    if ('childNodes' in n) stack.push(...(n.childNodes as Node[]));
-    if (isElement(n) && n.tagName === 'template') stack.push((n as unknown as { content: Node }).content);
+    if ('childNodes' in n) for (const c of n.childNodes as Node[]) queue.push(c);
+    if (isElement(n) && n.tagName === 'template') queue.push((n as unknown as { content: Node }).content);
   }
   return null;
 }
 
 export function loadDoc(kind: DocKind, source: string, title = ''): Doc {
   const html = kind === 'markdown' ? renderMarkdownPage(source, title) : source;
-  const root = parse(html, { sourceCodeLocationInfo: true }) as Document;
+  const root = parseWithLocations(html);
   const htmlEl = children(root).find((e) => e.tagName === 'html');
   const body = (htmlEl && children(htmlEl).find((e) => e.tagName === 'body')) ?? null;
   const doc: Doc = { kind, source, html, root, body, text: '', spans: [], ranges: new Map(), ids: new Map() };
@@ -205,7 +206,7 @@ export function resolveSelector(doc: Doc, selector: string): Element | null {
   const first = steps[0];
   if (first.startsWith('#')) {
     const id = unescapeCss(first.slice(1));
-    current = find(doc.root, (el) => attr(el, 'id') === id);
+    current = idIndex(doc).byId.get(id) ?? null;
   } else {
     if (!/^[a-zA-Z][a-zA-Z0-9-]*$/.test(first)) return null;
     current = find(doc.root, (el) => el.tagName.toLowerCase() === first.toLowerCase());
@@ -223,7 +224,33 @@ export function resolveSelector(doc: Doc, selector: string): Element | null {
 }
 
 export function byStableId(doc: Doc, id: string): Element | null {
-  return find(doc.root, (e) => attr(e, 'id') === id || attr(e, 'data-vivamark-id') === id);
+  return idIndex(doc).stable.get(id) ?? null;
+}
+
+/**
+ * For each id, the first element carrying it, in find()'s order: `byId` by
+ * the id attribute, `stable` by the id or data-vivamark-id attribute. Built
+ * once per Doc, so a lookup by id no longer searches the whole page.
+ */
+const idIndexes = new WeakMap<Doc, { byId: Map<string, Element>; stable: Map<string, Element> }>();
+
+function idIndex(doc: Doc) {
+  let index = idIndexes.get(doc);
+  if (index) return index;
+  index = { byId: new Map(), stable: new Map() };
+  const { byId, stable } = index;
+  find(doc.root, (el) => {
+    const id = attr(el, 'id');
+    const own = attr(el, 'data-vivamark-id');
+    if (id !== undefined) {
+      if (!byId.has(id)) byId.set(id, el);
+      if (!stable.has(id)) stable.set(id, el);
+    }
+    if (own !== undefined && !stable.has(own)) stable.set(own, el);
+    return false;
+  });
+  idIndexes.set(doc, index);
+  return index;
 }
 
 export function stableIdOf(el: Element): string | null {
@@ -322,16 +349,24 @@ function markdownBlockLines(el: Element | null): [number, number] | null {
   return null;
 }
 
+/** The saved file's lines, split once per document rather than once per element or note. */
+const sourceLines = new WeakMap<Doc, string[]>();
+function linesOf(doc: Doc): string[] {
+  let lines = sourceLines.get(doc);
+  if (!lines) sourceLines.set(doc, (lines = doc.source.split('\n')));
+  return lines;
+}
+
 /** A Markdown block's range, without the blank lines markdown-it counts at its end. */
 function trimBlank(doc: Doc, [first, last]: [number, number]): [number, number] {
-  const lines = doc.source.split('\n');
+  const lines = linesOf(doc);
   while (last > first && !(lines[last - 1] ?? '').trim()) last--;
   return [first, last];
 }
 
 /** For a quote in a Markdown block, the lines it is on, when the source has it close to verbatim. */
 function markdownQuoteLines(doc: Doc, block: [number, number], quote: string): [number, number] {
-  const lines = doc.source.split('\n');
+  const lines = linesOf(doc);
   const parts = quote.split('\n').map((p) => p.trim()).filter(Boolean);
   if (!parts.length) return block;
   const head = parts[0].slice(0, 40);
@@ -419,8 +454,61 @@ function similar(before: string, after: string): boolean {
   return a.filter((w) => b.has(w)).length / a.length >= 0.34;
 }
 
-function bodyElements(doc: Doc): Element[] {
-  return [...doc.ranges.keys()];
+/**
+ * norm(textOf(doc, el)).startsWith(want), for a non-empty `want`, without
+ * normalising every element's whole text for every note.
+ *
+ * First, character by character while the text is ASCII: ASCII whitespace is
+ * exactly what \s matches below 128, and an ASCII letter lower-cases on its
+ * own. At the first other character, the start of the text is normalised
+ * instead: lower-casing is per character except for capital sigma, so a slice
+ * without one, ending outside a surrogate pair, normalises to the start of
+ * the whole. Otherwise the whole text is normalised, as the rule states it.
+ */
+function textStartsWith(doc: Doc, el: Element, want: string): boolean {
+  const r = doc.ranges.get(el);
+  if (!r) return false;
+  const text = doc.text;
+  for (let i = r[0], j = 0; ; i++) {
+    if (j === want.length) return true;
+    if (i === r[1]) return false;
+    let c = text.charCodeAt(i);
+    if (c >= 128) break;
+    if (c === 32 || (c >= 9 && c <= 13)) continue;
+    if (c >= 65 && c <= 90) c += 32;
+    if (c !== want.charCodeAt(j++)) return false;
+  }
+  let end = Math.min(r[1], r[0] + 2 * want.length + 64);
+  if (end < r[1]) {
+    const c = text.charCodeAt(end - 1);
+    if (c >= 0xd800 && c <= 0xdbff) end++;
+    const head = text.slice(r[0], end);
+    if (!head.includes('\u03a3')) {
+      const n = norm(head);
+      if (n.length >= want.length) return n.startsWith(want);
+    }
+  }
+  return norm(text.slice(r[0], r[1])).startsWith(want);
+}
+
+/** Body elements in document order, by lower-case tag name, built once per Doc. */
+const elementsByTag = new WeakMap<Doc, Map<string, Element[]>>();
+
+/** The body elements with this lower-case tag (every one when `tag` is empty), in document order. */
+function bodyElements(doc: Doc, tag: string): Element[] {
+  if (!tag) return [...doc.ranges.keys()];
+  let index = elementsByTag.get(doc);
+  if (!index) {
+    index = new Map();
+    for (const el of doc.ranges.keys()) {
+      const t = el.tagName.toLowerCase();
+      const list = index.get(t);
+      if (list) list.push(el);
+      else index.set(t, [el]);
+    }
+    elementsByTag.set(doc, index);
+  }
+  return index.get(tag) ?? [];
 }
 
 function locateElement(doc: Doc, a: Omit<Anchor, 'source_line'>): Located {
@@ -435,7 +523,7 @@ function locateElement(doc: Doc, a: Omit<Anchor, 'source_line'>): Located {
   // 2. The element's text: an element of the same tag that still starts with it.
   const want = norm(recordedText(a.text));
   if (want) {
-    const matches = bodyElements(doc).filter((el) => (!tag || el.tagName.toLowerCase() === tag) && norm(textOf(doc, el)).startsWith(want));
+    const matches = bodyElements(doc, tag).filter((el) => textStartsWith(doc, el, want));
     if (original && matches.includes(original)) return found(original, 'anchored');
     if (matches.length === 1) return found(matches[0], 'moved');
   }

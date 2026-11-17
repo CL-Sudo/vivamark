@@ -4,7 +4,7 @@
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,11 @@ import { tokenProof } from './guard.js';
 import { ensureDir, readServerInfo, stateDir } from './store.js';
 import type { ServerInfo } from './store.js';
 import { VERSION } from './version.js';
+
+// node:http through require, not an ES import: to list an ES import's exports
+// Node reads every property of the module, and its lazy fetch and WebSocket
+// getters load the whole of undici, about 35 ms on every CLI command.
+const http: typeof import('node:http') = createRequire(import.meta.url)('node:http');
 
 export class ApiError extends Error {
   constructor(

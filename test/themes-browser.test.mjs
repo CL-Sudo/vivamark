@@ -838,6 +838,100 @@ test('the text size: Normal by default with nothing zoomed; each size draws the 
   await blocked.page.close();
 });
 
+test('the marks follow their items through a fold, a text size and every theme, with changes shown: no box or pin is left where it was', { timeout: 180_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // The page script reuses a box or pin drawn exactly as before and keeps the page's text
+  // until it changes. Folding the panel, a text size and a theme move the page's items
+  // without changing its text: every mark must still be drawn where its item is now.
+  const file = copyReport('marks-follow.html');
+  const url = await openReview(file);
+  const { page, offLoopback, problems, frame } = await reviewPage(url);
+  const doc = page.frameLocator('#page');
+  await doc.locator('#finding-stale').waitFor();
+  await point(page, doc.locator('#finding-stale'));
+  await page.fill('#comment', 'Name the cache key.');
+  await page.click('#add');
+  await page.click('#send');
+  await ok(world.cli(['wait', file, '--json', '--timeout', '30s']));
+  // An edit above the note's item, shown as a change, moves the item down.
+  const html = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, html.replace('<li id="finding-stale">', '<li id="vm-added">Fresh words were added here, above the finding.</li>\n      <li id="finding-stale">'));
+  await page.waitForFunction(() => !document.getElementById('show-changes').disabled, null, { timeout: 10_000 });
+  await page.click('#show-changes');
+  await doc.locator('[data-vivamark-change="insert"]').first().waitFor();
+
+  /** In the page: what is not on its item among note 1's box and pin and the inserted text's highlight. */
+  const offItems = ({ pinText }) => {
+    const kids = [...(document.getElementById('__vivamark_layer')?.children ?? [])];
+    const item = document.getElementById('finding-stale').getBoundingClientRect();
+    const added = document.getElementById('vm-added').getBoundingClientRect();
+    const pin = kids.find((c) => c.dataset.vivamarkPin && c.textContent === pinText);
+    const box = kids.find((c) => !c.dataset.vivamarkPin && !c.dataset.vivamarkChange && c.style.outline);
+    const inserts = kids.filter((c) => c.dataset.vivamarkChange === 'insert').map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0);
+    const near = (a, b) => Math.abs(a - b) <= 1;
+    const wrong = [];
+    if (!pin) wrong.push(`no pin ${pinText}`);
+    else {
+      const p = pin.getBoundingClientRect();
+      if (!near(p.left, item.right + 8) || !near(p.top, item.top + item.height / 2 - 11)) wrong.push(`pin at ${p.left},${p.top}; item right ${item.right}, top ${item.top}, height ${item.height}`);
+    }
+    if (!box) wrong.push('no box');
+    else {
+      const b = box.getBoundingClientRect();
+      if (!near(b.left, item.left) || !near(b.top, item.top) || !near(b.width, item.width) || !near(b.height, item.height)) wrong.push(`box ${b.left},${b.top} ${b.width}x${b.height}; item ${item.left},${item.top} ${item.width}x${item.height}`);
+    }
+    if (!inserts.length) wrong.push('no insert drawn');
+    for (const r of inserts) {
+      if (r.left < added.left - 1 || r.right > added.right + 1 || r.top < added.top - 1 || r.bottom > added.bottom + 1) wrong.push(`insert ${r.left},${r.top}-${r.right},${r.bottom} outside ${added.left},${added.top}-${added.right},${added.bottom}`);
+    }
+    return { wrong, item: { left: item.left, top: item.top, width: item.width } };
+  };
+  /** Waits for every mark to be on its item, and says what is not when one stays off. */
+  const check = async (at, pinText = '1') => {
+    let r;
+    for (const until = Date.now() + 5000; ; await page.waitForTimeout(50)) {
+      r = await frame().evaluate(offItems, { pinText });
+      if (!r.wrong.length || Date.now() > until) break;
+    }
+    assert.deepEqual(r.wrong, [], `${at}: a mark is not on its item`);
+    return r.item;
+  };
+  const toggle = async (folded) => {
+    await page.click('#panel-toggle');
+    await page.waitForFunction((f) => document.documentElement.dataset.panel === (f ? 'collapsed' : 'expanded'), folded);
+  };
+
+  // Gumdrop: fold, a larger text size while folded, open again, and back to Normal.
+  const start = await check('at the start');
+  await toggle(true);
+  const folded = await check('folded');
+  assert.ok(Math.abs(folded.left - start.left) > 50 || folded.width > start.width + 50, `the item moved in the folded frame: ${JSON.stringify([start, folded])}`);
+  await page.selectOption('#text-size', 'x-large');
+  await check('folded, x-large');
+  await toggle(false);
+  await check('open, x-large');
+  await page.selectOption('#text-size', 'normal');
+  const back = await check('open, normal');
+  assert.ok(Math.abs(back.width - start.width) <= 1 && Math.abs(back.top - start.top) <= 1, 'back where it started');
+
+  // Every theme: its own pins and layout; where the panel folds, folded and open again.
+  for (const theme of THEMES) {
+    await page.selectOption('#theme', theme.id);
+    await page.waitForFunction((id) => document.documentElement.dataset.theme === id, theme.id);
+    const pinText = `${theme.pinPrefix ?? ''}1`;
+    await check(theme.id, pinText);
+    if (!layoutFolds(theme.layout)) continue;
+    await toggle(true);
+    await check(`${theme.id}, folded`, pinText);
+    await toggle(false);
+    await check(`${theme.id}, open`, pinText);
+  }
+
+  assert.deepEqual(offLoopback, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});
+
 test('the text size scales a page sized in pixels too: at the largest size on a phone it reflows, its table scrolls in its own box, its figure fits, nothing scrolls sideways', { timeout: 60_000 }, async (t) => {
   if (skipWithoutBrowser(t)) return;
   const file = path.join(world.pageDir, 'px-page.html');

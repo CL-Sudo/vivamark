@@ -3,8 +3,8 @@
 // sandboxed page, keeps the feedback log, and answers the CLI's long polls.
 
 import fs from 'node:fs';
-import http from 'node:http';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import MarkdownIt from 'markdown-it';
@@ -12,21 +12,23 @@ import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import { mayBeRunning } from './client.js';
 import { bearer, hostAllowed, LOOPBACK_HOSTS, originAllowed, tokenProof, tokensEqual, wsToken } from './guard.js';
-import { createHash } from 'node:crypto';
 import { diffText } from './diff.js';
 import type { TextChanges } from './diff.js';
 import { docKind, findQuote, loadDoc, locate, namedTarget, placeAnchor, renderMarkdownPage, squash, textOf } from './doc.js';
-import type { AnchorState, Doc, Place } from './doc.js';
+import type { AnchorState, Doc, Located, Place } from './doc.js';
 import { EventLog } from './events.js';
 import { injectScript } from './html.js';
 import { sniffImage } from './image.js';
 import { configPath, Notifier, notifyConfig } from './notify.js';
 import { AGENT_STATUSES, attachmentName, DECISIONS, SOURCE_NAME, entryDecision, FEEDBACK_SCHEMA, IMAGE_LIMITS, LIMITS, NOTE_ID, parseDecision, parseDraft, REPLY_SCHEMA, STATUS_SCHEMA } from './schema.js';
 import type { AgentNote, AgentStatus, Anchor, Attachment, Decision, DraftNote, LogEntry, Note, NoteEntry, NoteStatus, Reply, Turn } from './schema.js';
-import { randomToken, readJson, readServerInfo, serverInfoPath, Store } from './store.js';
+import { randomToken, readJson, readServerInfo, serverInfoPath, sha256, Store } from './store.js';
 import type { Session, ServerInfo } from './store.js';
 import { VERSION } from './version.js';
 import { DEFAULT_THEME, THEMES, themeById } from './ui/themes.js';
+
+// Through require for the reason client.ts gives: an ES import of node:http loads undici.
+const http: typeof import('node:http') = createRequire(import.meta.url)('node:http');
 
 export const DEFAULT_PORT = 47470;
 /** Fallback ports: explicit, and below the 32768-60999 ephemeral range most systems use. */
@@ -266,12 +268,26 @@ export class Daemon {
   readonly events: EventLog;
   readonly adminToken = randomToken();
   port = 0;
-  private servers: http.Server[] = [];
+  private servers: Server[] = [];
   private wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, handleProtocols: () => 'vivamark.v1' });
   private live = new Map<string, Live>();
   private analyses = new Map<string, Analysis>();
-  /** Parsed snapshots by session and hash; a few per session are enough. */
-  private snapshotDocs = new Map<string, Doc | null>();
+  /**
+   * Parsed files by session and content hash, shared by the file as it is now
+   * and its Send snapshots (a Send's snapshot is the current file, so one parse
+   * serves both). Least recently used first; a few per session are enough.
+   */
+  private parsedDocs = new Map<string, Doc | null>();
+  /**
+   * Where each anchor is in each parsed file. A parsed file never changes, so
+   * a resolve, a reply or an unchanged file re-anchors no note twice.
+   */
+  private locatedIn = new WeakMap<Doc, Map<string, Located>>();
+  /**
+   * Each reply's text as HTML. The review page reads every reply on each
+   * refresh, and a logged reply never changes, so its Markdown is rendered once.
+   */
+  private replyHtml = new WeakMap<Reply, { text: string; html: string }>();
   private idleMs: number;
   private idleSince = Date.now();
   private timers: NodeJS.Timeout[] = [];
@@ -667,7 +683,9 @@ export class Daemon {
   }
 
   private replyView(r: Reply) {
-    return { seq: r.seq, at: r.at, text: r.text, html: renderReply(r.text), ...(r.note ? { note: r.note, status: r.status } : {}) };
+    let rendered = this.replyHtml.get(r);
+    if (rendered?.text !== r.text) this.replyHtml.set(r, (rendered = { text: r.text, html: renderReply(r.text) }));
+    return { seq: r.seq, at: r.at, text: r.text, html: rendered.html, ...(r.note ? { note: r.note, status: r.status } : {}) };
   }
 
   // ---- static -------------------------------------------------------------
@@ -729,8 +747,12 @@ export class Daemon {
       } catch {
         throw new HttpError(404, 'the reviewed file is missing');
       }
-      // A Markdown file is rendered to a page; the saved file itself is never changed.
-      if (docKind(s.file) === 'markdown') html = renderMarkdownPage(html, path.basename(s.file));
+      // A Markdown file is rendered to a page; the saved file itself is never changed. When
+      // this version is already parsed (a live reload re-anchors notes before the page asks
+      // for it), its Doc holds that same page, so it is not rendered again.
+      if (docKind(s.file) === 'markdown') {
+        html = this.parsedDocs.get(`${s.id}:${sha256(html)}`)?.html ?? renderMarkdownPage(html, path.basename(s.file));
+      }
       const safeLoad = /^[a-z0-9]{1,32}$/.test(load) ? load : '';
       // The reviewer's theme, so the page script applies its page tokens before the first paint.
       const pageTheme = themeById(theme)?.id ?? this.theme;
@@ -789,24 +811,25 @@ export class Daemon {
     } catch {
       // The file is gone: so is every target on it.
     }
-    const key = `${source === null ? 'gone' : createHash('sha256').update(source).digest('hex')}:${s.log.length}:${s.annotations.length}`;
+    const hash = source === null ? null : sha256(source);
+    const key = `${hash ?? 'gone'}:${s.log.length}:${s.annotations.length}`;
     const cached = this.analyses.get(s.id);
     if (cached?.key === key) return cached;
-    const doc: Doc | null = source === null ? null : loadDoc(docKind(s.file) ?? 'html', source, path.basename(s.file));
+    const doc: Doc | null = source === null ? null : this.parsed(s, hash!, () => source);
     const notes = new Map<string, NoteState>();
     for (const n of this.store.agentNotes(s)) {
       if (!n.anchor) continue;
-      const found = doc ? locate(doc, n.anchor) : null;
+      const found = doc ? this.locate(doc, n.anchor) : null;
       notes.set(n.id, { state: found?.state ?? 'orphaned', current: found?.place ?? null });
     }
     for (const e of this.noteEntries(s)) {
       const anchor = e.note.anchor;
       if (!anchor) continue;
-      const found = doc ? locate(doc, anchor) : null;
+      const found = doc ? this.locate(doc, anchor) : null;
       const st: NoteState = { state: found?.state ?? 'orphaned', current: found?.place ?? null };
       const then = e.snapshot ? this.snapshotDoc(s, e.snapshot) : null;
       if (then && doc) {
-        const before = targetText(then, anchor, locate(then, anchor).el);
+        const before = targetText(then, anchor, this.locate(then, anchor).el);
         const now = found ? targetText(doc, anchor, found.el) : null;
         st.changed = before !== null && before !== now;
       }
@@ -821,13 +844,35 @@ export class Daemon {
     return analysis;
   }
 
+  /** locate(), remembered per parsed file and per the anchor fields it reads. */
+  private locate(doc: Doc, a: Anchor): Located {
+    let byAnchor = this.locatedIn.get(doc);
+    if (!byAnchor) this.locatedIn.set(doc, (byAnchor = new Map()));
+    const { stable_id, selector, tag, text, quote, prefix, suffix } = a;
+    const key = JSON.stringify({ stable_id, selector, tag, text, quote, prefix, suffix });
+    let found = byAnchor.get(key);
+    if (!found) byAnchor.set(key, (found = locate(doc, a)));
+    return found;
+  }
+
   private snapshotDoc(s: Session, hash: string): Doc | null {
+    return this.parsed(s, hash, () => this.store.readSnapshot(s, hash));
+  }
+
+  /** The session's file with this content hash, parsed once; null when `read` finds nothing. */
+  private parsed(s: Session, hash: string, read: () => string | null): Doc | null {
     const key = `${s.id}:${hash}`;
-    if (this.snapshotDocs.has(key)) return this.snapshotDocs.get(key)!;
-    const source = this.store.readSnapshot(s, hash);
+    const cached = this.parsedDocs.get(key);
+    if (cached !== undefined) {
+      this.parsedDocs.delete(key);
+      this.parsedDocs.set(key, cached);
+      if (cached) return cached;
+    }
+    const source = read();
+    if (source === null && cached === null) return null;
     const doc = source === null ? null : loadDoc(docKind(s.file) ?? 'html', source, path.basename(s.file));
-    if (this.snapshotDocs.size > 32) this.snapshotDocs.delete(this.snapshotDocs.keys().next().value!);
-    this.snapshotDocs.set(key, doc);
+    if (this.parsedDocs.size > 32) this.parsedDocs.delete(this.parsedDocs.keys().next().value!);
+    this.parsedDocs.set(key, doc);
     return doc;
   }
 
@@ -865,7 +910,7 @@ export class Daemon {
     } catch {
       return null;
     }
-    return loadDoc(docKind(s.file) ?? 'html', source, path.basename(s.file));
+    return this.parsed(s, sha256(source), () => source);
   }
 
   private async receiveNotes(req: IncomingMessage, res: ServerResponse, s: Session): Promise<void> {
@@ -1226,7 +1271,7 @@ function dirIdentity(dir: string): string | null {
   }
 }
 
-function listenOn(server: http.Server, host: string, port: number): Promise<void> {
+function listenOn(server: Server, host: string, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (err: Error) => {
       server.off('listening', onListening);

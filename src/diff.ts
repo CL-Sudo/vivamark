@@ -84,26 +84,43 @@ function lines(s: string): string[] {
 
 const lineKey = (l: string) => l.replace(/\s+/g, ' ').trim();
 
+/** The length of the longest run of whole lines, each with its line break, that both texts start with. */
+function commonHeadLines(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a.charCodeAt(i) === b.charCodeAt(i)) i++;
+  return i === 0 ? 0 : a.lastIndexOf('\n', i - 1) + 1;
+}
+
 /**
  * The changes from `before` to `after`, ignoring changes to whitespace
  * alone. Lines are matched first, so an edit in one place is never paired
  * with a stray full stop in another; changed lines are then diffed by word.
  */
 export function diffText(before: string, after: string): TextChanges {
-  const a = lines(before);
-  const b = lines(after);
   const changes: TextChanges = { inserts: [], removals: [], coarse: false };
+  if (before === after) return changes;
+  // Whole lines the two texts start with are matched by the edit script's
+  // first step whatever follows, so they are skipped rather than split and
+  // normalised: the script for the rest is the same, shifted by those lines.
+  const head = commonHeadLines(before, after);
+  let a = lines(before.slice(head));
+  let b = lines(after.slice(head));
+  let bPos = head;
   let ops = editScript(a.map(lineKey), b.map(lineKey));
   if (!ops) {
+    // Too many edits either way: the whole text is reported as replaced.
     changes.coarse = true;
+    a = lines(before);
+    b = lines(after);
+    bPos = 0;
     ops = [...a.map((): Op => '-'), ...b.map((): Op => '+')];
   }
   let ai = 0;
   let bi = 0;
-  let bPos = 0;
   let removed = '';
   let inserted = '';
-  let hunkAt = 0;
+  let hunkAt = bPos;
   const flush = () => {
     if (removed || inserted) wordChanges(removed, inserted, hunkAt, changes);
     removed = '';

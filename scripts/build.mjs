@@ -1,4 +1,4 @@
-// Builds dist/: the CLI and daemon as one Node ESM file (runtime dependencies
+// Builds dist/: the CLI and daemon as Node ESM, cli.js and the chunks it loads on demand (runtime dependencies
 // stay external and are installed by npm), and the browser code as two
 // self-contained scripts next to the review UI's HTML and CSS.
 import { build } from 'esbuild';
@@ -14,9 +14,16 @@ const define = { __VIVAMARK_VERSION__: JSON.stringify(pkg.version) };
 fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(path.join(dist, 'ui'), { recursive: true });
 
+// Split, so the code cli.ts imports only when needed (the daemon, the linter,
+// and the HTML parser, Markdown renderer and WebSocket server they bring in)
+// sits in chunks beside cli.js and a command like `wait` starts without
+// loading them. Chunks stay in dist/ itself: code that finds cli.js or ui/
+// from import.meta.url works from any of them.
 await build({
-  entryPoints: [path.join(root, 'src/cli.ts')],
-  outfile: path.join(dist, 'cli.js'),
+  entryPoints: { cli: path.join(root, 'src/cli.ts') },
+  outdir: dist,
+  splitting: true,
+  chunkNames: 'cli-[name]-[hash]',
   bundle: true,
   platform: 'node',
   format: 'esm',

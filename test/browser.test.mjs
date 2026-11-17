@@ -1227,3 +1227,273 @@ test('click-to-answer: a marked control queues one note per group, from the page
   assert.deepEqual(problems, []);
   await page.close();
 });
+
+test('a redraw builds the note marks off the page and attaches them in one change, so a long page is laid out once', { timeout: 60_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // No daemon: the request interception serves the frame, the page and the
+  // review script, and aborts anything else, so nothing reaches a socket.
+  const sdk = fs.readFileSync(path.join(ROOT, 'dist/ui/sdk.js'), 'utf8');
+  let body = '';
+  for (let i = 0; i < 60; i++) body += `<section id="s${i}"><h2>Section ${i}</h2><p>Paragraph ${i} with some words alpha beta gamma.</p></section>\n`;
+  const origin = 'http://vivamark.invalid';
+  const pages = {
+    [`${origin}/`]: ['text/html', `<!doctype html><body style="margin:0"><iframe id="f" src="${origin}/page" style="width:900px;height:700px;border:0"></iframe></body>`],
+    [`${origin}/page`]: ['text/html', `<!doctype html><html><head><script src="${origin}/sdk.js"></script></head><body>${body}</body></html>`],
+    [`${origin}/sdk.js`]: ['text/javascript', sdk],
+  };
+  const page = await browser.newPage();
+  const unknown = [];
+  const problems = [];
+  await page.route('**/*', (route) => {
+    const u = route.request().url();
+    if (!pages[u]) {
+      unknown.push(u);
+      return route.abort();
+    }
+    return route.fulfill({ contentType: pages[u][0], body: pages[u][1] });
+  });
+  page.on('pageerror', (err) => problems.push(`pageerror: ${err.message}`));
+  await page.goto(`${origin}/`);
+  const frame = page.frames().find((f) => f.url() === `${origin}/page`);
+  await frame.waitForLoadState('load');
+
+  const marks = [];
+  for (let i = 0; i < 12; i++) {
+    const selector = `#s${i * 5} > p:nth-of-type(1)`;
+    marks.push(
+      i % 2
+        ? { n: i + 1, kind: 'element', queued: false, anchor: { stable_id: null, selector } }
+        : { n: i + 1, kind: 'text', queued: i === 4, anchor: { stable_id: null, selector, quote: 'alpha beta', prefix: 'words ', suffix: ' gamma.' } },
+    );
+  }
+  const post = (msg) => page.evaluate((m) => document.getElementById('f').contentWindow.postMessage({ vivamark: 1, ...m }, '*'), msg);
+  await post({ type: 'marks', marks, show: true });
+  await frame.waitForFunction(() => document.getElementById('__vivamark_layer')?.querySelectorAll('[data-vivamark-pin]').length === 12);
+  const drawn = await frame.evaluate(() => document.getElementById('__vivamark_layer').childElementCount);
+  assert.ok(drawn >= 24, `a box and a pin for each mark (got ${drawn})`);
+
+  // Watch the live layer through one more redraw (pick mode, then a hovered element).
+  await frame.evaluate(() => {
+    window.__records = [];
+    new MutationObserver((rs) => window.__records.push(...rs)).observe(document.getElementById('__vivamark_layer'), { childList: true });
+  });
+  await post({ type: 'mode', pick: true });
+  await frame.waitForFunction(() => window.__records.length > 0);
+  await frame.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const changes = await frame.evaluate(() =>
+    window.__records.map((r) => ({ added: r.addedNodes.length, removed: r.removedNodes.length })),
+  );
+  assert.deepEqual(changes, [
+    { added: 0, removed: drawn },
+    { added: drawn, removed: 0 },
+  ]);
+
+  // The marks sit where the page's text and elements are.
+  const placed = await frame.evaluate(() => {
+    const layer = document.getElementById('__vivamark_layer');
+    const p = document.querySelector('#s5 > p').getBoundingClientRect();
+    const pin = [...layer.querySelectorAll('[data-vivamark-pin]')].find((b) => b.textContent.endsWith('2'));
+    return { pinLeft: parseFloat(pin.style.left), pRight: p.right + scrollX };
+  });
+  assert.equal(placed.pinLeft, placed.pRight + 8, 'an element mark’s pin sits just right of its element');
+  assert.deepEqual(unknown, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});
+
+test('changes shown: a redraw reuses the page text it walked before, until the page’s text changes', { timeout: 60_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // No daemon, as above: request interception serves everything and aborts the rest.
+  const sdk = fs.readFileSync(path.join(ROOT, 'dist/ui/sdk.js'), 'utf8');
+  let body = '';
+  for (let i = 0; i < 40; i++) body += `<section id="s${i}"><h2>Section ${i}</h2><p>Paragraph ${i} with some words alpha beta gamma.</p></section>\n`;
+  const origin = 'http://vivamark.invalid';
+  const pages = {
+    [`${origin}/`]: ['text/html', `<!doctype html><body style="margin:0"><iframe id="f" src="${origin}/page" style="width:900px;height:700px;border:0"></iframe></body>`],
+    [`${origin}/page`]: ['text/html', `<!doctype html><html><head><script src="${origin}/sdk.js"></script></head><body>${body}</body></html>`],
+    [`${origin}/sdk.js`]: ['text/javascript', sdk],
+  };
+  const page = await browser.newPage();
+  const unknown = [];
+  const problems = [];
+  await page.route('**/*', (route) => {
+    const u = route.request().url();
+    if (!pages[u]) {
+      unknown.push(u);
+      return route.abort();
+    }
+    return route.fulfill({ contentType: pages[u][0], body: pages[u][1] });
+  });
+  page.on('pageerror', (err) => problems.push(`pageerror: ${err.message}`));
+  // Count the walks over the whole body's text.
+  await page.addInitScript(() => {
+    window.__bodyWalks = 0;
+    const walk = Document.prototype.createTreeWalker;
+    Document.prototype.createTreeWalker = function (root, ...rest) {
+      if (root === this.body) window.__bodyWalks++;
+      return walk.call(this, root, ...rest);
+    };
+  });
+  await page.goto(`${origin}/`);
+  const frame = page.frames().find((f) => f.url() === `${origin}/page`);
+  await frame.waitForLoadState('load');
+
+  const post = (msg) => page.evaluate((m) => document.getElementById('f').contentWindow.postMessage({ vivamark: 1, ...m }, '*'), msg);
+  const settle = () => frame.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 0)))));
+  const hover = async (i) => {
+    await frame.evaluate((i) => document.querySelector(`#s${i} h2`).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), i);
+    await settle();
+  };
+  const inserts = () => frame.evaluate(() => document.querySelectorAll('#__vivamark_layer [data-vivamark-change="insert"]').length);
+  const walks = () => frame.evaluate(() => window.__bodyWalks);
+
+  // The body's text content is its text nodes joined, as the server counts positions.
+  const at = await frame.evaluate(() => {
+    const text = document.body.textContent;
+    return text.indexOf('alpha beta', text.indexOf('Paragraph 30'));
+  });
+  await post({ type: 'changes', show: true, inserts: [{ at, text: 'alpha beta' }], removals: [] });
+  await post({ type: 'mode', pick: true });
+  await frame.waitForFunction(() => document.querySelectorAll('#__vivamark_layer [data-vivamark-change="insert"]').length === 1);
+  await settle();
+
+  // Hovering redraws every time, and the page is walked no more.
+  const before = await walks();
+  for (let i = 0; i < 4; i++) await hover(i);
+  assert.equal(await walks(), before, 'redraws over an unchanged page reuse the walked text');
+  assert.equal(await inserts(), 1);
+
+  // Text that changes earlier on the page moves the insert out of line: it is no longer drawn.
+  await frame.evaluate(() => {
+    document.querySelector('#s0 h2').firstChild.data += 'XY';
+  });
+  await hover(5);
+  assert.equal(await inserts(), 0, 'a changed text node is seen at the next redraw');
+  assert.equal(await walks(), before + 1);
+  await frame.evaluate(() => {
+    const t = document.querySelector('#s0 h2').firstChild;
+    t.data = t.data.slice(0, -2);
+  });
+  await hover(6);
+  assert.equal(await inserts(), 1, 'and changed back, the insert is drawn again');
+
+  // A node added or removed is seen too.
+  await frame.evaluate(() => document.querySelector('#s1').prepend(document.createTextNode('ZZ')));
+  await hover(7);
+  assert.equal(await inserts(), 0, 'an added text node is seen at the next redraw');
+  await frame.evaluate(() => document.querySelector('#s1').firstChild.remove());
+  await hover(8);
+  assert.equal(await inserts(), 1, 'and removed, the insert is drawn again');
+
+  assert.deepEqual(unknown, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});
+
+test('a redraw reuses the boxes and pins that are drawn exactly as before, and draws afresh what moved or changed', { timeout: 60_000 }, async (t) => {
+  if (skipWithoutBrowser(t)) return;
+  // No daemon, as above: request interception serves everything and aborts the rest.
+  const sdk = fs.readFileSync(path.join(ROOT, 'dist/ui/sdk.js'), 'utf8');
+  let body = '';
+  for (let i = 0; i < 40; i++) body += `<section id="s${i}"><h2>Section ${i}</h2><p>Paragraph ${i} with some words alpha beta gamma.</p></section>\n`;
+  const origin = 'http://vivamark.invalid';
+  const pages = {
+    [`${origin}/`]: ['text/html', `<!doctype html><body style="margin:0"><iframe id="f" src="${origin}/page" style="width:900px;height:700px;border:0"></iframe></body>`],
+    [`${origin}/page`]: ['text/html', `<!doctype html><html><head><script src="${origin}/sdk.js"></script></head><body>${body}</body></html>`],
+    [`${origin}/sdk.js`]: ['text/javascript', sdk],
+  };
+  const page = await browser.newPage();
+  const unknown = [];
+  const problems = [];
+  await page.route('**/*', (route) => {
+    const u = route.request().url();
+    if (!pages[u]) {
+      unknown.push(u);
+      return route.abort();
+    }
+    return route.fulfill({ contentType: pages[u][0], body: pages[u][1] });
+  });
+  page.on('pageerror', (err) => problems.push(`pageerror: ${err.message}`));
+  await page.goto(`${origin}/`);
+  const frame = page.frames().find((f) => f.url() === `${origin}/page`);
+  await frame.waitForLoadState('load');
+
+  const post = (msg) => page.evaluate((m) => document.getElementById('f').contentWindow.postMessage({ vivamark: 1, ...m }, '*'), msg);
+  const settle = () => frame.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 0)))));
+  const mark = (i, state = 'open') => {
+    const selector = `#s${i * 3} > p:nth-of-type(1)`;
+    return i % 2
+      ? { n: i + 1, kind: 'element', queued: false, state, anchor: { stable_id: null, selector } }
+      : { n: i + 1, kind: 'text', queued: false, state, anchor: { stable_id: null, selector, quote: 'alpha beta', prefix: 'words ' } };
+  };
+  const marks = Array.from({ length: 8 }, (_, i) => mark(i));
+  // The same mark twice is drawn twice: two pins, not one moved.
+  marks.push(mark(1));
+  const at = await frame.evaluate(() => {
+    const text = document.body.textContent;
+    return text.indexOf('alpha beta', text.indexOf('Paragraph 30'));
+  });
+  await post({ type: 'marks', marks, show: true });
+  await post({ type: 'changes', show: true, inserts: [{ at, text: 'alpha beta' }], removals: [{ at: 40, text: 'old words' }] });
+  await frame.waitForFunction(() => document.querySelectorAll('#__vivamark_layer [data-vivamark-change]').length === 2);
+  await settle();
+
+  // Tag what is drawn now, without touching its attributes.
+  const first = await frame.evaluate(() => {
+    const kids = [...document.getElementById('__vivamark_layer').children];
+    kids.forEach((k, i) => (k.__drawn = i + 1));
+    return { count: kids.length, html: document.getElementById('__vivamark_layer').innerHTML };
+  });
+  assert.equal(first.count, 2 + 9 * 2, 'two changes, and a box and a pin per mark');
+  const kept = () =>
+    frame.evaluate(() => [...document.getElementById('__vivamark_layer').children].map((k) => [k.__drawn ?? 0, k.dataset.vivamarkPin ?? k.dataset.vivamarkChange ?? 'box', k.textContent]));
+
+  // A hover redraws everything; only the hover outline is new.
+  await post({ type: 'mode', pick: true });
+  await settle();
+  await frame.evaluate(() => document.querySelector('#s2 h2').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  await settle();
+  const hovered = await kept();
+  assert.equal(hovered.length, first.count + 1);
+  assert.deepEqual(
+    hovered.slice(0, -1).map((k) => k[0]),
+    Array.from({ length: first.count }, (_, i) => i + 1),
+    'every box and pin drawn the same is the same element, in the same order',
+  );
+  assert.equal(hovered.at(-1)[0], 0, 'the hover outline is new');
+  const twice = hovered.filter((k) => k[1] === 'sent' && k[2] === '2');
+  assert.equal(twice.length, 2, 'a mark drawn twice keeps two pins');
+
+  // A note whose state changed gets a new pin of the new kind; the rest stay.
+  await post({ type: 'mode', pick: false });
+  await post({ type: 'marks', marks: marks.map((m, i) => (i === 3 ? { ...m, state: 'addressed' } : m)), show: true });
+  await settle();
+  const changed = await kept();
+  const pin4 = changed.find((k) => k[2] === '4' && k[1] !== 'box');
+  assert.deepEqual([pin4[0], pin4[1]], [0, 'done'], 'the changed note’s pin is drawn afresh');
+  assert.equal(changed.filter((k) => k[0] === 0).length, 1, 'and nothing else is');
+
+  // Moved marks are drawn afresh, where their targets are now, the same as a first draw.
+  await page.evaluate(() => (document.getElementById('f').style.width = '420px'));
+  await settle();
+  await settle();
+  const moved = await frame.evaluate(() => {
+    const layer = document.getElementById('__vivamark_layer');
+    const p = document.querySelector('#s3 > p').getBoundingClientRect();
+    const pin = [...layer.querySelectorAll('[data-vivamark-pin]')].find((b) => b.textContent === '2');
+    return { fresh: [...layer.querySelectorAll('[data-vivamark-pin]')].filter((b) => !b.__drawn).length, pinLeft: parseFloat(pin.style.left), pRight: p.right + scrollX };
+  });
+  // The paragraphs got narrower, so the five element pins moved; the quotes stayed on their line.
+  assert.equal(moved.fresh, 5, 'pins whose place moved are drawn afresh, and only those');
+  assert.equal(moved.pinLeft, moved.pRight + 8, 'an element mark’s pin sits just right of its element');
+
+  // Back to the first state: the drawing is the same, attribute for attribute.
+  await page.evaluate(() => (document.getElementById('f').style.width = '900px'));
+  await post({ type: 'marks', marks, show: true });
+  await settle();
+  await settle();
+  assert.equal(await frame.evaluate(() => document.getElementById('__vivamark_layer').innerHTML), first.html);
+  assert.deepEqual(unknown, []);
+  assert.deepEqual(problems, []);
+  await page.close();
+});

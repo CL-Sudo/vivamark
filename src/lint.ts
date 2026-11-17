@@ -2,7 +2,7 @@
 // more than the text they summarise (vivamark guide figures). Deterministic,
 // offline and read-only: the page is parsed with parse5 and never written.
 
-import { parse } from 'parse5';
+import { parseWithLocations } from './parse.js';
 import type { DefaultTreeAdapterMap } from 'parse5';
 
 type Node = DefaultTreeAdapterMap['node'];
@@ -158,7 +158,7 @@ interface Page {
 }
 
 function load(html: string): Page {
-  const root = parse(html, { sourceCodeLocationInfo: true }) as Document;
+  const root = parseWithLocations(html);
   const ids = new Map<string, Element[]>();
   for (const el of all(root)) {
     const id = attr(el, 'id');

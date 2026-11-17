@@ -9,7 +9,6 @@ import { ApiError, ensureDaemon, mayBeRunning, request, runningDaemon, stopDaemo
 import { eventsPath, parseEventLines } from './events.js';
 import type { VivamarkEvent } from './events.js';
 import { GUIDE_SCHEMA, TAGLINE, TOPICS, findTopic, guideIndex } from './guide.js';
-import { FIGURES_SCHEMA, lintExitCode, lintPage, pageFigures, renderFigures, renderLint } from './lint.js';
 import type { LintResult } from './lint.js';
 import { RenderError, renderExitCode, renderPage, renderRenderResult } from './render.js';
 import { FEEDBACK_SCHEMA } from './schema.js';
@@ -246,7 +245,7 @@ async function cmdOpen(argv: string[]): Promise<void> {
     ? 'for decisions, tables or a diff a structured HTML page is often better: vivamark guide markdown'
     : 'how to write a page worth reviewing: vivamark guide';
   if (!values['no-browser'] && process.env.VIVAMARK_NO_BROWSER !== '1') openBrowser(url);
-  lintOnOpen(file);
+  await lintOnOpen(file);
   if (values.json) {
     process.stdout.write(
       JSON.stringify({ schema: 'vivamark.open/1', session: { id: res.id, file: res.file, status: 'open', labels: res.labels }, url, created: res.created, next, guide }) + '\n',
@@ -720,8 +719,9 @@ function readPage(cmd: string, argv: string[]): { file: string; html: string; js
   return { file, html, json: !!values.json };
 }
 
-function cmdLint(argv: string[]): void {
+async function cmdLint(argv: string[]): Promise<void> {
   const { file, html, json } = readPage('lint', argv);
+  const { lintExitCode, lintPage, renderLint } = await loadLint();
   const r = lintPage(html);
   process.stdout.write(json ? JSON.stringify({ ...r, file }) + '\n' : renderLint(r, file));
   process.exitCode = lintExitCode(r);
@@ -751,18 +751,28 @@ async function cmdRender(argv: string[]): Promise<void> {
   }
 }
 
-function cmdFigures(argv: string[]): void {
+async function cmdFigures(argv: string[]): Promise<void> {
   const { file, html, json } = readPage('figures', argv);
+  const { FIGURES_SCHEMA, pageFigures, renderFigures } = await loadLint();
   const figures = pageFigures(html);
   process.stdout.write(json ? JSON.stringify({ schema: FIGURES_SCHEMA, file, figures }) + '\n' : renderFigures(figures, file));
 }
 
+/**
+ * The linter, loaded only by the commands that lint: it pulls in the HTML
+ * parser, which would otherwise slow the start of every command.
+ */
+function loadLint() {
+  return import('./lint.js');
+}
+
 /** open lints an HTML page and prints what it finds on stderr. It never stops the page from opening. */
-function lintOnOpen(file: string): void {
+async function lintOnOpen(file: string): Promise<void> {
   if (!/\.html?$/i.test(file)) return;
   let r: LintResult;
   try {
-    r = lintPage(fs.readFileSync(file, 'utf8'));
+    const html = fs.readFileSync(file, 'utf8');
+    r = (await loadLint()).lintPage(html);
   } catch {
     return;
   }
@@ -819,9 +829,9 @@ export async function main(argv: string[]): Promise<void> {
       case 'guide':
         return cmdGuide(rest);
       case 'lint':
-        return cmdLint(rest);
+        return await cmdLint(rest);
       case 'figures':
-        return cmdFigures(rest);
+        return await cmdFigures(rest);
       case 'render':
         return await cmdRender(rest);
       case 'stop':
